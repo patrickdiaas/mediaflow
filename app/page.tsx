@@ -1,101 +1,81 @@
-import Image from "next/image";
+"use client";
+import Sidebar from "@/components/sidebar";
+import Header from "@/components/header";
+import KPICard from "@/components/kpi-card";
+import TrendChart from "@/components/trend-chart";
+import Funnel from "@/components/funnel";
+import { useDashboard } from "@/lib/dashboard-context";
+import { kpiData } from "@/lib/mock-data";
 
-export default function Home() {
+function fmt(n: number, type: "currency" | "number" | "pct" | "decimal" = "number") {
+  if (type === "currency") return "R$ " + n.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+  if (type === "pct") return n.toFixed(2) + "%";
+  if (type === "decimal") return n.toFixed(2);
+  if (n >= 1_000_000) return (n / 1_000_000).toFixed(1) + "M";
+  if (n >= 1_000) return (n / 1_000).toFixed(1) + "K";
+  return n.toLocaleString("pt-BR");
+}
+
+export default function OverviewPage() {
+  const { mode, platform } = useDashboard();
+  const kpi = kpiData[platform][mode];
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="https://nextjs.org/icons/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
+    <div className="flex min-h-screen">
+      <Sidebar />
+      <div className="flex-1 flex flex-col overflow-hidden">
+        <Header title="Overview" />
+        <main className="flex-1 overflow-y-auto p-6">
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 mb-6">
+            <KPICard label="Investimento" value={fmt(kpi.investimento, "currency")} trend={4.2} accent="blue" />
+            <KPICard label="Impressões" value={fmt(kpi.impressoes)} trend={8.1} />
+            <KPICard label="Cliques" value={fmt(kpi.cliques)} trend={3.7} />
+            <KPICard label="CTR" value={fmt(kpi.ctr, "pct")} sub="Cliques / Impressões" trend={-0.3} />
+            <KPICard label="CPC" value={fmt(kpi.cpc, "currency")} sub="Custo por Clique" trend={-1.8} accent="green" />
+            <KPICard label="Connect Rate" value={fmt(kpi.connectRate, "pct")} sub="LPV / Cliques" trend={2.1} accent="gold" />
+            {mode === "lead-gen" ? (
+              <>
+                <KPICard label="Leads Plataforma" value={fmt(kpi.leadsPlataforma)} trend={6.4} accent="green" />
+                <KPICard label="Leads CRM" value={fmt(kpi.leadsCRM)} sub={`${((kpi.leadsCRM / kpi.leadsPlataforma) * 100).toFixed(0)}% validados`} trend={5.2} accent="green" />
+                <KPICard label="CPL Real" value={fmt(kpi.cplReal, "currency")} sub="Invest / Leads CRM" trend={-3.1} accent="gold" />
+              </>
+            ) : (
+              <>
+                <KPICard label="Vendas" value={fmt(kpi.vendas)} trend={12.3} accent="green" />
+                <KPICard label="ROAS" value={fmt(kpi.roas, "decimal") + "x"} sub="Retorno sobre Invest." trend={1.4} accent="gold" />
+                <KPICard label="Custo por Venda" value={fmt(kpi.investimento / kpi.vendas, "currency")} sub="Invest / Vendas" trend={-2.8} accent="blue" />
+              </>
+            )}
+          </div>
 
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="https://nextjs.org/icons/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
-            />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="https://nextjs.org/icons/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <div className="lg:col-span-2"><TrendChart /></div>
+            <div><Funnel /></div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3 mt-4">
+            <div className="bg-card border border-border rounded-xl p-4">
+              <p className="text-xs text-text-secondary mb-1">CPM Médio</p>
+              <p className="font-mono text-lg text-text-primary">R$ {((kpi.investimento / kpi.impressoes) * 1000).toFixed(2)}</p>
+              <p className="text-xs text-text-muted mt-1">Custo por mil impressões</p>
+            </div>
+            <div className="bg-card border border-border rounded-xl p-4">
+              <p className="text-xs text-text-secondary mb-1">Freq. Média</p>
+              <p className="font-mono text-lg text-text-primary">{platform === "meta" ? "3.2x" : "—"}</p>
+              <p className="text-xs text-text-muted mt-1">{platform === "meta" ? "Impressões por usuário" : "Não disponível no Google"}</p>
+            </div>
+            <div className="bg-card border border-border rounded-xl p-4">
+              <p className="text-xs text-text-secondary mb-1">{mode === "lead-gen" ? "Taxa Lead→CRM" : "Taxa Conv."}</p>
+              <p className="font-mono text-lg text-text-primary">
+                {mode === "lead-gen"
+                  ? ((kpi.leadsCRM / kpi.leadsPlataforma) * 100).toFixed(1) + "%"
+                  : ((kpi.vendas / kpi.cliques) * 100).toFixed(2) + "%"}
+              </p>
+              <p className="text-xs text-text-muted mt-1">{mode === "lead-gen" ? "Leads CRM / Leads Plat." : "Vendas / Cliques"}</p>
+            </div>
+          </div>
+        </main>
+      </div>
     </div>
   );
 }
