@@ -212,9 +212,11 @@ Project: `ntsrfoggrltffpefkshy.supabase.co`
 - `creatives` — Ad creative performance (to be populated by ad platform sync)
 - `keywords` — Google Ads keywords (to be populated by ad platform sync)
 
-**Webhook endpoints (implemented, pending deployment):**
-- `POST /api/webhooks/rdstation?secret=SECRET` — receives RD Station conversions → inserts into `leads`
-- `POST /api/webhooks/dmguru?secret=SECRET` — receives DMGuru approvals/refunds → upserts into `sales`
+**Production URL:** https://mediaflow-ten.vercel.app
+
+**Webhook endpoints (live):**
+- `POST https://mediaflow-ten.vercel.app/api/webhooks/rdstation?secret=mf_rd_2024` → inserts into `leads`
+- `POST https://mediaflow-ten.vercel.app/api/webhooks/dmguru?secret=mf_guru_2024` → upserts into `sales`
 
 To replace mock data in a page with real Supabase data:
 ```typescript
