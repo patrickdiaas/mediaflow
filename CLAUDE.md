@@ -193,39 +193,50 @@ npm run lint       # Run ESLint (next lint)
 
 ---
 
-## Supabase Integration (Planned)
+## Supabase Integration
 
-The Supabase client (`@supabase/supabase-js`) is already installed. When implementing:
+Project: `ntsrfoggrltffpefkshy.supabase.co`
 
-1. Create `lib/supabase.ts` with the client singleton:
-   ```typescript
-   import { createClient } from '@supabase/supabase-js'
-   export const supabase = createClient(
-     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-     process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!
-   )
-   ```
-2. Add `.env.local` with `NEXT_PUBLIC_SUPABASE_URL` and `NEXT_PUBLIC_SUPABASE_ANON_KEY`
-3. Replace mock data calls in pages with `supabase.from('table').select()`
-4. Use Next.js Server Components for initial data fetching where possible
+**Client setup:** `lib/supabase.ts` exports two clients:
+- `supabase` — public client (anon key), used in frontend components
+- `createServiceClient()` — server-side only (service role key), used in webhook handlers
 
-**Expected tables (to be defined):**
-- `campaigns` — Meta/Google campaign metrics
-- `creatives` — Ad creative performance
-- `keywords` — Google Ads keywords
-- `leads` — Lead Gen conversions from RD Station (webhook ingestion)
-- `sales` — E-commerce sales from Digital Manager Guru (webhook ingestion)
+**Environment variables** — see `.env.example` for all required vars. Copy to `.env.local` to run locally.
+
+**Schema** — defined in `supabase/schema.sql`, already applied to the Supabase project.
+
+**Tables (live):**
+- `leads` — Lead Gen conversions ingested from RD Station webhooks
+- `sales` — E-commerce orders ingested from Digital Manager Guru webhooks
+- `campaigns` — Meta/Google campaign metrics (to be populated by ad platform sync)
+- `creatives` — Ad creative performance (to be populated by ad platform sync)
+- `keywords` — Google Ads keywords (to be populated by ad platform sync)
+
+**Webhook endpoints (implemented, pending deployment):**
+- `POST /api/webhooks/rdstation?secret=SECRET` — receives RD Station conversions → inserts into `leads`
+- `POST /api/webhooks/dmguru?secret=SECRET` — receives DMGuru approvals/refunds → upserts into `sales`
+
+To replace mock data in a page with real Supabase data:
+```typescript
+import { supabase } from '@/lib/supabase'
+
+// Example: fetch leads count for a campaign
+const { data, error } = await supabase
+  .from('leads')
+  .select('*')
+  .eq('platform', 'meta')
+  .eq('utm_campaign', campaignName)
+```
 
 ---
 
 ## What's Not Implemented Yet
 
-- Real data — all pages use mock data from `lib/mock-data.ts`
-- Supabase queries and API routes
-- Webhook endpoints for RD Station and Digital Manager Guru
+- Frontend connected to real Supabase data (pages still use `lib/mock-data.ts`)
+- Webhook secrets configured in `.env.local` (`RD_STATION_WEBHOOK_SECRET`, `DMGURU_WEBHOOK_SECRET`)
+- RD Station and DMGuru webhook URLs configured in each platform
+- Meta Ads API sync (app created, token pending)
+- Google Ads API sync (not started)
 - Authentication (no auth layer exists)
 - Tests (no Jest/Vitest setup)
 - CI/CD pipelines
-- Docker/containerization
-- Environment variable configuration (`.env.example` missing)
-- API routes under `app/api/`
