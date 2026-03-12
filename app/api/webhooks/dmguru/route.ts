@@ -51,6 +51,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Identificador do cliente (ex: ?client=techcorp)
+    const client = request.nextUrl.searchParams.get("client") ?? null;
+
     const body: DMGuruPayload = await request.json();
 
     if (!ACCEPTED_EVENTS.has(body.event)) {
@@ -77,6 +80,7 @@ export async function POST(request: NextRequest) {
         utm_content: tracking.utm_content ?? null,
         utm_term: tracking.utm_term ?? null,
         platform: inferPlatform(tracking.utm_source),
+        client,
         raw_payload: body,
       },
       { onConflict: "order_id" } // idempotência: upsert por order_id

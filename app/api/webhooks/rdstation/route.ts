@@ -37,6 +37,9 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
     }
 
+    // Identificador do cliente (ex: ?client=techcorp)
+    const client = request.nextUrl.searchParams.get("client") ?? null;
+
     const body: RDStationPayload = await request.json();
 
     // Aceitar apenas eventos de conversão
@@ -59,6 +62,7 @@ export async function POST(request: NextRequest) {
       utm_content: p.traffic_value ?? null,
       utm_term: p.traffic_term ?? null,
       platform: inferPlatform(p.traffic_source),
+      client,
       raw_payload: body,
     });
 

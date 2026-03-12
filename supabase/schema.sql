@@ -25,6 +25,9 @@ create table if not exists leads (
   -- Plataforma inferida do utm_source
   platform               text check (platform in ('meta', 'google', 'other')),
 
+  -- Identificador do cliente (passado via ?client= na URL do webhook)
+  client                 text,
+
   -- Controle
   created_at             timestamptz not null default now(),
   raw_payload            jsonb               -- payload completo do webhook
@@ -66,6 +69,9 @@ create table if not exists sales (
 
   -- Plataforma inferida do utm_source
   platform          text check (platform in ('meta', 'google', 'other')),
+
+  -- Identificador do cliente (passado via ?client= na URL do webhook)
+  client            text,
 
   -- Controle
   created_at        timestamptz not null default now(),
