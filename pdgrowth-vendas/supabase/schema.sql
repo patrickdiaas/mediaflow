@@ -107,6 +107,24 @@ create table if not exists ad_creatives (
   unique (platform, ad_id, date)
 );
 
+-- ─── Tracked Products ─────────────────────────────────────────────────────────
+-- Produtos descobertos automaticamente via webhook.
+-- active = true  → aparece no dashboard
+-- active = false → ignorado (produto fora de campanha)
+create table if not exists tracked_products (
+  id           uuid primary key default gen_random_uuid(),
+  client_slug  text not null references clients(slug),
+  gateway      text not null check (gateway in ('dmguru', 'hotmart', 'eduzz')),
+  product_id   text not null,
+  product_name text,
+  active       boolean not null default false,
+  first_seen   timestamptz default now(),
+  updated_at   timestamptz default now(),
+  unique (client_slug, gateway, product_id)
+);
+
+create index if not exists tracked_products_client_idx on tracked_products(client_slug, active);
+
 -- ─── Indexes ──────────────────────────────────────────────────────────────────
 create index if not exists sales_client_slug_idx        on sales(client_slug);
 create index if not exists sales_created_at_idx         on sales(created_at);

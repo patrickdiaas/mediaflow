@@ -78,5 +78,17 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
+  // Auto-registrar produto na tabela tracked_products (active=false por padrão)
+  const productId = String(product?.id ?? "");
+  if (productId) {
+    await supabase.from("tracked_products").upsert({
+      client_slug:  clientSlug,
+      gateway:      "hotmart",
+      product_id:   productId,
+      product_name: product?.name ?? null,
+      updated_at:   new Date().toISOString(),
+    }, { onConflict: "client_slug,gateway,product_id", ignoreDuplicates: true });
+  }
+
   return NextResponse.json({ ok: true });
 }
