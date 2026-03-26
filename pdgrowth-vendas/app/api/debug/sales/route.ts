@@ -15,10 +15,10 @@ export async function GET(req: NextRequest) {
       .eq("client_slug", client),
     supabase
       .from("sales")
-      .select("id, gateway_order_id, product_id, amount, status, sale_type, client_slug, created_at")
+      .select("id, gateway_order_id, product_id, amount, status, sale_type, client_slug, created_at, utm_source, utm_medium, utm_campaign, utm_content, utm_term, payment_method, raw_payload")
       .eq("client_slug", client)
       .order("created_at", { ascending: false })
-      .limit(20),
+      .limit(5),
   ]);
 
   // Also fetch without client filter to see what client_slugs actually exist
@@ -41,4 +41,5 @@ export async function GET(req: NextRequest) {
     all_recent_sales_any_client: allSlugs ?? [],
     all_recent_tracked_products: allTracked ?? [],
   }, { status: 200 });
+  // NOTE: raw_payload is included in sales_for_client — use this to see exactly what DMGuru sends
 }
