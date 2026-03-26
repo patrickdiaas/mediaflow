@@ -28,6 +28,12 @@ export async function POST(req: NextRequest) {
     chargeback: "chargeback",
     waiting:    "pending",
     cancelled:  "cancelled",
+    // uppercase variants (some DMGuru versions send uppercase)
+    APPROVED:   "approved",
+    REFUNDED:   "refunded",
+    CHARGEBACK: "chargeback",
+    WAITING:    "pending",
+    CANCELLED:  "cancelled",
   };
 
   // DMGuru sends order_bump=true on the sale object for bump purchases
@@ -35,19 +41,38 @@ export async function POST(req: NextRequest) {
     : sale?.sale_type === "upsell" ? "upsell"
     : "main";
 
+  // amount: try every known field name in DMGuru payloads
+  const rawAmount = sale?.value ?? sale?.amount ?? sale?.total ?? sale?.price
+    ?? sale?.net_value ?? sale?.gross_value ?? 0;
+  const amount = Number(rawAmount);
+
+  // status: lowercase for safe mapping
+  const rawStatus = String(sale?.status ?? "").toLowerCase();
+  const mappedStatus = statusMap[sale?.status] ?? statusMap[rawStatus] ?? "pending";
+
+  // product_id: may be number or string in DMGuru
+  const productId = String(sale?.product?.id ?? sale?.product_id ?? "");
+
   const clientSlug = req.nextUrl.searchParams.get("client") ?? "unknown";
+
+  // Log extracted values for debugging (visible in Vercel logs)
+  console.log("[dmguru] extracted:", {
+    clientSlug, productId, amount, rawAmount,
+    status: mappedStatus, rawStatus: sale?.status,
+    saleType, gateway_order_id: sale?.id ?? sale?.order_id,
+  });
 
   const supabase = createServiceClient();
   const { error } = await supabase.from("sales").upsert({
     client_slug:      clientSlug,
     gateway:          "dmguru",
     gateway_order_id: String(sale?.id ?? sale?.order_id ?? ""),
-    status:           statusMap[sale?.status] ?? "pending",
+    status:           mappedStatus,
     sale_type:        saleType,
-    product_id:       String(sale?.product?.id ?? ""),
+    product_id:       productId,
     product_name:     sale?.product?.name ?? null,
     plan_name:        sale?.product?.plan ?? null,
-    amount:           Number(sale?.value ?? sale?.amount ?? 0),
+    amount,
     payment_method:   sale?.payment_method ?? null,
     buyer_name:       sale?.buyer?.name ?? null,
     buyer_email:      sale?.buyer?.email ?? null,
@@ -67,7 +92,6 @@ export async function POST(req: NextRequest) {
   }
 
   // Auto-registrar produto na tabela tracked_products (active=false por padrão)
-  const productId   = String(sale?.product?.id ?? "");
   const productName = sale?.product?.name ?? null;
   if (productId) {
     await supabase.from("tracked_products").upsert({
