@@ -212,8 +212,11 @@ export interface SaleRow {
   sale_type: SaleType;
   amount: number;
   status: SaleStatus;
-  utm_campaign: string | null;
-  utm_source: string | null;
+  utm_medium: string | null;    // nome da campanha
+  utm_campaign: string | null;  // conjunto de anúncios
+  utm_content: string | null;   // nome do criativo
+  utm_source: string | null;    // posicionamento (Instagram_Feed, etc.)
+  utm_term: string | null;      // ID do anúncio
   payment_method: string | null;
 }
 

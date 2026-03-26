@@ -221,18 +221,36 @@ export const mockProducts: ProductRow[] = [
 ];
 
 // ─── Sales Table ──────────────────────────────────────────────────────────────
+// utm_medium   = nome da campanha na plataforma
+// utm_campaign = conjunto de anúncios
+// utm_content  = nome do criativo
+// utm_source   = posicionamento (Instagram_Feed, Facebook_Feed…)
+// utm_term     = ID do anúncio
 export const mockSales: SaleRow[] = [
-  { id: "s1",  created_at: "2024-03-15T14:22:00Z", gateway: "dmguru",  sale_type: "main",       amount: 300, status: "approved",   utm_campaign: "Vendas | Produto A | Conversão", utm_source: "meta",   payment_method: "credit_card" },
-  { id: "s2",  created_at: "2024-03-15T14:22:00Z", gateway: "dmguru",  sale_type: "order_bump", amount:  47, status: "approved",   utm_campaign: "Vendas | Produto A | Conversão", utm_source: "meta",   payment_method: "credit_card" },
-  { id: "s3",  created_at: "2024-03-15T13:45:00Z", gateway: "hotmart", sale_type: "main",       amount: 150, status: "approved",   utm_campaign: "Vendas | Produto A | Conversão", utm_source: "meta",   payment_method: "pix" },
-  { id: "s4",  created_at: "2024-03-15T12:10:00Z", gateway: "dmguru",  sale_type: "main",       amount: 400, status: "approved",   utm_campaign: "Vendas | Produto B | Conversão", utm_source: "meta",   payment_method: "credit_card" },
-  { id: "s5",  created_at: "2024-03-15T11:30:00Z", gateway: "dmguru",  sale_type: "upsell",     amount: 197, status: "approved",   utm_campaign: "Vendas | Produto B | Conversão", utm_source: "meta",   payment_method: "credit_card" },
-  { id: "s6",  created_at: "2024-03-15T11:30:00Z", gateway: "dmguru",  sale_type: "main",       amount: 300, status: "refunded",   utm_campaign: "Sales | Product A | Max Conv",   utm_source: "google", payment_method: "credit_card" },
-  { id: "s7",  created_at: "2024-03-15T10:55:00Z", gateway: "eduzz",   sale_type: "main",       amount: 320, status: "approved",   utm_campaign: "Vendas | Produto B | Conversão", utm_source: "meta",   payment_method: "credit_card" },
-  { id: "s8",  created_at: "2024-03-14T18:40:00Z", gateway: "dmguru",  sale_type: "main",       amount: 300, status: "approved",   utm_campaign: "Vendas | Produto A | Conversão", utm_source: "meta",   payment_method: "pix" },
-  { id: "s9",  created_at: "2024-03-14T18:40:00Z", gateway: "dmguru",  sale_type: "order_bump", amount:  47, status: "approved",   utm_campaign: "Vendas | Produto A | Conversão", utm_source: "meta",   payment_method: "pix" },
-  { id: "s10", created_at: "2024-03-14T17:15:00Z", gateway: "hotmart", sale_type: "main",       amount: 150, status: "approved",   utm_campaign: "Remarketing | Carrinho | Meta",  utm_source: "meta",   payment_method: "credit_card" },
-  { id: "s11", created_at: "2024-03-14T16:00:00Z", gateway: "dmguru",  sale_type: "main",       amount: 400, status: "chargeback", utm_campaign: "Sales | Product A | Max Conv",   utm_source: "google", payment_method: "credit_card" },
-  { id: "s12", created_at: "2024-03-14T14:30:00Z", gateway: "dmguru",  sale_type: "main",       amount: 300, status: "approved",   utm_campaign: "Vendas | Produto A | Conversão", utm_source: "meta",   payment_method: "boleto" },
-  { id: "s13", created_at: "2024-03-14T13:00:00Z", gateway: "eduzz",   sale_type: "main",       amount: 320, status: "approved",   utm_campaign: "Vendas | Produto B | Conversão", utm_source: "meta",   payment_method: "credit_card" },
+  { id: "s1",  created_at: "2024-03-15T14:22:00Z", gateway: "dmguru",  sale_type: "main",       amount: 300, status: "approved",
+    utm_medium: "lt-ws-destrave-prosperidade-vendas", utm_campaign: "00-adv-aberto-regras",    utm_content: "ad08-video-criativo-06-lt-prosperidade", utm_source: "Instagram_Feed",    utm_term: "120241143883600607", payment_method: "credit_card" },
+  { id: "s2",  created_at: "2024-03-15T14:22:00Z", gateway: "dmguru",  sale_type: "order_bump", amount:  47, status: "approved",
+    utm_medium: "lt-ws-destrave-prosperidade-vendas", utm_campaign: "00-adv-aberto-regras",    utm_content: "ad08-video-criativo-06-lt-prosperidade", utm_source: "Instagram_Feed",    utm_term: "120241143883600607", payment_method: "credit_card" },
+  { id: "s3",  created_at: "2024-03-15T13:45:00Z", gateway: "hotmart", sale_type: "main",       amount: 150, status: "approved",
+    utm_medium: "lt-ws-destrave-prosperidade-vendas", utm_campaign: "00-adv-aberto-regras",    utm_content: "ad03-imagem-depoimento-01",              utm_source: "Facebook_Feed",     utm_term: "120241143883600608", payment_method: "pix" },
+  { id: "s4",  created_at: "2024-03-15T12:10:00Z", gateway: "dmguru",  sale_type: "main",       amount: 400, status: "approved",
+    utm_medium: "lt-ws-destrave-prosperidade-vendas", utm_campaign: "01-ret-visitantes-7d",    utm_content: "ad05-video-curto-15s-ret",               utm_source: "Instagram_Stories", utm_term: "120241143883600609", payment_method: "credit_card" },
+  { id: "s5",  created_at: "2024-03-15T11:30:00Z", gateway: "dmguru",  sale_type: "upsell",     amount: 197, status: "approved",
+    utm_medium: "lt-ws-destrave-prosperidade-vendas", utm_campaign: "01-ret-visitantes-7d",    utm_content: "ad05-video-curto-15s-ret",               utm_source: "Instagram_Stories", utm_term: "120241143883600609", payment_method: "credit_card" },
+  { id: "s6",  created_at: "2024-03-15T11:30:00Z", gateway: "dmguru",  sale_type: "main",       amount: 300, status: "refunded",
+    utm_medium: "lt-ws-destrave-prosperidade-vendas", utm_campaign: "00-adv-aberto-regras",    utm_content: "ad08-video-criativo-06-lt-prosperidade", utm_source: "Facebook_Feed",     utm_term: "120241143883600607", payment_method: "credit_card" },
+  { id: "s7",  created_at: "2024-03-15T10:55:00Z", gateway: "dmguru",  sale_type: "main",       amount: 320, status: "approved",
+    utm_medium: "vendas-produto-b-perpétuo",          utm_campaign: "02-adv-interesse-amplo",  utm_content: "ad11-carrossel-beneficios-02",           utm_source: "Facebook_Feed",     utm_term: "120241143883600610", payment_method: "credit_card" },
+  { id: "s8",  created_at: "2024-03-14T18:40:00Z", gateway: "dmguru",  sale_type: "main",       amount: 300, status: "approved",
+    utm_medium: "lt-ws-destrave-prosperidade-vendas", utm_campaign: "00-adv-aberto-regras",    utm_content: "ad08-video-criativo-06-lt-prosperidade", utm_source: "Instagram_Feed",    utm_term: "120241143883600607", payment_method: "pix" },
+  { id: "s9",  created_at: "2024-03-14T18:40:00Z", gateway: "dmguru",  sale_type: "order_bump", amount:  47, status: "approved",
+    utm_medium: "lt-ws-destrave-prosperidade-vendas", utm_campaign: "00-adv-aberto-regras",    utm_content: "ad08-video-criativo-06-lt-prosperidade", utm_source: "Instagram_Feed",    utm_term: "120241143883600607", payment_method: "pix" },
+  { id: "s10", created_at: "2024-03-14T17:15:00Z", gateway: "hotmart", sale_type: "main",       amount: 150, status: "approved",
+    utm_medium: "lt-ws-destrave-prosperidade-vendas", utm_campaign: "01-ret-visitantes-7d",    utm_content: "ad05-video-curto-15s-ret",               utm_source: "Facebook_Stories",  utm_term: "120241143883600609", payment_method: "credit_card" },
+  { id: "s11", created_at: "2024-03-14T16:00:00Z", gateway: "dmguru",  sale_type: "main",       amount: 400, status: "chargeback",
+    utm_medium: "vendas-produto-b-perpétuo",          utm_campaign: "02-adv-interesse-amplo",  utm_content: "ad11-carrossel-beneficios-02",           utm_source: "Facebook_Feed",     utm_term: "120241143883600610", payment_method: "credit_card" },
+  { id: "s12", created_at: "2024-03-14T14:30:00Z", gateway: "dmguru",  sale_type: "main",       amount: 300, status: "approved",
+    utm_medium: "lt-ws-destrave-prosperidade-vendas", utm_campaign: "00-adv-aberto-regras",    utm_content: "ad03-imagem-depoimento-01",              utm_source: "Instagram_Feed",    utm_term: "120241143883600608", payment_method: "boleto" },
+  { id: "s13", created_at: "2024-03-14T13:00:00Z", gateway: "dmguru",  sale_type: "main",       amount: 320, status: "approved",
+    utm_medium: "vendas-produto-b-perpétuo",          utm_campaign: "02-adv-interesse-amplo",  utm_content: "ad11-carrossel-beneficios-02",           utm_source: "Instagram_Feed",    utm_term: "120241143883600610", payment_method: "credit_card" },
 ];

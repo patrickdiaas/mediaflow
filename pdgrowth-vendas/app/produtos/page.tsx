@@ -102,10 +102,14 @@ const saleColumns: Column<SaleRow>[] = [
       const s = v as SaleStatus;
       return <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md border ${statusColor[s]}`}>{statusLabel[s]}</span>;
     }},
-  { key: "utm_campaign",   label: "Campanha UTM",
+  { key: "utm_medium",     label: "Campanha",
+    render: v => <span className="text-text-secondary text-xs truncate max-w-[160px] block" title={String(v ?? "")}>{String(v ?? "—")}</span> },
+  { key: "utm_campaign",   label: "Conjunto",
+    render: v => <span className="text-text-muted text-xs truncate max-w-[140px] block" title={String(v ?? "")}>{String(v ?? "—")}</span> },
+  { key: "utm_content",    label: "Criativo",
     render: v => <span className="text-text-muted text-xs truncate max-w-[160px] block" title={String(v ?? "")}>{String(v ?? "—")}</span> },
-  { key: "utm_source",     label: "Origem",
-    render: v => <span className="text-text-secondary text-xs capitalize">{String(v ?? "—")}</span> },
+  { key: "utm_source",     label: "Posição",
+    render: v => <span className="text-text-secondary text-xs">{String(v ?? "—")}</span> },
   { key: "payment_method", label: "Pagamento",
     render: v => <span className="text-text-secondary text-xs">{paymentLabel[String(v)] ?? String(v ?? "—")}</span> },
 ];
