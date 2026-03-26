@@ -21,6 +21,12 @@ interface Props {
 }
 
 export default function DonutChart({ title, data, centerLabel }: Props) {
+  if (data.length === 0) return (
+    <div className="bg-card border border-border rounded-xl p-5 h-full">
+      <span className="text-sm font-semibold text-text-primary block mb-4">{title}</span>
+      <p className="text-text-muted text-xs">Sem dados no período.</p>
+    </div>
+  );
   const total = data.reduce((s, d) => s + d.value, 0);
   const enriched = data.map(d => ({ ...d, pct: ((d.value / total) * 100).toFixed(1) }));
 

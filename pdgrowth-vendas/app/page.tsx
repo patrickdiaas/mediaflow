@@ -13,10 +13,9 @@ import { getPeriodDates } from "@/lib/period";
 import { mockClients } from "@/lib/mock-data";
 import {
   mockFunnel, mockTrend,
-  mockPaymentDonut, mockProductDonut, mockUTMSources,
   mockCampaigns,
 } from "@/lib/mock-data";
-import type { CampaignRow, ProductRow, Platform, KPIData } from "@/lib/types";
+import type { CampaignRow, ProductRow, Platform, KPIData, DonutSlice, HorizontalBarItem } from "@/lib/types";
 import { RefreshCw, Calendar } from "lucide-react";
 
 const periods = [
@@ -76,6 +75,16 @@ const productColumns: Column<ProductRow>[] = [
     }},
 ];
 
+// ─── Cores para os gráficos ───────────────────────────────────────────────────
+const CHART_COLORS = ["#CAFF04", "#60A5FA", "#F59E0B", "#EF4444", "#A78BFA", "#34D399"];
+
+const PAYMENT_COLORS: Record<string, string> = {
+  pix:         "#CAFF04",
+  credit_card: "#60A5FA",
+  boleto:      "#F59E0B",
+  debit_card:  "#34D399",
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 interface SalesStats {
   revenue: number; sales: number; avgTicket: number;
@@ -120,14 +129,77 @@ function buildProductRows(tracked: TrackedProduct[], sales: any[]): ProductRow[]
   });
 }
 
+function buildUTMSources(sales: any[]): HorizontalBarItem[] {
+  const approved = sales.filter(s => s.status === "approved");
+  const total = approved.length;
+  if (total === 0) return [];
+  const counts: Record<string, number> = {};
+  for (const s of approved) {
+    const key = s.utm_source || "Direto";
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([label, value], i) => ({
+      label,
+      value,
+      rate: (value / total) * 100,
+      color: CHART_COLORS[i % CHART_COLORS.length],
+    }));
+}
+
+function buildPaymentDonut(sales: any[]): DonutSlice[] {
+  const approved = sales.filter(s => s.status === "approved");
+  if (approved.length === 0) return [];
+  const counts: Record<string, number> = {};
+  for (const s of approved) {
+    const key = s.payment_method || "outros";
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+  const labels: Record<string, string> = {
+    pix: "Pix", credit_card: "Cartão", boleto: "Boleto", debit_card: "Débito",
+  };
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([key, value], i) => ({
+      label: labels[key] ?? key,
+      value,
+      color: PAYMENT_COLORS[key] ?? CHART_COLORS[i % CHART_COLORS.length],
+    }));
+}
+
+function buildProductDonut(tracked: TrackedProduct[], sales: any[]): DonutSlice[] {
+  const approved = sales.filter(s => s.status === "approved" && s.sale_type === "main");
+  if (approved.length === 0) return [];
+  const counts: Record<string, { name: string; count: number }> = {};
+  for (const s of approved) {
+    const id = s.product_id;
+    const name = tracked.find(t => t.product_id === id)?.product_name ?? s.product_name ?? id;
+    if (!counts[id]) counts[id] = { name, count: 0 };
+    counts[id].count++;
+  }
+  return Object.values(counts)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5)
+    .map((item, i) => ({
+      label: item.name,
+      value: item.count,
+      color: CHART_COLORS[i % CHART_COLORS.length],
+    }));
+}
+
 // ─── Página ───────────────────────────────────────────────────────────────────
 export default function OverviewPage() {
   const { client, setClient, platform, setPlatform, period, setPeriod, campaign, setCampaign } = useDashboard();
 
-  const [stats,    setStats]    = useState<SalesStats>({ revenue: 0, sales: 0, avgTicket: 0, refunds: 0, refundAmt: 0, orderBumps: 0, obRevenue: 0 });
-  const [products, setProducts] = useState<ProductRow[]>([]);
-  const [loading,  setLoading]  = useState(true);
-  const [updatedAt, setUpdatedAt] = useState("");
+  const [stats,         setStats]         = useState<SalesStats>({ revenue: 0, sales: 0, avgTicket: 0, refunds: 0, refundAmt: 0, orderBumps: 0, obRevenue: 0 });
+  const [products,      setProducts]      = useState<ProductRow[]>([]);
+  const [utmSources,    setUtmSources]    = useState<HorizontalBarItem[]>([]);
+  const [paymentDonut,  setPaymentDonut]  = useState<DonutSlice[]>([]);
+  const [productDonut,  setProductDonut]  = useState<DonutSlice[]>([]);
+  const [loading,       setLoading]       = useState(true);
+  const [updatedAt,     setUpdatedAt]     = useState("");
 
   async function fetchData() {
     setLoading(true);
@@ -142,11 +214,11 @@ export default function OverviewPage() {
 
     const ids = tracked?.map((p: any) => p.product_id) ?? [];
 
-    // Vendas no período
+    // Vendas no período (inclui campos para os gráficos)
     const { data: sales } = ids.length > 0
       ? await supabase
           .from("sales")
-          .select("id, amount, status, sale_type, product_id")
+          .select("id, amount, status, sale_type, product_id, product_name, utm_source, payment_method")
           .eq("client_slug", client)
           .in("product_id", ids)
           .gte("created_at", from)
@@ -165,6 +237,9 @@ export default function OverviewPage() {
 
     setStats({ revenue, sales: mainSales.length, avgTicket, refunds: refunded.length, refundAmt, orderBumps: obSales.length, obRevenue });
     setProducts(buildProductRows(tracked ?? [], allSales));
+    setUtmSources(buildUTMSources(allSales));
+    setPaymentDonut(buildPaymentDonut(allSales));
+    setProductDonut(buildProductDonut(tracked ?? [], allSales));
     setUpdatedAt(new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
     setLoading(false);
   }
@@ -270,10 +345,10 @@ export default function OverviewPage() {
               </div>
             </div>
             <div className="lg:col-span-1">
-              <HorizontalBar title="Conversão por Origem" data={mockUTMSources} valueLabel="vendas por fonte" />
+              <HorizontalBar title="Conversão por Origem" data={utmSources} valueLabel="vendas por fonte" />
             </div>
             <div className="lg:col-span-1">
-              <DonutChart title="Método de Pagamento" data={mockPaymentDonut} centerLabel="vendas" />
+              <DonutChart title="Método de Pagamento" data={paymentDonut} centerLabel="vendas" />
             </div>
           </div>
 
@@ -294,7 +369,7 @@ export default function OverviewPage() {
               </div>
             </div>
             <div className="lg:col-span-1">
-              <DonutChart title="Vendas por Produto" data={mockProductDonut} centerLabel="total" />
+              <DonutChart title="Vendas por Produto" data={productDonut} centerLabel="total" />
             </div>
             <div className="lg:col-span-1">
               <Funnel steps={mockFunnel} />
