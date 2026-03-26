@@ -18,8 +18,7 @@ export default function Funnel({ steps }: { steps: FunnelStep[] }) {
             <div className="flex items-center justify-center" style={{ paddingInline: `${i * 5}%` }}>
               <div
                 className="w-full rounded flex items-center justify-between px-3 py-2.5 text-xs font-semibold"
-                style={{ color: i === 4 ? "#0A0A0C" : "#F2F2F5" }}
-                style={{ background: colors[i] }}
+                style={{ background: colors[i], color: i === 4 ? "#0A0A0C" : "#F2F2F5" }}
               >
                 <span>{step.label}</span>
                 <span className="font-mono">{fmt(step.value)}</span>
