@@ -99,14 +99,16 @@ export interface KPIData {
   label: string;
   value: string;
   sub?: string;
-  trend?: number;       // % change vs previous period
+  trend?: number;
   color?: "accent" | "blue" | "gold" | "red" | "purple";
+  icon?: string;
 }
 
 export interface FunnelStep {
   label: string;
   value: number;
-  rate?: number;        // conversion rate from previous step (%)
+  rate?: number;
+  sublabel?: string;
 }
 
 export interface TrendPoint {
@@ -115,6 +117,32 @@ export interface TrendPoint {
   spend: number;
   sales: number;
   roas: number;
+}
+
+export interface DonutSlice {
+  label: string;
+  value: number;
+  color: string;
+}
+
+export interface HorizontalBarItem {
+  label: string;
+  value: number;
+  rate: number;   // conversion rate %
+  color?: string;
+}
+
+export interface OverviewSummary {
+  revenue: number;
+  spend: number;
+  roas: number;
+  profit: number;
+  roi: number;
+  sales: number;
+  cpa: number;
+  avg_ticket: number;
+  refunds: number;
+  conv_rate: number;
 }
 
 export interface CampaignRow {

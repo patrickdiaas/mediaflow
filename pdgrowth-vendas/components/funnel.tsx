@@ -6,40 +6,47 @@ function fmt(n: number) {
   return String(n);
 }
 
+const colors = ["#a855f7", "#7c3aed", "#6366f1", "#4f46e5", "#00d084"];
+
 export default function Funnel({ steps }: { steps: FunnelStep[] }) {
-  const max = steps[0]?.value ?? 1;
-
   return (
-    <div className="bg-card border border-border rounded-xl p-5">
-      <h3 className="text-sm font-medium text-text-primary mb-5">Funil de Conversão</h3>
-      <div className="space-y-2">
-        {steps.map((step, i) => {
-          const pct = (step.value / max) * 100;
-          const colors = ["#00d084", "#3b82f6", "#a855f7", "#f59e0b", "#00d084"];
-          const color = colors[i % colors.length];
-
-          return (
-            <div key={step.label}>
-              <div className="flex items-center justify-between text-xs mb-1">
-                <span className="text-text-secondary font-medium">{step.label}</span>
-                <div className="flex items-center gap-3">
-                  {step.rate !== undefined && (
-                    <span className="text-text-muted font-mono">
-                      {step.rate.toFixed(1)}% conv.
-                    </span>
-                  )}
-                  <span className="text-text-primary font-mono font-medium">{fmt(step.value)}</span>
-                </div>
-              </div>
-              <div className="w-full bg-bg rounded-full h-2 overflow-hidden">
-                <div
-                  className="h-2 rounded-full transition-all duration-500"
-                  style={{ width: `${pct}%`, background: color }}
-                />
+    <div className="bg-card border border-border rounded-xl p-5 h-full">
+      <h3 className="text-sm font-semibold text-text-primary mb-5">Funil de Vendas — Perpétuo</h3>
+      <div className="space-y-1">
+        {steps.map((step, i) => (
+          <div key={step.label}>
+            <div className="flex items-center justify-center" style={{ paddingInline: `${i * 5}%` }}>
+              <div
+                className="w-full rounded flex items-center justify-between px-3 py-2.5 text-xs font-semibold text-white"
+                style={{ background: colors[i] }}
+              >
+                <span>{step.label}</span>
+                <span className="font-mono">{fmt(step.value)}</span>
               </div>
             </div>
-          );
-        })}
+            {step.rate !== undefined && (
+              <div className="flex items-center justify-center py-0.5">
+                <span className="text-[10px] text-text-muted">
+                  ▼ {step.rate.toFixed(1)}%
+                  {step.sublabel ? ` · ${step.sublabel}` : ""}
+                </span>
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+      <div className="mt-4 pt-3 border-t border-border grid grid-cols-2 gap-2">
+        {[
+          { label: "CPM",          value: "R$ 15,11", color: "text-text-secondary" },
+          { label: "CTR",          value: "2,0%",     color: "text-blue" },
+          { label: "Tx. Checkout", value: "10,0%",    color: "text-gold" },
+          { label: "Tx. Conv.",    value: "1,68%",    color: "text-accent" },
+        ].map(m => (
+          <div key={m.label} className="bg-bg rounded-lg px-2.5 py-2 text-center">
+            <div className="text-[10px] text-text-muted mb-0.5">{m.label}</div>
+            <div className={`text-xs font-mono font-semibold ${m.color}`}>{m.value}</div>
+          </div>
+        ))}
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 import type {
   Client, KPIData, FunnelStep, TrendPoint,
   CampaignRow, AdSetRow, CreativeRow, ProductRow, SaleRow,
+  DonutSlice, HorizontalBarItem, OverviewSummary,
 } from "./types";
 
 // ─── Clients ──────────────────────────────────────────────────────────────────
@@ -25,25 +26,66 @@ export const mockClients: Client[] = [
   },
 ];
 
+// ─── Overview summary ─────────────────────────────────────────────────────────
+export const mockSummary: OverviewSummary = {
+  revenue:    84_320,
+  spend:      18_740,
+  roas:       4.50,
+  profit:     65_580,
+  roi:        349.9,
+  sales:      312,
+  cpa:        60.06,
+  avg_ticket: 270.28,
+  refunds:    2_840,
+  conv_rate:  1.68,
+};
+
 // ─── KPIs ─────────────────────────────────────────────────────────────────────
 export const mockKPIs: KPIData[] = [
-  { label: "Faturamento",    value: "R$ 84.320",  trend: +12.4, color: "accent" },
-  { label: "Investimento",   value: "R$ 18.740",  trend: +8.2,  color: "blue"   },
-  { label: "ROAS",           value: "4,50×",       trend: +3.8,  color: "purple" },
-  { label: "Vendas",         value: "312",          trend: +18.6, color: "accent" },
-  { label: "Ticket Médio",   value: "R$ 270,28",  trend: -2.1,  color: "gold"   },
-  { label: "CPA",            value: "R$ 60,06",   trend: -9.4,  color: "gold"   },
-  { label: "Reembolsos",     value: "R$ 2.840",   trend: -1.2,  color: "red"    },
-  { label: "Taxa Reembolso", value: "3,37%",       trend: -0.4,  color: "red"    },
+  { label: "Faturamento",      value: "R$ 84.320",  trend: +12.4, color: "accent" },
+  { label: "Gastos Anúncios",  value: "R$ 18.740",  trend: +8.2,  color: "blue"   },
+  { label: "ROAS",             value: "4,50×",      trend: +3.8,  color: "purple" },
+  { label: "Lucro",            value: "R$ 65.580",  trend: +14.1, color: "accent" },
+  { label: "ROI",              value: "349,9%",     trend: +5.2,  color: "purple" },
+  { label: "Vendas",           value: "312",        trend: +18.6, color: "accent" },
+  { label: "CPA",              value: "R$ 60,06",  trend: -9.4,  color: "gold"   },
+  { label: "Ticket Médio",     value: "R$ 270,28", trend: -2.1,  color: "gold"   },
+  { label: "Reembolsos",       value: "R$ 2.840",  trend: -1.2,  color: "red"    },
+  { label: "Taxa Conversão",   value: "1,68%",     trend: +0.3,  color: "blue"   },
 ];
 
-// ─── Funnel ───────────────────────────────────────────────────────────────────
+// ─── Funnel perpétuo ─────────────────────────────────────────────────────────
 export const mockFunnel: FunnelStep[] = [
-  { label: "Impressões",  value: 1_240_000 },
-  { label: "Cliques",     value: 24_800,   rate: 2.0  },
-  { label: "Visitas",     value: 18_600,   rate: 75.0 },
-  { label: "Checkout",    value: 1_860,    rate: 10.0 },
-  { label: "Vendas",      value: 312,      rate: 16.8 },
+  { label: "Impressões",  value: 1_240_000, sublabel: "CPM R$ 15,11" },
+  { label: "Cliques",     value: 24_800,    rate: 2.0,  sublabel: "CTR 2,0%" },
+  { label: "Visitas",     value: 18_600,    rate: 75.0, sublabel: "75% dos cliques" },
+  { label: "Checkout",    value: 1_860,     rate: 10.0, sublabel: "10% das visitas" },
+  { label: "Vendas",      value: 312,       rate: 16.8, sublabel: "Conv. 16,8%" },
+];
+
+// ─── Donut — Pagamentos ───────────────────────────────────────────────────────
+export const mockPaymentDonut: DonutSlice[] = [
+  { label: "Cartão",  value: 156, color: "#6366f1" },
+  { label: "PIX",     value: 118, color: "#a855f7" },
+  { label: "Boleto",  value: 38,  color: "#f59e0b" },
+];
+
+// ─── Donut — Produtos ─────────────────────────────────────────────────────────
+export const mockProductDonut: DonutSlice[] = [
+  { label: "Produto A — Anual",    value: 148, color: "#a855f7" },
+  { label: "Produto A — Mensal",   value: 94,  color: "#6366f1" },
+  { label: "Produto B — Único",    value: 43,  color: "#00d084" },
+  { label: "Produto B — Parcelas", value: 27,  color: "#f59e0b" },
+];
+
+// ─── UTM Sources ──────────────────────────────────────────────────────────────
+export const mockUTMSources: HorizontalBarItem[] = [
+  { label: "paid_metaads",    value: 162, rate: 12.9, color: "#6366f1" },
+  { label: "organic_api",     value: 48,  rate: 10.8, color: "#a855f7" },
+  { label: "organic_instagram", value: 32, rate: 7.6, color: "#a855f7" },
+  { label: "paid_google",     value: 41,  rate: 14.2, color: "#f59e0b" },
+  { label: "organic_direct",  value: 18,  rate: 9.1,  color: "#9691b8" },
+  { label: "Desconhecido",    value: 11,  rate: 5.3,  color: "#504b78" },
 ];
 
 // ─── Trend ────────────────────────────────────────────────────────────────────
