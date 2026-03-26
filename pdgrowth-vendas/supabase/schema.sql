@@ -116,7 +116,7 @@ create index if not exists ad_sets_client_idx           on ad_sets(client_slug, 
 create index if not exists ad_creatives_client_idx      on ad_creatives(client_slug, date);
 
 -- ─── Seed clients ─────────────────────────────────────────────────────────────
-insert into clients (slug, name, meta_ad_account_id, google_ads_customer_id) values
-  ('medsystemmedical', 'MedSystems Medical', '446269251699575', '672-710-7654'),
-  ('beautysystems',    'BeautySystems',       '1655942005167160', '864-759-2401')
+insert into clients (slug, name) values
+  ('amplainstituto', 'Ampla Instituto'),
+  ('bixarica',       'Bixa Rica')
 on conflict (slug) do nothing;
