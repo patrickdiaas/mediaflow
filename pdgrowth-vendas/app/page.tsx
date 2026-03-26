@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Sidebar from "@/components/sidebar";
 import KPICard from "@/components/kpi-card";
 import DualAxisChart from "@/components/dual-axis-chart";
@@ -8,13 +8,15 @@ import DonutChart from "@/components/donut-chart";
 import HorizontalBar from "@/components/horizontal-bar";
 import DataTable, { Column } from "@/components/data-table";
 import { useDashboard } from "@/lib/dashboard-context";
+import { supabase } from "@/lib/supabase";
+import { getPeriodDates } from "@/lib/period";
 import { mockClients } from "@/lib/mock-data";
 import {
-  mockKPIs, mockFunnel, mockTrend,
+  mockFunnel, mockTrend,
   mockPaymentDonut, mockProductDonut, mockUTMSources,
-  mockCampaigns, mockProducts,
+  mockCampaigns,
 } from "@/lib/mock-data";
-import type { CampaignRow, ProductRow, Platform } from "@/lib/types";
+import type { CampaignRow, ProductRow, Platform, KPIData } from "@/lib/types";
 import { RefreshCw, Calendar } from "lucide-react";
 
 const periods = [
@@ -61,12 +63,12 @@ const campaignColumns: Column<CampaignRow>[] = [
 const productColumns: Column<ProductRow>[] = [
   { key: "product_name", label: "Produto",
     render: v => <span className="text-text-primary text-xs">{String(v)}</span> },
-  { key: "sales",   label: "Vendas",  align: "right",
+  { key: "sales",      label: "Vendas",  align: "right",
     render: v => <span className="text-green font-semibold text-xs">{String(v)}</span> },
-  { key: "revenue", label: "Receita", align: "right",
-    render: v => <span className="text-accent text-xs">R$ {Number(v).toLocaleString("pt-BR")}</span> },
-  { key: "avg_ticket", label: "Ticket", align: "right",
-    render: v => <span className="text-gold text-xs">R$ {Number(v).toLocaleString("pt-BR")}</span> },
+  { key: "revenue",    label: "Receita", align: "right",
+    render: v => <span className="text-accent text-xs">R$ {Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</span> },
+  { key: "avg_ticket", label: "Ticket",  align: "right",
+    render: v => <span className="text-gold text-xs">R$ {Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</span> },
   { key: "refund_rate", label: "Reemb.", align: "right",
     render: v => {
       const n = Number(v);
@@ -74,11 +76,102 @@ const productColumns: Column<ProductRow>[] = [
     }},
 ];
 
+// ─── Helpers ──────────────────────────────────────────────────────────────────
+interface SalesStats {
+  revenue: number; sales: number; avgTicket: number;
+  refunds: number; refundAmt: number; orderBumps: number; obRevenue: number;
+}
+
+function buildKPIs(stats: SalesStats, loading: boolean): KPIData[] {
+  const f = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  return [
+    { label: "Faturamento",     value: loading ? "…" : `R$ ${f(stats.revenue)}`,    color: "accent"  },
+    { label: "Gastos Anúncios", value: "R$ 18.740",  trend: +8.2,  color: "blue"    },
+    { label: "ROAS",            value: "4,50×",      trend: +3.8,  color: "purple"  },
+    { label: "Lucro",           value: loading ? "…" : `R$ ${f(stats.revenue)}`,    color: "accent"  },
+    { label: "ROI",             value: "349,9%",     trend: +5.2,  color: "purple"  },
+    { label: "Vendas",          value: loading ? "…" : String(stats.sales),         color: "accent"  },
+    { label: "CPA",             value: "R$ 60,06",  trend: -9.4,  color: "gold"    },
+    { label: "Ticket Médio",    value: loading ? "…" : `R$ ${f(stats.avgTicket)}`,  color: "gold"    },
+    { label: "Reembolsos",      value: loading ? "…" : `R$ ${f(stats.refundAmt)}`,  color: "red"     },
+    { label: "Taxa Conversão",  value: "1,68%",      trend: +0.3,  color: "blue"    },
+  ];
+}
+
+interface TrackedProduct { product_id: string; product_name: string | null; gateway: string; }
+
+function buildProductRows(tracked: TrackedProduct[], sales: any[]): ProductRow[] {
+  return tracked.map(tp => {
+    const ps       = sales.filter(s => s.product_id === tp.product_id);
+    const approved = ps.filter(s => s.status === "approved" && s.sale_type === "main");
+    const refunded = ps.filter(s => s.status === "refunded" || s.status === "chargeback");
+    const revenue  = approved.reduce((sum: number, s: any) => sum + Number(s.amount), 0);
+    return {
+      product_id:   tp.product_id,
+      product_name: tp.product_name ?? "Produto sem nome",
+      gateway:      tp.gateway as any,
+      sales:        approved.length,
+      revenue,
+      avg_ticket:   approved.length > 0 ? revenue / approved.length : 0,
+      refunds:      refunded.length,
+      refund_rate:  (approved.length + refunded.length) > 0
+        ? (refunded.length / (approved.length + refunded.length)) * 100 : 0,
+    };
+  });
+}
+
+// ─── Página ───────────────────────────────────────────────────────────────────
 export default function OverviewPage() {
   const { client, setClient, platform, setPlatform, period, setPeriod, campaign, setCampaign } = useDashboard();
-  const [updatedAt] = useState(() =>
-    new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
-  );
+
+  const [stats,    setStats]    = useState<SalesStats>({ revenue: 0, sales: 0, avgTicket: 0, refunds: 0, refundAmt: 0, orderBumps: 0, obRevenue: 0 });
+  const [products, setProducts] = useState<ProductRow[]>([]);
+  const [loading,  setLoading]  = useState(true);
+  const [updatedAt, setUpdatedAt] = useState("");
+
+  async function fetchData() {
+    setLoading(true);
+    const { from, to } = getPeriodDates(period);
+
+    // Produtos rastreados
+    const { data: tracked } = await supabase
+      .from("tracked_products")
+      .select("product_id, product_name, gateway")
+      .eq("client_slug", client)
+      .eq("active", true);
+
+    const ids = tracked?.map((p: any) => p.product_id) ?? [];
+
+    // Vendas no período
+    const { data: sales } = ids.length > 0
+      ? await supabase
+          .from("sales")
+          .select("id, amount, status, sale_type, product_id")
+          .eq("client_slug", client)
+          .in("product_id", ids)
+          .gte("created_at", from)
+          .lte("created_at", to)
+      : { data: [] };
+
+    const allSales   = sales ?? [];
+    const approved   = allSales.filter((s: any) => s.status === "approved");
+    const mainSales  = approved.filter((s: any) => s.sale_type === "main");
+    const obSales    = approved.filter((s: any) => s.sale_type === "order_bump");
+    const refunded   = allSales.filter((s: any) => s.status === "refunded" || s.status === "chargeback");
+    const revenue    = mainSales.reduce((sum: number, s: any) => sum + Number(s.amount), 0);
+    const obRevenue  = obSales.reduce((sum: number, s: any) => sum + Number(s.amount), 0);
+    const refundAmt  = refunded.reduce((sum: number, s: any) => sum + Number(s.amount), 0);
+    const avgTicket  = mainSales.length > 0 ? revenue / mainSales.length : 0;
+
+    setStats({ revenue, sales: mainSales.length, avgTicket, refunds: refunded.length, refundAmt, orderBumps: obSales.length, obRevenue });
+    setProducts(buildProductRows(tracked ?? [], allSales));
+    setUpdatedAt(new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
+    setLoading(false);
+  }
+
+  useEffect(() => { fetchData(); }, [client, period]);
+
+  const kpis = buildKPIs(stats, loading);
 
   const filteredCampaigns = mockCampaigns
     .filter(c => platform === "all" || c.platform === platform)
@@ -102,7 +195,6 @@ export default function OverviewPage() {
               ))}
             </select>
 
-            {/* Platform tabs */}
             <div className="flex items-center bg-card border border-border rounded-lg overflow-hidden text-xs font-medium">
               {(["all", "meta", "google"] as const).map(p => (
                 <button
@@ -117,7 +209,6 @@ export default function OverviewPage() {
               ))}
             </div>
 
-            {/* Campaign selector */}
             <select
               value={campaign}
               onChange={e => setCampaign(e.target.value)}
@@ -143,80 +234,67 @@ export default function OverviewPage() {
                 ))}
               </select>
             </div>
-
-            <div className="text-xs text-text-muted">
-              Atualizado: <span className="font-mono">{updatedAt}</span>
-            </div>
-
-            <button className="flex items-center gap-1.5 bg-accent text-bg text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-accent/90 transition-colors">
-              <RefreshCw size={12} />
+            {updatedAt && (
+              <div className="text-xs text-text-muted">
+                Atualizado: <span className="font-mono">{updatedAt}</span>
+              </div>
+            )}
+            <button
+              onClick={fetchData}
+              className="flex items-center gap-1.5 bg-accent text-bg text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-accent/90 transition-colors"
+            >
+              <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
               Atualizar
             </button>
           </div>
         </div>
 
         <div className="p-6 space-y-5">
-          {/* KPI Grid — 5 + 5 */}
+          {/* KPI Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-            {mockKPIs.slice(0, 5).map(kpi => (
-              <KPICard key={kpi.label} {...kpi} />
-            ))}
+            {kpis.slice(0, 5).map(kpi => <KPICard key={kpi.label} {...kpi} />)}
           </div>
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
-            {mockKPIs.slice(5).map(kpi => (
-              <KPICard key={kpi.label} {...kpi} />
-            ))}
+            {kpis.slice(5).map(kpi => <KPICard key={kpi.label} {...kpi} />)}
           </div>
 
-          {/* Main chart */}
+          {/* Gráfico */}
           <DualAxisChart data={mockTrend} />
 
-          {/* Mid row: Campaigns | UTM sources | Payment donut */}
+          {/* Mid row */}
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
             <div className="lg:col-span-3">
               <div className="bg-card border border-border rounded-xl p-5 h-full">
                 <span className="text-sm font-semibold text-text-primary block mb-3">Campanhas</span>
-                <DataTable<CampaignRow>
-                  columns={campaignColumns}
-                  data={filteredCampaigns}
-                  rowKey="campaign_id"
-                />
+                <DataTable<CampaignRow> columns={campaignColumns} data={filteredCampaigns} rowKey="campaign_id" />
               </div>
             </div>
             <div className="lg:col-span-1">
-              <HorizontalBar
-                title="Conversão por Origem"
-                data={mockUTMSources}
-                valueLabel="vendas por fonte"
-              />
+              <HorizontalBar title="Conversão por Origem" data={mockUTMSources} valueLabel="vendas por fonte" />
             </div>
             <div className="lg:col-span-1">
-              <DonutChart
-                title="Método de Pagamento"
-                data={mockPaymentDonut}
-                centerLabel="vendas"
-              />
+              <DonutChart title="Método de Pagamento" data={mockPaymentDonut} centerLabel="vendas" />
             </div>
           </div>
 
-          {/* Bottom row: Products | Funnel */}
+          {/* Bottom row */}
           <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
             <div className="lg:col-span-3">
               <div className="bg-card border border-border rounded-xl p-5 h-full">
-                <span className="text-sm font-semibold text-text-primary block mb-3">Produtos</span>
-                <DataTable<ProductRow>
-                  columns={productColumns}
-                  data={mockProducts}
-                  rowKey="product_id"
-                />
+                <span className="text-sm font-semibold text-text-primary block mb-1">Produtos</span>
+                {loading ? (
+                  <div className="flex items-center gap-2 py-8 text-text-muted text-xs">
+                    <RefreshCw size={13} className="animate-spin" /> Carregando...
+                  </div>
+                ) : products.length === 0 ? (
+                  <p className="text-text-muted text-xs py-8">Nenhum produto rastreado. Ative em Configurações.</p>
+                ) : (
+                  <DataTable<ProductRow> columns={productColumns} data={products} rowKey="product_id" />
+                )}
               </div>
             </div>
             <div className="lg:col-span-1">
-              <DonutChart
-                title="Vendas por Produto"
-                data={mockProductDonut}
-                centerLabel="total"
-              />
+              <DonutChart title="Vendas por Produto" data={mockProductDonut} centerLabel="total" />
             </div>
             <div className="lg:col-span-1">
               <Funnel steps={mockFunnel} />
