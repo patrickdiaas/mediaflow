@@ -7,10 +7,10 @@ import {
 import type { TrendPoint } from "@/lib/types";
 
 const metrics = [
-  { key: "revenue", label: "Faturamento", color: "#00d084" },
-  { key: "spend",   label: "Investimento", color: "#3b82f6" },
-  { key: "sales",   label: "Vendas",       color: "#a855f7" },
-  { key: "roas",    label: "ROAS",         color: "#f59e0b" },
+  { key: "revenue", label: "Faturamento", color: "#CAFF04" },
+  { key: "spend",   label: "Investimento", color: "#3B82C4" },
+  { key: "sales",   label: "Vendas",       color: "#2D9B6A" },
+  { key: "roas",    label: "ROAS",         color: "#FF6B35" },
 ] as const;
 
 type MetricKey = typeof metrics[number]["key"];
@@ -71,9 +71,9 @@ export default function TrendChart({ data }: { data: TrendPoint[] }) {
 
       <ResponsiveContainer width="100%" height={280}>
         <LineChart data={data} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#1e2230" />
-          <XAxis dataKey="date" tick={{ fill: "#8b92a8", fontSize: 11 }} axisLine={false} tickLine={false} />
-          <YAxis tick={{ fill: "#8b92a8", fontSize: 11 }} axisLine={false} tickLine={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke="#24242C" />
+          <XAxis dataKey="date" tick={{ fill: "#6A6A7A", fontSize: 11 }} axisLine={false} tickLine={false} />
+          <YAxis tick={{ fill: "#6A6A7A", fontSize: 11 }} axisLine={false} tickLine={false} />
           <Tooltip content={<CustomTooltip />} />
           {metrics.filter(m => active.has(m.key)).map(m => (
             <Line

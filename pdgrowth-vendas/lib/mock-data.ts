@@ -65,27 +65,27 @@ export const mockFunnel: FunnelStep[] = [
 
 // ─── Donut — Pagamentos ───────────────────────────────────────────────────────
 export const mockPaymentDonut: DonutSlice[] = [
-  { label: "Cartão",  value: 156, color: "#6366f1" },
-  { label: "PIX",     value: 118, color: "#a855f7" },
-  { label: "Boleto",  value: 38,  color: "#f59e0b" },
+  { label: "Cartão",  value: 156, color: "#3B82C4" },
+  { label: "PIX",     value: 118, color: "#CAFF04" },
+  { label: "Boleto",  value: 38,  color: "#FF6B35" },
 ];
 
 // ─── Donut — Produtos ─────────────────────────────────────────────────────────
 export const mockProductDonut: DonutSlice[] = [
-  { label: "Produto A — Anual",    value: 148, color: "#a855f7" },
-  { label: "Produto A — Mensal",   value: 94,  color: "#6366f1" },
-  { label: "Produto B — Único",    value: 43,  color: "#00d084" },
-  { label: "Produto B — Parcelas", value: 27,  color: "#f59e0b" },
+  { label: "Produto A — Anual",    value: 148, color: "#CAFF04" },
+  { label: "Produto A — Mensal",   value: 94,  color: "#2D9B6A" },
+  { label: "Produto B — Único",    value: 43,  color: "#3B82C4" },
+  { label: "Produto B — Parcelas", value: 27,  color: "#FF6B35" },
 ];
 
 // ─── UTM Sources ──────────────────────────────────────────────────────────────
 export const mockUTMSources: HorizontalBarItem[] = [
-  { label: "paid_metaads",    value: 162, rate: 12.9, color: "#6366f1" },
-  { label: "organic_api",     value: 48,  rate: 10.8, color: "#a855f7" },
-  { label: "organic_instagram", value: 32, rate: 7.6, color: "#a855f7" },
-  { label: "paid_google",     value: 41,  rate: 14.2, color: "#f59e0b" },
-  { label: "organic_direct",  value: 18,  rate: 9.1,  color: "#9691b8" },
-  { label: "Desconhecido",    value: 11,  rate: 5.3,  color: "#504b78" },
+  { label: "paid_metaads",      value: 162, rate: 12.9, color: "#3B82C4" },
+  { label: "organic_api",       value: 48,  rate: 10.8, color: "#2D9B6A" },
+  { label: "organic_instagram", value: 32,  rate: 7.6,  color: "#2D9B6A" },
+  { label: "paid_google",       value: 41,  rate: 14.2, color: "#FF6B35" },
+  { label: "organic_direct",    value: 18,  rate: 9.1,  color: "#6A6A7A" },
+  { label: "Desconhecido",      value: 11,  rate: 5.3,  color: "#3A3A48" },
 ];
 
 // ─── Trend ────────────────────────────────────────────────────────────────────
@@ -222,14 +222,17 @@ export const mockProducts: ProductRow[] = [
 
 // ─── Sales Table ──────────────────────────────────────────────────────────────
 export const mockSales: SaleRow[] = [
-  { id: "s1",  created_at: "2024-03-15T14:22:00Z", buyer_name: "Ana Paula S.",     product_name: "Produto A — Plano Anual",   gateway: "dmguru",  amount: 300, status: "approved",  utm_campaign: "Vendas | Produto A | Conversão", utm_source: "meta", payment_method: "credit_card" },
-  { id: "s2",  created_at: "2024-03-15T13:45:00Z", buyer_name: "Carlos M.",        product_name: "Produto A — Plano Mensal",  gateway: "hotmart", amount: 150, status: "approved",  utm_campaign: "Vendas | Produto A | Conversão", utm_source: "meta", payment_method: "pix" },
-  { id: "s3",  created_at: "2024-03-15T12:10:00Z", buyer_name: "Fernanda L.",      product_name: "Produto B — Único",         gateway: "dmguru",  amount: 400, status: "approved",  utm_campaign: "Vendas | Produto B | Conversão", utm_source: "meta", payment_method: "credit_card" },
-  { id: "s4",  created_at: "2024-03-15T11:30:00Z", buyer_name: "Roberto A.",       product_name: "Produto A — Plano Anual",   gateway: "dmguru",  amount: 300, status: "refunded",  utm_campaign: "Sales | Product A | Max Conv",   utm_source: "google", payment_method: "credit_card" },
-  { id: "s5",  created_at: "2024-03-15T10:55:00Z", buyer_name: "Juliana T.",       product_name: "Produto B — Parcelado 12×", gateway: "eduzz",   amount: 320, status: "approved",  utm_campaign: "Vendas | Produto B | Conversão", utm_source: "meta", payment_method: "credit_card" },
-  { id: "s6",  created_at: "2024-03-14T18:40:00Z", buyer_name: "Marcos V.",        product_name: "Produto A — Plano Anual",   gateway: "dmguru",  amount: 300, status: "approved",  utm_campaign: "Vendas | Produto A | Conversão", utm_source: "meta", payment_method: "pix" },
-  { id: "s7",  created_at: "2024-03-14T17:15:00Z", buyer_name: "Patrícia O.",      product_name: "Produto A — Plano Mensal",  gateway: "hotmart", amount: 150, status: "approved",  utm_campaign: "Remarketing | Carrinho | Meta",  utm_source: "meta", payment_method: "credit_card" },
-  { id: "s8",  created_at: "2024-03-14T16:00:00Z", buyer_name: "Diego R.",         product_name: "Produto B — Único",         gateway: "dmguru",  amount: 400, status: "chargeback", utm_campaign: "Sales | Product A | Max Conv",   utm_source: "google", payment_method: "credit_card" },
-  { id: "s9",  created_at: "2024-03-14T14:30:00Z", buyer_name: "Camila B.",        product_name: "Produto A — Plano Anual",   gateway: "dmguru",  amount: 300, status: "approved",  utm_campaign: "Vendas | Produto A | Conversão", utm_source: "meta", payment_method: "boleto" },
-  { id: "s10", created_at: "2024-03-14T13:00:00Z", buyer_name: "Lucas F.",         product_name: "Produto B — Parcelado 12×", gateway: "eduzz",   amount: 320, status: "approved",  utm_campaign: "Vendas | Produto B | Conversão", utm_source: "meta", payment_method: "credit_card" },
+  { id: "s1",  created_at: "2024-03-15T14:22:00Z", gateway: "dmguru",  sale_type: "main",       amount: 300, status: "approved",   utm_campaign: "Vendas | Produto A | Conversão", utm_source: "meta",   payment_method: "credit_card" },
+  { id: "s2",  created_at: "2024-03-15T14:22:00Z", gateway: "dmguru",  sale_type: "order_bump", amount:  47, status: "approved",   utm_campaign: "Vendas | Produto A | Conversão", utm_source: "meta",   payment_method: "credit_card" },
+  { id: "s3",  created_at: "2024-03-15T13:45:00Z", gateway: "hotmart", sale_type: "main",       amount: 150, status: "approved",   utm_campaign: "Vendas | Produto A | Conversão", utm_source: "meta",   payment_method: "pix" },
+  { id: "s4",  created_at: "2024-03-15T12:10:00Z", gateway: "dmguru",  sale_type: "main",       amount: 400, status: "approved",   utm_campaign: "Vendas | Produto B | Conversão", utm_source: "meta",   payment_method: "credit_card" },
+  { id: "s5",  created_at: "2024-03-15T11:30:00Z", gateway: "dmguru",  sale_type: "upsell",     amount: 197, status: "approved",   utm_campaign: "Vendas | Produto B | Conversão", utm_source: "meta",   payment_method: "credit_card" },
+  { id: "s6",  created_at: "2024-03-15T11:30:00Z", gateway: "dmguru",  sale_type: "main",       amount: 300, status: "refunded",   utm_campaign: "Sales | Product A | Max Conv",   utm_source: "google", payment_method: "credit_card" },
+  { id: "s7",  created_at: "2024-03-15T10:55:00Z", gateway: "eduzz",   sale_type: "main",       amount: 320, status: "approved",   utm_campaign: "Vendas | Produto B | Conversão", utm_source: "meta",   payment_method: "credit_card" },
+  { id: "s8",  created_at: "2024-03-14T18:40:00Z", gateway: "dmguru",  sale_type: "main",       amount: 300, status: "approved",   utm_campaign: "Vendas | Produto A | Conversão", utm_source: "meta",   payment_method: "pix" },
+  { id: "s9",  created_at: "2024-03-14T18:40:00Z", gateway: "dmguru",  sale_type: "order_bump", amount:  47, status: "approved",   utm_campaign: "Vendas | Produto A | Conversão", utm_source: "meta",   payment_method: "pix" },
+  { id: "s10", created_at: "2024-03-14T17:15:00Z", gateway: "hotmart", sale_type: "main",       amount: 150, status: "approved",   utm_campaign: "Remarketing | Carrinho | Meta",  utm_source: "meta",   payment_method: "credit_card" },
+  { id: "s11", created_at: "2024-03-14T16:00:00Z", gateway: "dmguru",  sale_type: "main",       amount: 400, status: "chargeback", utm_campaign: "Sales | Product A | Max Conv",   utm_source: "google", payment_method: "credit_card" },
+  { id: "s12", created_at: "2024-03-14T14:30:00Z", gateway: "dmguru",  sale_type: "main",       amount: 300, status: "approved",   utm_campaign: "Vendas | Produto A | Conversão", utm_source: "meta",   payment_method: "boleto" },
+  { id: "s13", created_at: "2024-03-14T13:00:00Z", gateway: "eduzz",   sale_type: "main",       amount: 320, status: "approved",   utm_campaign: "Vendas | Produto B | Conversão", utm_source: "meta",   payment_method: "credit_card" },
 ];

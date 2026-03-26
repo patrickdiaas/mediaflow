@@ -6,7 +6,7 @@ function fmt(n: number) {
   return String(n);
 }
 
-const colors = ["#a855f7", "#7c3aed", "#6366f1", "#4f46e5", "#00d084"];
+const colors = ["#24242C", "#1a2200", "#2e3600", "#3d4800", "#CAFF04"];
 
 export default function Funnel({ steps }: { steps: FunnelStep[] }) {
   return (
@@ -17,7 +17,8 @@ export default function Funnel({ steps }: { steps: FunnelStep[] }) {
           <div key={step.label}>
             <div className="flex items-center justify-center" style={{ paddingInline: `${i * 5}%` }}>
               <div
-                className="w-full rounded flex items-center justify-between px-3 py-2.5 text-xs font-semibold text-white"
+                className="w-full rounded flex items-center justify-between px-3 py-2.5 text-xs font-semibold"
+                style={{ color: i === 4 ? "#0A0A0C" : "#F2F2F5" }}
                 style={{ background: colors[i] }}
               >
                 <span>{step.label}</span>

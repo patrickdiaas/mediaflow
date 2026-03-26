@@ -32,7 +32,7 @@ export default function DualAxisChart({ data }: { data: TrendPoint[] }) {
         <span className="text-sm font-semibold text-text-primary">Faturamento e Vendas por Dia</span>
         <div className="flex items-center gap-4 text-xs text-text-secondary">
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-sm bg-purple/70 inline-block" /> Faturamento
+            <span className="w-3 h-3 rounded-sm bg-blue/70 inline-block" /> Faturamento
           </span>
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-0.5 bg-accent inline-block" /> Vendas
@@ -41,16 +41,16 @@ export default function DualAxisChart({ data }: { data: TrendPoint[] }) {
       </div>
       <ResponsiveContainer width="100%" height={260}>
         <ComposedChart data={data} margin={{ top: 4, right: 16, left: -10, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" stroke="#252047" vertical={false} />
+          <CartesianGrid strokeDasharray="3 3" stroke="#24242C" vertical={false} />
           <XAxis
             dataKey="date"
-            tick={{ fill: "#9691b8", fontSize: 11 }}
+            tick={{ fill: "#6A6A7A", fontSize: 11 }}
             axisLine={false}
             tickLine={false}
           />
           <YAxis
             yAxisId="left"
-            tick={{ fill: "#9691b8", fontSize: 11 }}
+            tick={{ fill: "#6A6A7A", fontSize: 11 }}
             axisLine={false}
             tickLine={false}
             tickFormatter={v => `R$${(v / 1000).toFixed(0)}k`}
@@ -58,16 +58,16 @@ export default function DualAxisChart({ data }: { data: TrendPoint[] }) {
           <YAxis
             yAxisId="right"
             orientation="right"
-            tick={{ fill: "#9691b8", fontSize: 11 }}
+            tick={{ fill: "#6A6A7A", fontSize: 11 }}
             axisLine={false}
             tickLine={false}
           />
-          <Tooltip content={<CustomTooltip />} cursor={{ fill: "#252047", opacity: 0.5 }} />
+          <Tooltip content={<CustomTooltip />} cursor={{ fill: "#24242C", opacity: 0.8 }} />
           <Bar
             yAxisId="left"
             dataKey="revenue"
             name="Faturamento"
-            fill="#a855f7"
+            fill="#3B82C4"
             fillOpacity={0.7}
             radius={[3, 3, 0, 0]}
             maxBarSize={32}
@@ -77,10 +77,10 @@ export default function DualAxisChart({ data }: { data: TrendPoint[] }) {
             type="monotone"
             dataKey="sales"
             name="Vendas"
-            stroke="#00d084"
+            stroke="#CAFF04"
             strokeWidth={2.5}
             dot={false}
-            activeDot={{ r: 4, fill: "#00d084" }}
+            activeDot={{ r: 4, fill: "#CAFF04" }}
           />
         </ComposedChart>
       </ResponsiveContainer>

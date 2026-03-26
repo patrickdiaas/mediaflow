@@ -20,6 +20,7 @@ create table if not exists sales (
   gateway           text not null check (gateway in ('dmguru', 'hotmart', 'eduzz')),
   gateway_order_id  text not null,
   status            text not null check (status in ('approved', 'refunded', 'chargeback', 'pending', 'cancelled')),
+  sale_type         text not null default 'main' check (sale_type in ('main', 'order_bump', 'upsell')),
   product_id        text,
   product_name      text,
   plan_name         text,
@@ -114,6 +115,10 @@ create index if not exists sales_gateway_idx            on sales(gateway);
 create index if not exists ad_campaigns_client_idx      on ad_campaigns(client_slug, date);
 create index if not exists ad_sets_client_idx           on ad_sets(client_slug, date);
 create index if not exists ad_creatives_client_idx      on ad_creatives(client_slug, date);
+
+-- ─── Migration: add sale_type (run if table already exists) ───────────────────
+-- alter table sales add column if not exists
+--   sale_type text not null default 'main' check (sale_type in ('main', 'order_bump', 'upsell'));
 
 -- ─── Seed clients ─────────────────────────────────────────────────────────────
 insert into clients (slug, name) values

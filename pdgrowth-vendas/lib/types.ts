@@ -12,6 +12,7 @@ export interface Client {
 // ─── Sales ────────────────────────────────────────────────────────────────────
 export type Gateway = "dmguru" | "hotmart" | "eduzz";
 export type SaleStatus = "approved" | "refunded" | "chargeback" | "pending" | "cancelled";
+export type SaleType = "main" | "order_bump" | "upsell";
 export type Platform = "meta" | "google";
 export type CreativeType = "image" | "video" | "carousel" | "collection";
 
@@ -35,6 +36,7 @@ export interface Sale {
   utm_campaign: string | null;
   utm_content: string | null;
   utm_term: string | null;
+  sale_type: SaleType;
   approved_at: string | null;
   created_at: string;
 }
@@ -206,9 +208,8 @@ export interface ProductRow {
 export interface SaleRow {
   id: string;
   created_at: string;
-  buyer_name: string | null;
-  product_name: string | null;
   gateway: Gateway;
+  sale_type: SaleType;
   amount: number;
   status: SaleStatus;
   utm_campaign: string | null;

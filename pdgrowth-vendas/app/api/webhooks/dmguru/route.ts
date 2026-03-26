@@ -30,6 +30,11 @@ export async function POST(req: NextRequest) {
     cancelled:  "cancelled",
   };
 
+  // DMGuru sends order_bump=true on the sale object for bump purchases
+  const saleType = sale?.order_bump === true ? "order_bump"
+    : sale?.sale_type === "upsell" ? "upsell"
+    : "main";
+
   const clientSlug = req.nextUrl.searchParams.get("client") ?? "unknown";
 
   const supabase = createServiceClient();
@@ -38,6 +43,7 @@ export async function POST(req: NextRequest) {
     gateway:          "dmguru",
     gateway_order_id: String(sale?.id ?? sale?.order_id ?? ""),
     status:           statusMap[sale?.status] ?? "pending",
+    sale_type:        saleType,
     product_id:       String(sale?.product?.id ?? ""),
     product_name:     sale?.product?.name ?? null,
     plan_name:        sale?.product?.plan ?? null,

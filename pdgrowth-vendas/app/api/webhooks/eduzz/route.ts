@@ -39,6 +39,12 @@ export async function POST(req: NextRequest) {
     waiting:    "pending",
   };
 
+  // Eduzz sends sale_type field; order bumps have sale_type "order_bump" or is_order_bump=true
+  const saleType = body?.is_order_bump === true || body?.sale_type === "order_bump"
+    ? "order_bump"
+    : body?.sale_type === "upsell" ? "upsell"
+    : "main";
+
   const clientSlug = req.nextUrl.searchParams.get("client") ?? "unknown";
   const rawStatus  = body?.sale_status ?? body?.status ?? "";
 
@@ -48,6 +54,7 @@ export async function POST(req: NextRequest) {
     gateway:          "eduzz",
     gateway_order_id: String(body?.sale_id ?? ""),
     status:           statusMap[String(rawStatus)] ?? "pending",
+    sale_type:        saleType,
     product_id:       String(body?.content_id ?? ""),
     product_name:     body?.content_title ?? null,
     plan_name:        null,

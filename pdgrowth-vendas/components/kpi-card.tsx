@@ -2,41 +2,43 @@ import { TrendingUp, TrendingDown, Minus } from "lucide-react";
 import type { KPIData } from "@/lib/types";
 
 const colorMap = {
-  accent: { text: "text-accent",  bg: "bg-accent/10",  border: "border-accent/20"  },
-  blue:   { text: "text-blue",    bg: "bg-blue/10",    border: "border-blue/20"    },
-  gold:   { text: "text-gold",    bg: "bg-gold/10",    border: "border-gold/20"    },
-  red:    { text: "text-red",     bg: "bg-red/10",     border: "border-red/20"     },
-  purple: { text: "text-purple",  bg: "bg-purple/10",  border: "border-purple/20"  },
+  accent: { text: "text-accent",  border: "border-accent/20",  bg: "bg-accent/5"  },
+  blue:   { text: "text-blue",    border: "border-blue/20",    bg: "bg-blue/5"    },
+  gold:   { text: "text-gold",    border: "border-gold/20",    bg: "bg-gold/5"    },
+  red:    { text: "text-red",     border: "border-red/20",     bg: "bg-red/5"     },
+  purple: { text: "text-green",   border: "border-green/20",   bg: "bg-green/5"   },
+  green:  { text: "text-green",   border: "border-green/20",   bg: "bg-green/5"   },
 };
 
+const badMetrics = ["reembolso", "cpa", "chargeback"];
+
 export default function KPICard({ label, value, sub, trend, color = "accent" }: KPIData) {
-  const c = colorMap[color];
+  const c = colorMap[color as keyof typeof colorMap] ?? colorMap.accent;
+  const isBad = badMetrics.some(k => label.toLowerCase().includes(k));
 
-  const trendPositive = trend !== undefined && trend > 0;
-  const trendNegative = trend !== undefined && trend < 0;
-
-  // For "bad" metrics (refunds, CPA), invert color logic
-  const isBadMetric = color === "red" || label.toLowerCase().includes("reembolso") || label.toLowerCase().includes("cpa");
   const trendColor = trend === undefined ? ""
-    : trendPositive
-      ? isBadMetric ? "text-red" : "text-accent"
-      : trendNegative
-        ? isBadMetric ? "text-accent" : "text-red"
+    : trend > 0
+      ? isBad ? "text-red"   : "text-accent"
+      : trend < 0
+        ? isBad ? "text-accent" : "text-red"
         : "text-text-muted";
 
   return (
-    <div className={`bg-card border ${c.border} rounded-xl p-4`}>
-      <div className="flex items-start justify-between gap-2 mb-3">
-        <span className="text-xs text-text-secondary font-medium">{label}</span>
+    <div className={`${c.bg} border ${c.border} rounded-xl p-4 relative overflow-hidden group hover:border-opacity-40 transition-colors`}>
+      {/* Accent line top */}
+      <div className={`absolute top-0 left-0 right-0 h-px ${c.bg} opacity-50`} />
+
+      <div className="flex items-start justify-between gap-2 mb-2">
+        <span className="text-xs text-text-secondary font-medium leading-tight">{label}</span>
         {trend !== undefined && (
-          <div className={`flex items-center gap-1 text-xs font-medium ${trendColor}`}>
-            {trendPositive ? <TrendingUp size={12} /> : trendNegative ? <TrendingDown size={12} /> : <Minus size={12} />}
+          <div className={`flex items-center gap-0.5 text-[11px] font-medium flex-shrink-0 ${trendColor}`}>
+            {trend > 0 ? <TrendingUp size={11} /> : trend < 0 ? <TrendingDown size={11} /> : <Minus size={11} />}
             <span>{Math.abs(trend).toFixed(1)}%</span>
           </div>
         )}
       </div>
-      <div className={`text-xl font-bold font-mono ${c.text}`}>{value}</div>
-      {sub && <div className="text-xs text-text-muted mt-1">{sub}</div>}
+      <div className={`text-xl font-mono font-bold ${c.text} tracking-tight`}>{value}</div>
+      {sub && <div className="text-[11px] text-text-muted mt-1 font-mono">{sub}</div>}
     </div>
   );
 }

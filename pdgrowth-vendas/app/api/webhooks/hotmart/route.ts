@@ -39,6 +39,12 @@ export async function POST(req: NextRequest) {
     DELAYED:    "pending",
   };
 
+  // Hotmart identifies order bumps via purchase.is_order_bump or event ORDER_BUMP_PURCHASE
+  const saleType = purchase?.is_order_bump === true || body?.event === "ORDER_BUMP_PURCHASE"
+    ? "order_bump"
+    : body?.event === "PURCHASE_UPSELL" ? "upsell"
+    : "main";
+
   const clientSlug = req.nextUrl.searchParams.get("client") ?? "unknown";
 
   const supabase = createServiceClient();
@@ -47,6 +53,7 @@ export async function POST(req: NextRequest) {
     gateway:          "hotmart",
     gateway_order_id: String(purchase?.transaction ?? ""),
     status:           statusMap[purchase?.status ?? body?.event] ?? "pending",
+    sale_type:        saleType,
     product_id:       String(product?.id ?? ""),
     product_name:     product?.name ?? null,
     plan_name:        purchase?.offer?.code ?? null,

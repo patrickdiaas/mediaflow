@@ -53,7 +53,7 @@ const campaignColumns: Column<CampaignRow>[] = [
   { key: "revenue", label: "Receita", align: "right",
     render: v => <span className="text-accent text-xs">R$ {Number(v).toLocaleString("pt-BR")}</span> },
   { key: "sales",   label: "Vendas",  align: "right",
-    render: v => <span className="text-purple font-semibold text-xs">{String(v)}</span> },
+    render: v => <span className="text-green font-semibold text-xs">{String(v)}</span> },
   { key: "roas",    label: "ROAS",    align: "right",
     render: v => <span className={`font-semibold text-xs ${roasColor(Number(v))}`}>{Number(v).toFixed(2)}×</span> },
 ];
@@ -62,7 +62,7 @@ const productColumns: Column<ProductRow>[] = [
   { key: "product_name", label: "Produto",
     render: v => <span className="text-text-primary text-xs">{String(v)}</span> },
   { key: "sales",   label: "Vendas",  align: "right",
-    render: v => <span className="text-purple font-semibold text-xs">{String(v)}</span> },
+    render: v => <span className="text-green font-semibold text-xs">{String(v)}</span> },
   { key: "revenue", label: "Receita", align: "right",
     render: v => <span className="text-accent text-xs">R$ {Number(v).toLocaleString("pt-BR")}</span> },
   { key: "avg_ticket", label: "Ticket", align: "right",
@@ -75,14 +75,14 @@ const productColumns: Column<ProductRow>[] = [
 ];
 
 export default function OverviewPage() {
-  const { client, setClient, platform, setPlatform, period, setPeriod } = useDashboard();
+  const { client, setClient, platform, setPlatform, period, setPeriod, campaign, setCampaign } = useDashboard();
   const [updatedAt] = useState(() =>
     new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" })
   );
 
-  const filteredCampaigns = platform === "all"
-    ? mockCampaigns
-    : mockCampaigns.filter(c => c.platform === platform);
+  const filteredCampaigns = mockCampaigns
+    .filter(c => platform === "all" || c.platform === platform)
+    .filter(c => campaign === "all" || c.campaign_id === campaign);
 
   return (
     <div className="flex min-h-screen bg-bg">
@@ -95,7 +95,7 @@ export default function OverviewPage() {
             <select
               value={client}
               onChange={e => setClient(e.target.value)}
-              className="bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-purple/50 cursor-pointer"
+              className="bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent/50 cursor-pointer"
             >
               {mockClients.map(c => (
                 <option key={c.slug} value={c.slug}>{c.name}</option>
@@ -109,13 +109,25 @@ export default function OverviewPage() {
                   key={p}
                   onClick={() => setPlatform(p)}
                   className={`px-3 py-1.5 transition-colors ${
-                    platform === p ? "bg-purple/20 text-purple" : "text-text-secondary hover:text-text-primary"
+                    platform === p ? "bg-accent/10 text-accent" : "text-text-secondary hover:text-text-primary"
                   }`}
                 >
                   {p === "all" ? "Todos" : p === "meta" ? "Meta" : "Google"}
                 </button>
               ))}
             </div>
+
+            {/* Campaign selector */}
+            <select
+              value={campaign}
+              onChange={e => setCampaign(e.target.value)}
+              className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent/50 cursor-pointer"
+            >
+              <option value="all">Todas as campanhas</option>
+              {mockCampaigns.map(c => (
+                <option key={c.campaign_id} value={c.campaign_id}>{c.campaign_name}</option>
+              ))}
+            </select>
           </div>
 
           <div className="flex items-center gap-3">
@@ -136,7 +148,7 @@ export default function OverviewPage() {
               Atualizado: <span className="font-mono">{updatedAt}</span>
             </div>
 
-            <button className="flex items-center gap-1.5 bg-purple text-white text-xs font-medium px-3 py-1.5 rounded-lg hover:bg-purple/90 transition-colors">
+            <button className="flex items-center gap-1.5 bg-accent text-bg text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-accent/90 transition-colors">
               <RefreshCw size={12} />
               Atualizar
             </button>
