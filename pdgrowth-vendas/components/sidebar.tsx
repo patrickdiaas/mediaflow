@@ -3,7 +3,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useDashboard } from "@/lib/dashboard-context";
 import { mockClients } from "@/lib/mock-data";
-import { LayoutDashboard, Megaphone, Image, Package, Settings, ChevronLeft, ChevronRight } from "lucide-react";
+import { LayoutDashboard, Megaphone, Image, Package, Users, Settings, ChevronLeft, ChevronRight } from "lucide-react";
 import { useState } from "react";
 
 const navItems = [
@@ -11,6 +11,7 @@ const navItems = [
   { href: "/campanhas", label: "Campanhas",  icon: Megaphone },
   { href: "/criativos", label: "Criativos",  icon: Image },
   { href: "/produtos",       label: "Produtos",       icon: Package },
+  { href: "/audiencia",    label: "Audiência",     icon: Users },
   { href: "/configuracoes",  label: "Configurações",  icon: Settings },
 ];
 
