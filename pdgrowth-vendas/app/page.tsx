@@ -15,7 +15,7 @@ import {
   mockFunnel, mockTrend,
   mockCampaigns,
 } from "@/lib/mock-data";
-import type { CampaignRow, ProductRow, Platform, KPIData, DonutSlice, HorizontalBarItem } from "@/lib/types";
+import type { ProductRow, Platform, KPIData, DonutSlice, HorizontalBarItem } from "@/lib/types";
 import { RefreshCw, Calendar } from "lucide-react";
 
 const periods = [
@@ -38,26 +38,6 @@ const PlatformBadge = ({ p }: { p: Platform }) => (
   </span>
 );
 
-const campaignColumns: Column<CampaignRow>[] = [
-  {
-    key: "campaign_name",
-    label: "Campanha",
-    render: (v, row) => (
-      <div className="flex items-center gap-2">
-        <PlatformBadge p={row.platform} />
-        <span className="text-text-primary text-xs truncate max-w-[180px]" title={String(v)}>{String(v)}</span>
-      </div>
-    ),
-  },
-  { key: "spend",   label: "Invest.", align: "right",
-    render: v => <span className="text-blue text-xs">R$ {Number(v).toLocaleString("pt-BR")}</span> },
-  { key: "revenue", label: "Receita", align: "right",
-    render: v => <span className="text-accent text-xs">R$ {Number(v).toLocaleString("pt-BR")}</span> },
-  { key: "sales",   label: "Vendas",  align: "right",
-    render: v => <span className="text-green font-semibold text-xs">{String(v)}</span> },
-  { key: "roas",    label: "ROAS",    align: "right",
-    render: v => <span className={`font-semibold text-xs ${roasColor(Number(v))}`}>{Number(v).toFixed(2)}×</span> },
-];
 
 const productColumns: Column<ProductRow>[] = [
   { key: "product_name", label: "Produto",
@@ -250,9 +230,6 @@ export default function OverviewPage() {
 
   const kpis = buildKPIs(stats, loading);
 
-  const filteredCampaigns = mockCampaigns
-    .filter(c => platform === "all" || c.platform === platform)
-    .filter(c => campaign === "all" || c.campaign_id === campaign);
 
   return (
     <div className="flex min-h-screen bg-bg">
@@ -338,41 +315,25 @@ export default function OverviewPage() {
           {/* Gráfico */}
           <DualAxisChart data={mockTrend} />
 
-          {/* Mid row */}
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-            <div className="lg:col-span-3">
-              <div className="bg-card border border-border rounded-xl p-5 h-full">
-                <span className="text-sm font-semibold text-text-primary block mb-3">Campanhas</span>
-                <DataTable<CampaignRow> columns={campaignColumns} data={filteredCampaigns} rowKey="campaign_id" />
-              </div>
-            </div>
-            <div className="lg:col-span-1">
-              <HorizontalBar title="Conversão por Origem" data={utmSources} valueLabel="vendas por fonte" />
-            </div>
-            <div className="lg:col-span-1">
-              <DonutChart title="Método de Pagamento" data={paymentDonut} centerLabel="vendas" />
-            </div>
+          {/* Mid row — 3 gráficos em colunas iguais */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <DonutChart title="Vendas por Produto"      data={productDonut} centerLabel="total" />
+            <HorizontalBar title="Conversão por Origem" data={utmSources}   valueLabel="vendas por fonte" />
+            <DonutChart title="Método de Pagamento"     data={paymentDonut} centerLabel="vendas" />
           </div>
 
-          {/* Bottom row — Produtos */}
-          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
-            <div className="lg:col-span-3">
-              <div className="bg-card border border-border rounded-xl p-5 h-full">
-                <span className="text-sm font-semibold text-text-primary block mb-1">Produtos</span>
-                {loading ? (
-                  <div className="flex items-center gap-2 py-8 text-text-muted text-xs">
-                    <RefreshCw size={13} className="animate-spin" /> Carregando...
-                  </div>
-                ) : products.length === 0 ? (
-                  <p className="text-text-muted text-xs py-8">Nenhum produto rastreado. Ative em Configurações.</p>
-                ) : (
-                  <DataTable<ProductRow> columns={productColumns} data={products} rowKey="product_id" />
-                )}
+          {/* Produtos */}
+          <div className="bg-card border border-border rounded-xl p-5">
+            <span className="text-sm font-semibold text-text-primary block mb-1">Produtos</span>
+            {loading ? (
+              <div className="flex items-center gap-2 py-8 text-text-muted text-xs">
+                <RefreshCw size={13} className="animate-spin" /> Carregando...
               </div>
-            </div>
-            <div className="lg:col-span-1">
-              <DonutChart title="Vendas por Produto" data={productDonut} centerLabel="total" />
-            </div>
+            ) : products.length === 0 ? (
+              <p className="text-text-muted text-xs py-8">Nenhum produto rastreado. Ative em Configurações.</p>
+            ) : (
+              <DataTable<ProductRow> columns={productColumns} data={products} rowKey="product_id" />
+            )}
           </div>
 
           {/* Funil — destaque em linha própria */}
