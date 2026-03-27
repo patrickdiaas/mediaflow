@@ -97,6 +97,8 @@ const saleColumns: Column<SaleRow>[] = [
       const t = v as SaleType;
       return <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md border ${saleTypeColor[t]}`}>{saleTypeLabel[t]}</span>;
     }},
+  { key: "product_name",   label: "Produto",
+    render: v => <span className="text-text-secondary text-xs truncate max-w-[180px] block" title={String(v ?? "")}>{String(v ?? "—")}</span> },
   { key: "amount",         label: "Valor",  align: "right",
     render: v => <span className="text-accent font-mono">R$ {fmt(Number(v))}</span> },
   { key: "status",         label: "Status", align: "center",
@@ -174,7 +176,7 @@ export default function ProdutosPage() {
     // 2. Vendas para esses produtos no período
     const { data: rawSales, error: sErr } = await supabase
       .from("sales")
-      .select("id, created_at, gateway, sale_type, amount, status, utm_medium, utm_campaign, utm_content, utm_source, utm_term, payment_method, product_id")
+      .select("id, created_at, gateway, sale_type, amount, status, product_name, utm_medium, utm_campaign, utm_content, utm_source, utm_term, payment_method, product_id")
       .eq("client_slug", client)
       .in("product_id", ids)
       .gte("created_at", from)

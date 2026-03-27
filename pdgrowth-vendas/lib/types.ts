@@ -213,6 +213,7 @@ export interface SaleRow {
   sale_type: SaleType;
   amount: number;
   status: SaleStatus;
+  product_name: string | null;
   utm_medium: string | null;    // nome da campanha
   utm_campaign: string | null;  // conjunto de anúncios
   utm_content: string | null;   // nome do criativo
