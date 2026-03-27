@@ -75,9 +75,14 @@ function mapPayment(str) {
 }
 
 // ── Parsear CSV/TSV ────────────────────────────────────────────────────────────
-const raw       = fs.readFileSync(CSV_FILE, "utf-8");
-const lines     = raw.split("\n").filter(l => l.trim());
-const separator = lines[0].includes("\t") ? "\t" : ",";
+const raw   = fs.readFileSync(CSV_FILE, "utf-8");
+const lines = raw.split("\n").filter(l => l.trim());
+
+// Detecta separador: tab, ponto-e-vírgula ou vírgula
+const firstLine = lines[0];
+const separator = firstLine.includes("\t") ? "\t"
+  : firstLine.includes(";") ? ";"
+  : ",";
 const headers   = lines[0].split(separator).map(h => h.trim().toLowerCase()
   .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // remove acentos
 );
@@ -137,7 +142,11 @@ for (let i = 1; i < lines.length; i++) {
   });
 }
 
-console.log(`\n📦 ${sales.length} vendas lidas do CSV`);
+console.log(`\n📦 ${sales.length} vendas lidas do CSV (separador: ${separator === "\t" ? "TAB" : separator})`);
+if (sales.length > 0) {
+  const s = sales[0];
+  console.log(`🔍 Amostra: id=${s.gateway_order_id} produto="${s.product_name}" valor=${s.amount} status=${s.status}`);
+}
 if (sales.length === 0) { console.error("Nenhuma venda encontrada. Verifique o arquivo."); process.exit(1); }
 
 // ── Inserir no Supabase ────────────────────────────────────────────────────────
