@@ -99,15 +99,17 @@ function buildTrend(sales: any[]) {
     }));
 }
 
-function buildTopUTMs(sales: any[]) {
+type UTMKey = "utm_medium" | "utm_source";
+
+function buildTopUTMs(sales: any[], key: UTMKey) {
   const map = new Map<string, { vendas: number; receita: number }>();
   for (const s of sales) {
     if (s.status !== "approved") continue;
-    const key = s.utm_medium ?? "Direto";
-    const e = map.get(key) ?? { vendas: 0, receita: 0 };
+    const label = s[key] ?? (key === "utm_medium" ? "Direto" : "Orgânico");
+    const e = map.get(label) ?? { vendas: 0, receita: 0 };
     e.vendas++;
     e.receita += Number(s.amount);
-    map.set(key, e);
+    map.set(label, e);
   }
   return Array.from(map.entries())
     .sort(([, a], [, b]) => b.receita - a.receita)
@@ -122,6 +124,7 @@ export default function ProdutosPage() {
   const [products,        setProducts]        = useState<ProductRow[]>([]);
   const [allSales,        setAllSales]        = useState<any[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<string>("all");
+  const [utmTab,          setUtmTab]          = useState<UTMKey>("utm_medium");
   const [loading,         setLoading]         = useState(true);
   const [error,           setError]           = useState<string | null>(null);
   const [noTracked,       setNoTracked]       = useState(false);
@@ -175,7 +178,7 @@ export default function ProdutosPage() {
   const refRevenue = refunds.reduce((s, v) => s + Number(v.amount), 0);
 
   const trendData = buildTrend(filteredSales);
-  const utmData   = buildTopUTMs(filteredSales);
+  const utmData   = buildTopUTMs(filteredSales, utmTab);
   const maxUTM    = Math.max(...utmData.map(u => u.receita), 1);
 
   return (
@@ -275,9 +278,26 @@ export default function ProdutosPage() {
                 )}
               </div>
 
-              {/* Top campanhas */}
+              {/* Top campanhas / origem */}
               <div className="bg-card border border-border rounded-xl p-5">
-                <span className="text-sm font-semibold text-text-primary block mb-4">Top campanhas</span>
+                <div className="flex items-center justify-between mb-4">
+                  <span className="text-sm font-semibold text-text-primary">Atribuição</span>
+                  <div className="flex rounded-lg overflow-hidden border border-border text-[11px] font-medium">
+                    {([["utm_medium", "Campanhas"], ["utm_source", "Origem"]] as [UTMKey, string][]).map(([key, label]) => (
+                      <button
+                        key={key}
+                        onClick={() => setUtmTab(key)}
+                        className={`px-3 py-1 transition-colors ${
+                          utmTab === key
+                            ? "bg-accent/10 text-accent"
+                            : "text-text-secondary hover:text-text-primary"
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
                 {utmData.length === 0 ? (
                   <p className="text-text-muted text-xs py-8 text-center">Sem dados no período.</p>
                 ) : (

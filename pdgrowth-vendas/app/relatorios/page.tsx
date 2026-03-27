@@ -35,13 +35,16 @@ interface WeekStats {
   refunds: number;
   refundAmt: number;
   avgTicket: number;
+  spend: number;
+  roas: number;
+  roi: number;
   topProducts: { name: string; sales: number; revenue: number }[];
-  topCampaigns: { name: string; sales: number; revenue: number }[];
+  topCampaigns: { name: string; sales: number; revenue: number; spend?: number }[];
   byDay: { label: string; vendas: number; receita: number }[];
 }
 
 function emptyStats(): WeekStats {
-  return { revenue: 0, sales: 0, orderBumps: 0, obRevenue: 0, refunds: 0, refundAmt: 0, avgTicket: 0, topProducts: [], topCampaigns: [], byDay: [] };
+  return { revenue: 0, sales: 0, orderBumps: 0, obRevenue: 0, refunds: 0, refundAmt: 0, avgTicket: 0, spend: 0, roas: 0, roi: 0, topProducts: [], topCampaigns: [], byDay: [] };
 }
 
 const DAY_LABELS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
@@ -89,7 +92,7 @@ async function fetchWeekStats(client: string, from: string, to: string): Promise
     .sort((a, b) => b.revenue - a.revenue)
     .slice(0, 5);
 
-  // Top campanhas
+  // Top campanhas (correlacionadas com ad spend via utm_medium)
   const campMap = new Map<string, { sales: number; revenue: number }>();
   for (const s of approved) {
     const name = s.utm_medium ?? "Direto";
@@ -98,8 +101,23 @@ async function fetchWeekStats(client: string, from: string, to: string): Promise
     e.revenue += Number(s.amount);
     campMap.set(name, e);
   }
+
+  // Fetch ad spend from ad_campaigns
+  const { data: adData } = await supabase
+    .from("ad_campaigns")
+    .select("campaign_name, spend")
+    .eq("client_slug", client)
+    .gte("date", from.slice(0, 10))
+    .lte("date", to.slice(0, 10));
+
+  const adSpendMap = new Map<string, number>();
+  for (const a of (adData ?? [])) {
+    adSpendMap.set(a.campaign_name, (adSpendMap.get(a.campaign_name) ?? 0) + Number(a.spend));
+  }
+  const totalSpend = Array.from(adSpendMap.values()).reduce((a, b) => a + b, 0);
+
   const topCampaigns = Array.from(campMap.entries())
-    .map(([name, v]) => ({ name, ...v }))
+    .map(([name, v]) => ({ name, ...v, spend: adSpendMap.get(name) ?? 0 }))
     .sort((a, b) => b.revenue - a.revenue)
     .slice(0, 5);
 
@@ -114,10 +132,15 @@ async function fetchWeekStats(client: string, from: string, to: string): Promise
   }
   const byDay = Array.from(dayMap.entries()).map(([i, v]) => ({ label: DAY_LABELS[i], ...v }));
 
+  const totalRevenue = revenue + obRevenue;
+  const roas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
+  const roi  = totalSpend > 0 ? ((totalRevenue - totalSpend) / totalSpend) * 100 : 0;
+
   return {
     revenue, sales: main.length, orderBumps: obs.length,
     obRevenue, refunds: refunded.length, refundAmt,
     avgTicket: main.length > 0 ? revenue / main.length : 0,
+    spend: totalSpend, roas, roi,
     topProducts, topCampaigns, byDay,
   };
 }
@@ -160,19 +183,37 @@ export default function RelatoriosPage() {
 
   function buildTextReport() {
     const totalRev = curr.revenue + curr.obRevenue;
-    return `📊 *Relatório Semanal — ${label}*
+    const prevTotalRevLocal = prev.revenue + prev.obRevenue;
+    const revDiff = prevTotalRevLocal > 0 ? ((totalRev - prevTotalRevLocal) / prevTotalRevLocal) * 100 : 0;
+    const salesDiff = prev.sales > 0 ? ((curr.sales - prev.sales) / prev.sales) * 100 : 0;
 
-💰 *Faturamento total:* R$ ${fmt(totalRev)}
-🛒 *Vendas:* ${fmtInt(curr.sales)}
-⬆️ *Order Bumps:* ${curr.orderBumps} · R$ ${fmt(curr.obRevenue)}
-🎫 *Ticket médio:* R$ ${fmt(curr.avgTicket)}
-↩️ *Reembolsos:* ${curr.refunds} · R$ ${fmt(curr.refundAmt)}
+    const lines = [
+      `📊 *Relatório Semanal — ${label}*`,
+      ``,
+      `💰 *Faturamento:* R$ ${fmt(totalRev)}${revDiff !== 0 ? ` (${revDiff > 0 ? "+" : ""}${revDiff.toFixed(0)}% vs semana anterior)` : ""}`,
+      `🛒 *Vendas:* ${fmtInt(curr.sales)}${salesDiff !== 0 ? ` (${salesDiff > 0 ? "+" : ""}${salesDiff.toFixed(0)}%)` : ""}`,
+      `⬆️ *Order Bumps:* ${curr.orderBumps} · R$ ${fmt(curr.obRevenue)}`,
+      `🎫 *Ticket médio:* R$ ${fmt(curr.avgTicket)}`,
+      `↩️ *Reembolsos:* ${curr.refunds} · R$ ${fmt(curr.refundAmt)}`,
+    ];
 
-📦 *Top Produtos:*
-${curr.topProducts.map((p, i) => `${i + 1}. ${p.name} — ${p.sales}v · R$ ${fmt(p.revenue)}`).join("\n")}
+    if (curr.spend > 0) {
+      lines.push(``, `📈 *Performance de Anúncios*`);
+      lines.push(`💸 *Investimento:* R$ ${fmt(curr.spend)}`);
+      lines.push(`📊 *ROAS:* ${curr.roas.toFixed(2)}×`);
+      lines.push(`💹 *ROI:* ${curr.roi.toFixed(1)}%`);
+    }
 
-📣 *Top Campanhas:*
-${curr.topCampaigns.map((c, i) => `${i + 1}. ${c.name} — ${c.sales}v · R$ ${fmt(c.revenue)}`).join("\n")}`;
+    lines.push(``, `📦 *Top Produtos:*`);
+    lines.push(...curr.topProducts.map((p, i) => `${i + 1}. ${p.name} — ${p.sales}v · R$ ${fmt(p.revenue)}`));
+
+    lines.push(``, `📣 *Top Campanhas:*`);
+    lines.push(...curr.topCampaigns.map((c, i) => {
+      const roasStr = c.spend && c.spend > 0 ? ` · ROAS ${(c.revenue / c.spend).toFixed(2)}×` : "";
+      return `${i + 1}. ${c.name} — ${c.sales}v · R$ ${fmt(c.revenue)}${roasStr}`;
+    }));
+
+    return lines.join("\n");
   }
 
   async function copyReport() {
@@ -187,6 +228,21 @@ ${curr.topCampaigns.map((c, i) => `${i + 1}. ${c.name} — ${c.sales}v · R$ ${f
 
   return (
     <div className="flex min-h-screen bg-bg">
+      <style>{`
+        @media print {
+          aside, .no-print { display: none !important; }
+          main { padding: 0 !important; }
+          body { background: white !important; color: black !important; }
+          .bg-card, .bg-bg { background: white !important; border-color: #e5e7eb !important; }
+          .text-accent { color: #16a34a !important; }
+          .text-blue { color: #2563eb !important; }
+          .text-gold { color: #b45309 !important; }
+          .text-red { color: #dc2626 !important; }
+          .text-text-primary { color: #111827 !important; }
+          .text-text-secondary { color: #4b5563 !important; }
+          .text-text-muted { color: #9ca3af !important; }
+        }
+      `}</style>
       <Sidebar />
       <main className="flex-1 p-6 overflow-auto">
         {/* Header */}
@@ -195,7 +251,7 @@ ${curr.topCampaigns.map((c, i) => `${i + 1}. ${c.name} — ${c.sales}v · R$ ${f
             <h1 className="text-lg font-semibold text-text-primary">Relatório Semanal</h1>
             <p className="text-sm text-text-secondary mt-0.5">Resumo de performance por semana</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 no-print">
             <button onClick={() => setWeekOffset(w => w - 1)}
               className="px-3 py-1.5 text-xs bg-card border border-border rounded-lg text-text-secondary hover:text-text-primary transition-colors">
               ← Anterior
@@ -230,14 +286,14 @@ ${curr.topCampaigns.map((c, i) => `${i + 1}. ${c.name} — ${c.sales}v · R$ ${f
           </div>
         ) : (
           <div ref={reportRef} className="space-y-4">
-            {/* KPIs */}
+            {/* KPIs — vendas */}
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
               {[
-                { label: "Faturamento Total", value: `R$ ${fmt(totalRev)}`, prev: prevTotalRev, curr: totalRev, color: "text-accent" },
-                { label: "Vendas",            value: fmtInt(curr.sales),    prev: prev.sales,   curr: curr.sales, color: "text-green" },
-                { label: "Order Bumps",       value: `${curr.orderBumps} · R$ ${fmt(curr.obRevenue)}`, prev: prev.orderBumps, curr: curr.orderBumps, color: "text-gold" },
-                { label: "Ticket Médio",      value: `R$ ${fmt(curr.avgTicket)}`, prev: prev.avgTicket, curr: curr.avgTicket, color: "text-gold" },
-                { label: "Reembolsos",        value: `${curr.refunds} · R$ ${fmt(curr.refundAmt)}`,    prev: prev.refunds,    curr: curr.refunds,    color: "text-red"  },
+                { label: "Faturamento Total", value: `R$ ${fmt(totalRev)}`,                                    curr: totalRev,          prev: prevTotalRev,      color: "text-accent" },
+                { label: "Vendas",            value: fmtInt(curr.sales),                                       curr: curr.sales,        prev: prev.sales,        color: "text-green" },
+                { label: "Order Bumps",       value: `${curr.orderBumps} · R$ ${fmt(curr.obRevenue)}`,         curr: curr.orderBumps,   prev: prev.orderBumps,   color: "text-gold" },
+                { label: "Ticket Médio",      value: `R$ ${fmt(curr.avgTicket)}`,                              curr: curr.avgTicket,    prev: prev.avgTicket,    color: "text-gold" },
+                { label: "Reembolsos",        value: `${curr.refunds} · R$ ${fmt(curr.refundAmt)}`,            curr: curr.refunds,      prev: prev.refunds,      color: "text-red"  },
               ].map(k => (
                 <div key={k.label} className="bg-card border border-border rounded-xl p-4">
                   <p className="text-[11px] text-text-muted mb-1">{k.label}</p>
@@ -246,6 +302,28 @@ ${curr.topCampaigns.map((c, i) => `${i + 1}. ${c.name} — ${c.sales}v · R$ ${f
                 </div>
               ))}
             </div>
+
+            {/* KPIs — anúncios (exibe só se houver dados de spend) */}
+            {(curr.spend > 0 || prev.spend > 0) && (
+              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                <div className="col-span-2 lg:col-span-4 flex items-center gap-2">
+                  <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Anúncios (Meta + Google)</span>
+                  <div className="flex-1 h-px bg-border" />
+                </div>
+                {[
+                  { label: "Investimento",  value: curr.spend > 0 ? `R$ ${fmt(curr.spend)}`     : "—", curr: curr.spend,  prev: prev.spend,  color: "text-blue", invert: true },
+                  { label: "ROAS",          value: curr.roas > 0  ? `${curr.roas.toFixed(2)}×`   : "—", curr: curr.roas,   prev: prev.roas,   color: curr.roas >= 3 ? "text-accent" : curr.roas >= 2 ? "text-gold" : "text-red", invert: false },
+                  { label: "ROI",           value: curr.roi !== 0 ? `${curr.roi.toFixed(1)}%`    : "—", curr: curr.roi,    prev: prev.roi,    color: curr.roi >= 0 ? "text-accent" : "text-red", invert: false },
+                  { label: "Lucro Bruto",   value: curr.spend > 0 ? `R$ ${fmt(totalRev - curr.spend)}` : "—", curr: totalRev - curr.spend, prev: (prev.revenue + prev.obRevenue) - prev.spend, color: "text-accent", invert: false },
+                ].map(k => (
+                  <div key={k.label} className="bg-card border border-border rounded-xl p-4">
+                    <p className="text-[11px] text-text-muted mb-1">{k.label}</p>
+                    <p className={`font-mono font-semibold text-sm ${k.color}`}>{k.value}</p>
+                    <div className="mt-1"><Trend curr={k.curr} prev={k.prev} /></div>
+                  </div>
+                ))}
+              </div>
+            )}
 
             {/* Faturamento por dia da semana */}
             <div className="bg-card border border-border rounded-xl p-5">
@@ -300,6 +378,7 @@ ${curr.topCampaigns.map((c, i) => `${i + 1}. ${c.name} — ${c.sales}v · R$ ${f
                   <div className="space-y-3">
                     {curr.topCampaigns.map((c, i) => {
                       const maxRev = curr.topCampaigns[0].revenue;
+                      const campRoas = c.spend && c.spend > 0 ? c.revenue / c.spend : null;
                       return (
                         <div key={i}>
                           <div className="flex items-center justify-between gap-3 mb-1">
@@ -309,6 +388,11 @@ ${curr.topCampaigns.map((c, i) => `${i + 1}. ${c.name} — ${c.sales}v · R$ ${f
                             </div>
                             <div className="flex items-center gap-3 flex-shrink-0">
                               <span className="text-xs text-text-muted font-mono">{c.sales}v</span>
+                              {campRoas !== null && (
+                                <span className={`text-xs font-mono ${campRoas >= 3 ? "text-accent" : campRoas >= 2 ? "text-gold" : "text-red"}`}>
+                                  {campRoas.toFixed(2)}×
+                                </span>
+                              )}
                               <span className="text-xs text-accent font-mono font-semibold">R$ {fmt(c.revenue)}</span>
                             </div>
                           </div>
