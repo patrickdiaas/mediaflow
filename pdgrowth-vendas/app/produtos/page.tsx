@@ -6,8 +6,9 @@ import DataTable, { Column } from "@/components/data-table";
 import { supabase } from "@/lib/supabase";
 import { useDashboard } from "@/lib/dashboard-context";
 import { getPeriodDates } from "@/lib/period";
-import type { ProductRow, SaleRow, Gateway, SaleStatus, SaleType } from "@/lib/types";
+import type { ProductRow, Gateway } from "@/lib/types";
 import { RefreshCw, Package } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
 // ─── Badges ───────────────────────────────────────────────────────────────────
 const gatewayLabel: Record<string, string> = { dmguru: "DMGuru", hotmart: "Hotmart", eduzz: "Eduzz" };
@@ -16,35 +17,6 @@ const gatewayColor: Record<string, string> = {
   hotmart: "text-gold border-gold/30 bg-gold/10",
   eduzz:   "text-blue border-blue/30 bg-blue/10",
 };
-const statusLabel: Record<SaleStatus, string> = {
-  approved: "Aprovado", refunded: "Reembolso", chargeback: "Chargeback",
-  pending: "Pendente", cancelled: "Cancelado",
-};
-const statusColor: Record<SaleStatus, string> = {
-  approved:   "text-accent border-accent/30 bg-accent-dim",
-  refunded:   "text-red border-red/30 bg-red/10",
-  chargeback: "text-red border-red/30 bg-red-dim",
-  pending:    "text-gold border-gold/30 bg-gold/10",
-  cancelled:  "text-text-muted border-border bg-bg",
-};
-const saleTypeLabel: Record<SaleType, string> = {
-  main: "Principal", order_bump: "Order Bump", upsell: "Upsell",
-};
-const saleTypeColor: Record<SaleType, string> = {
-  main:       "text-text-secondary border-border bg-bg",
-  order_bump: "text-gold border-gold/30 bg-gold/10",
-  upsell:     "text-blue border-blue/30 bg-blue/10",
-};
-const paymentLabel: Record<string, string> = {
-  credit_card: "Cartão", pix: "PIX", boleto: "Boleto",
-};
-
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString("pt-BR", {
-    day: "2-digit", month: "2-digit", year: "2-digit",
-    hour: "2-digit", minute: "2-digit",
-  });
-}
 
 function fmt(n: number) {
   return n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -84,40 +56,6 @@ const productColumns: Column<ProductRow>[] = [
     }},
 ];
 
-const saleColumns: Column<SaleRow>[] = [
-  { key: "created_at",     label: "Data",
-    render: v => <span className="text-text-secondary text-xs font-mono">{formatDate(String(v))}</span> },
-  { key: "gateway",        label: "Gateway",
-    render: v => {
-      const g = String(v);
-      return <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md border ${gatewayColor[g] ?? ""}`}>{gatewayLabel[g] ?? g}</span>;
-    }},
-  { key: "sale_type",      label: "Tipo",
-    render: v => {
-      const t = v as SaleType;
-      return <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md border ${saleTypeColor[t]}`}>{saleTypeLabel[t]}</span>;
-    }},
-  { key: "product_name",   label: "Produto",
-    render: v => <span className="text-text-secondary text-xs truncate max-w-[180px] block" title={String(v ?? "")}>{String(v ?? "—")}</span> },
-  { key: "amount",         label: "Valor",  align: "right",
-    render: v => <span className="text-accent font-mono">R$ {fmt(Number(v))}</span> },
-  { key: "status",         label: "Status", align: "center",
-    render: v => {
-      const s = v as SaleStatus;
-      return <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md border ${statusColor[s]}`}>{statusLabel[s]}</span>;
-    }},
-  { key: "utm_medium",     label: "Campanha",
-    render: v => <span className="text-text-secondary text-xs truncate max-w-[160px] block" title={String(v ?? "")}>{String(v ?? "—")}</span> },
-  { key: "utm_campaign",   label: "Conjunto",
-    render: v => <span className="text-text-muted text-xs truncate max-w-[140px] block" title={String(v ?? "")}>{String(v ?? "—")}</span> },
-  { key: "utm_content",    label: "Criativo",
-    render: v => <span className="text-text-muted text-xs truncate max-w-[160px] block" title={String(v ?? "")}>{String(v ?? "—")}</span> },
-  { key: "utm_source",     label: "Posição",
-    render: v => <span className="text-text-secondary text-xs">{String(v ?? "—")}</span> },
-  { key: "payment_method", label: "Pagamento",
-    render: v => <span className="text-text-secondary text-xs">{paymentLabel[String(v)] ?? String(v ?? "—")}</span> },
-];
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 interface TrackedProduct { product_id: string; product_name: string | null; gateway: string; }
 
@@ -127,8 +65,6 @@ function buildProductRows(tracked: TrackedProduct[], sales: any[]): ProductRow[]
     const approved = ps.filter(s => s.status === "approved");
     const refunded = ps.filter(s => s.status === "refunded" || s.status === "chargeback");
     const revenue  = approved.reduce((sum, s) => sum + Number(s.amount), 0);
-    const refundAmt = refunded.reduce((sum, s) => sum + Number(s.amount), 0);
-    void refundAmt;
     return {
       product_id:    tp.product_id,
       product_name:  tp.product_name ?? "Produto sem nome",
@@ -144,15 +80,51 @@ function buildProductRows(tracked: TrackedProduct[], sales: any[]): ProductRow[]
   });
 }
 
+function buildTrend(sales: any[]) {
+  const map = new Map<string, { vendas: number; receita: number }>();
+  for (const s of sales) {
+    if (s.status !== "approved") continue;
+    const day = s.created_at?.slice(0, 10) ?? "";
+    if (!day) continue;
+    const e = map.get(day) ?? { vendas: 0, receita: 0 };
+    e.vendas++;
+    e.receita += Number(s.amount);
+    map.set(day, e);
+  }
+  return Array.from(map.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, v]) => ({
+      date: new Date(date + "T12:00:00Z").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }),
+      ...v,
+    }));
+}
+
+function buildTopUTMs(sales: any[]) {
+  const map = new Map<string, { vendas: number; receita: number }>();
+  for (const s of sales) {
+    if (s.status !== "approved") continue;
+    const key = s.utm_medium ?? "Direto";
+    const e = map.get(key) ?? { vendas: 0, receita: 0 };
+    e.vendas++;
+    e.receita += Number(s.amount);
+    map.set(key, e);
+  }
+  return Array.from(map.entries())
+    .sort(([, a], [, b]) => b.receita - a.receita)
+    .slice(0, 8)
+    .map(([campaign, v]) => ({ campaign, ...v }));
+}
+
 // ─── Página ───────────────────────────────────────────────────────────────────
 export default function ProdutosPage() {
   const { client, period } = useDashboard();
 
-  const [products,  setProducts]  = useState<ProductRow[]>([]);
-  const [sales,     setSales]     = useState<SaleRow[]>([]);
-  const [loading,   setLoading]   = useState(true);
-  const [error,     setError]     = useState<string | null>(null);
-  const [noTracked, setNoTracked] = useState(false);
+  const [products,        setProducts]        = useState<ProductRow[]>([]);
+  const [allSales,        setAllSales]        = useState<any[]>([]);
+  const [selectedProduct, setSelectedProduct] = useState<string>("all");
+  const [loading,         setLoading]         = useState(true);
+  const [error,           setError]           = useState<string | null>(null);
+  const [noTracked,       setNoTracked]       = useState(false);
 
   async function fetchData() {
     setLoading(true);
@@ -161,7 +133,6 @@ export default function ProdutosPage() {
 
     const { from, to } = getPeriodDates(period);
 
-    // 1. Produtos rastreados ativos
     const { data: tracked, error: tErr } = await supabase
       .from("tracked_products")
       .select("product_id, product_name, gateway")
@@ -169,43 +140,50 @@ export default function ProdutosPage() {
       .eq("active", true);
 
     if (tErr) { setError(tErr.message); setLoading(false); return; }
-    if (!tracked?.length) { setNoTracked(true); setProducts([]); setSales([]); setLoading(false); return; }
+    if (!tracked?.length) { setNoTracked(true); setProducts([]); setAllSales([]); setLoading(false); return; }
 
     const ids = tracked.map(p => p.product_id);
 
-    // 2. Vendas para esses produtos no período
     const { data: rawSales, error: sErr } = await supabase
       .from("sales")
-      .select("id, created_at, gateway, sale_type, amount, status, product_name, utm_medium, utm_campaign, utm_content, utm_source, utm_term, payment_method, product_id")
+      .select("id, created_at, gateway, sale_type, amount, status, product_name, product_id, utm_medium, utm_campaign, utm_content, utm_source")
       .eq("client_slug", client)
       .in("product_id", ids)
       .gte("created_at", from)
       .lte("created_at", to)
-      .order("created_at", { ascending: false });
+      .order("created_at", { ascending: true });
 
     if (sErr) { setError(sErr.message); setLoading(false); return; }
 
     setProducts(buildProductRows(tracked, rawSales ?? []));
-    setSales((rawSales ?? []) as SaleRow[]);
+    setAllSales(rawSales ?? []);
+    setSelectedProduct("all");
     setLoading(false);
   }
 
   useEffect(() => { fetchData(); }, [client, period]);
 
-  // Resumo
-  const approved   = sales.filter(s => s.status === "approved");
-  const refunds    = sales.filter(s => s.status === "refunded" || s.status === "chargeback");
+  const filteredSales = selectedProduct === "all"
+    ? allSales
+    : allSales.filter(s => s.product_id === selectedProduct);
+
+  const approved   = allSales.filter(s => s.status === "approved");
+  const refunds    = allSales.filter(s => s.status === "refunded" || s.status === "chargeback");
   const orderBumps = approved.filter(s => s.sale_type === "order_bump");
   const revenue    = approved.filter(s => s.sale_type === "main").reduce((s, v) => s + Number(v.amount), 0);
   const obRevenue  = orderBumps.reduce((s, v) => s + Number(v.amount), 0);
   const refRevenue = refunds.reduce((s, v) => s + Number(v.amount), 0);
+
+  const trendData = buildTrend(filteredSales);
+  const utmData   = buildTopUTMs(filteredSales);
+  const maxUTM    = Math.max(...utmData.map(u => u.receita), 1);
 
   return (
     <div className="flex min-h-screen bg-bg">
       <Sidebar />
       <main className="flex-1 p-6 overflow-auto">
         <div className="flex items-start justify-between mb-4">
-          <Header title="Produtos" subtitle="Performance por produto e histórico de transações" />
+          <Header title="Produtos" subtitle="Performance por produto e análise de atribuição" />
           <button
             onClick={fetchData}
             className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors mt-1"
@@ -217,13 +195,13 @@ export default function ProdutosPage() {
 
         {/* Summary */}
         <div className="flex flex-wrap gap-4 mb-5 p-3 bg-card border border-border rounded-xl text-sm">
-          <Stat label="Receita"      value={loading ? "…" : `R$ ${fmt(revenue)}`}                                       color="text-accent" />
+          <Stat label="Receita"      value={loading ? "…" : `R$ ${fmt(revenue)}`}                                         color="text-accent" />
           <div className="w-px bg-border" />
-          <Stat label="Vendas"       value={loading ? "…" : String(approved.filter(s => s.sale_type === "main").length)} color="text-green"  />
+          <Stat label="Vendas"       value={loading ? "…" : String(approved.filter(s => s.sale_type === "main").length)}  color="text-green"  />
           <div className="w-px bg-border" />
-          <Stat label="Order Bumps"  value={loading ? "…" : `${orderBumps.length} · R$ ${fmt(obRevenue)}`}              color="text-gold"   />
+          <Stat label="Order Bumps"  value={loading ? "…" : `${orderBumps.length} · R$ ${fmt(obRevenue)}`}               color="text-gold"   />
           <div className="w-px bg-border" />
-          <Stat label="Reembolsos"   value={loading ? "…" : `${refunds.length} · R$ ${fmt(refRevenue)}`}                color="text-red"    />
+          <Stat label="Reembolsos"   value={loading ? "…" : `${refunds.length} · R$ ${fmt(refRevenue)}`}                 color="text-red"    />
         </div>
 
         {error && (
@@ -245,12 +223,85 @@ export default function ProdutosPage() {
         ) : (
           <>
             <DataTable<ProductRow> columns={productColumns} data={products} rowKey="product_id" />
-            <div className="mt-6">
-              <span className="text-sm font-semibold text-text-primary block mb-3">
-                Transações
-                <span className="text-text-muted font-normal text-xs ml-2">({sales.length} registros)</span>
-              </span>
-              <DataTable<SaleRow> columns={saleColumns} data={sales} rowKey="id" />
+
+            {/* Seletor de produto para análise */}
+            <div className="flex items-center gap-3 mt-6 mb-4">
+              <span className="text-sm font-semibold text-text-primary">Análise por produto</span>
+              <select
+                value={selectedProduct}
+                onChange={e => setSelectedProduct(e.target.value)}
+                className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent/40 cursor-pointer"
+              >
+                <option value="all">Todos os produtos</option>
+                {products.map(p => (
+                  <option key={p.product_id} value={p.product_id}>{p.product_name}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              {/* Tendência diária */}
+              <div className="bg-card border border-border rounded-xl p-5">
+                <span className="text-sm font-semibold text-text-primary block mb-4">Vendas por dia</span>
+                {trendData.length === 0 ? (
+                  <p className="text-text-muted text-xs py-8 text-center">Sem dados no período.</p>
+                ) : (
+                  <div style={{ height: 200 }}>
+                    <ResponsiveContainer width="100%" height="100%">
+                      <BarChart data={trendData} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+                        <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#6B7280" }} axisLine={false} tickLine={false} />
+                        <YAxis tick={{ fontSize: 10, fill: "#6B7280" }} axisLine={false} tickLine={false} allowDecimals={false} />
+                        <Tooltip
+                          content={({ active, payload }) => {
+                            if (!active || !payload?.length) return null;
+                            const d = payload[0].payload;
+                            return (
+                              <div className="bg-card border border-border rounded-lg px-3 py-2 text-xs shadow-lg">
+                                <p className="text-text-secondary mb-1">{d.date}</p>
+                                <p className="text-text-primary">Vendas: <span className="text-accent font-mono">{d.vendas}</span></p>
+                                <p className="text-text-primary">Receita: <span className="text-accent font-mono">R$ {fmt(d.receita)}</span></p>
+                              </div>
+                            );
+                          }}
+                        />
+                        <Bar dataKey="vendas" radius={[3, 3, 0, 0]}>
+                          {trendData.map((_, i) => (
+                            <Cell key={i} fill="#CAFF04" opacity={0.7} />
+                          ))}
+                        </Bar>
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </div>
+                )}
+              </div>
+
+              {/* Top campanhas */}
+              <div className="bg-card border border-border rounded-xl p-5">
+                <span className="text-sm font-semibold text-text-primary block mb-4">Top campanhas</span>
+                {utmData.length === 0 ? (
+                  <p className="text-text-muted text-xs py-8 text-center">Sem dados no período.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {utmData.map((u, i) => (
+                      <div key={i}>
+                        <div className="flex items-center justify-between mb-1">
+                          <span className="text-xs text-text-primary truncate max-w-[200px]" title={u.campaign}>{u.campaign}</span>
+                          <div className="flex items-center gap-3 flex-shrink-0">
+                            <span className="text-xs font-mono text-text-secondary">{u.vendas}v</span>
+                            <span className="text-xs font-mono text-accent">R$ {fmt(u.receita)}</span>
+                          </div>
+                        </div>
+                        <div className="h-1.5 bg-border rounded-full overflow-hidden">
+                          <div
+                            className="h-full rounded-full bg-accent/60"
+                            style={{ width: `${(u.receita / maxUTM) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
             </div>
           </>
         )}
@@ -267,3 +318,4 @@ function Stat({ label, value, color }: { label: string; value: string; color: st
     </div>
   );
 }
+
