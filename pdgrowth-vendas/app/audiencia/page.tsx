@@ -93,13 +93,14 @@ export default function AudienciaPage() {
       (sales ?? []).map((s: any) => s.buyer_email?.toLowerCase()).filter(Boolean)
     );
 
-    // Filtra colunas de perguntas (exclui email e timestamp)
-    const questionCols = sheetHeaders.filter((h: string) =>
-      !h.toLowerCase().includes("email") &&
-      !h.toLowerCase().includes("e-mail") &&
-      !h.toLowerCase().includes("timestamp") &&
-      !h.toLowerCase().includes("carimbo")
-    );
+    // Filtra colunas de perguntas (exclui email, timestamp, whatsapp, telefone)
+    const questionCols = sheetHeaders.filter((h: string) => {
+      const l = h.toLowerCase();
+      return !l.includes("email") && !l.includes("e-mail") &&
+             !l.includes("timestamp") && !l.includes("carimbo") &&
+             !l.includes("whatsapp") && !l.includes("telefone") &&
+             !l.includes("celular") && !l.includes("phone");
+    });
 
     // Para cada pergunta, agrupa respostas com contagem de leads e vendas
     const stats: QuestionStat[] = questionCols.map((col: string) => {
@@ -213,7 +214,7 @@ export default function AudienciaPage() {
 
             {/* Cards de perguntas */}
             {!loading && questions.length > 0 && (
-              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
                 {questions.map(q => (
                   <QuestionCard key={q.question} stat={q} />
                 ))}
@@ -228,89 +229,52 @@ export default function AudienciaPage() {
 
 function QuestionCard({ stat }: { stat: QuestionStat }) {
   const maxLeads = Math.max(...stat.answers.map(a => a.leads), 1);
-
-  // Trunca rótulos longos para o gráfico
-  const chartData = stat.answers.slice(0, 8).map(a => ({
-    ...a,
-    label: a.answer.length > 22 ? a.answer.slice(0, 22) + "…" : a.answer,
-  }));
+  const top = stat.answers.slice(0, 8);
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
       {/* Título */}
-      <div className="px-4 pt-4 pb-2">
-        <p className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider leading-snug line-clamp-2">
+      <div className="px-5 pt-4 pb-3 border-b border-border">
+        <p className="text-xs font-semibold text-text-primary leading-snug">
           {stat.question}
         </p>
       </div>
 
-      {/* Gráfico */}
-      <div className="px-2 pb-1" style={{ height: 120 }}>
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={chartData} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
-            <XAxis
-              dataKey="label"
-              tick={{ fontSize: 9, fill: "#6B7280" }}
-              axisLine={false}
-              tickLine={false}
-              interval={0}
-            />
-            <YAxis tick={{ fontSize: 9, fill: "#6B7280" }} axisLine={false} tickLine={false} />
-            <Tooltip
-              content={({ active, payload }) => {
-                if (!active || !payload?.length) return null;
-                const d = payload[0].payload as AnswerStat;
-                return (
-                  <div className="bg-surface border border-border rounded-lg px-3 py-2 text-xs shadow-lg">
-                    <p className="text-text-primary font-medium mb-1">{d.answer}</p>
-                    <p className="text-text-secondary">Leads: <span className="text-text-primary font-mono">{d.leads}</span></p>
-                    <p className="text-text-secondary">Vendas: <span className="text-accent font-mono">{d.vendas}</span></p>
-                    <p className="text-text-secondary">Conv.: <span className="text-gold font-mono">{d.rate.toFixed(1)}%</span></p>
-                  </div>
-                );
-              }}
-            />
-            <Bar dataKey="leads" radius={[3, 3, 0, 0]}>
-              {chartData.map((entry, i) => (
-                <Cell
-                  key={i}
-                  fill={entry.vendas > 0 ? "#CAFF04" : "#1E2433"}
-                  opacity={entry.vendas > 0 ? 0.85 : 1}
-                />
-              ))}
-            </Bar>
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
-
-      {/* Tabela */}
-      <div className="border-t border-border">
-        <div className="grid grid-cols-4 px-4 py-2 border-b border-border">
-          <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider col-span-2">Resposta</span>
+      {/* Gráfico de barras horizontais + tabela integrada */}
+      <div className="divide-y divide-border">
+        {/* Header */}
+        <div className="grid grid-cols-[1fr_48px_48px_52px] px-5 py-2">
+          <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">Resposta</span>
           <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider text-right">Leads</span>
+          <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider text-right">Vendas</span>
           <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider text-right">Conv.</span>
         </div>
-        {stat.answers.slice(0, 6).map((a, i) => (
-          <div key={i} className="grid grid-cols-4 px-4 py-2 border-b border-border last:border-0 hover:bg-bg/40 transition-colors">
-            <div className="col-span-2 flex items-center gap-2 min-w-0">
-              {/* Barra de progresso inline */}
-              <div className="flex-1 h-1 bg-border rounded-full overflow-hidden">
-                <div
-                  className="h-full rounded-full bg-accent/40"
-                  style={{ width: `${(a.leads / maxLeads) * 100}%` }}
-                />
+
+        {top.map((a, i) => (
+          <div key={i} className="px-5 py-3 hover:bg-bg/40 transition-colors">
+            {/* Texto da resposta */}
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <span className="text-xs text-text-primary leading-snug flex-1">{a.answer}</span>
+              <div className="flex items-center gap-4 flex-shrink-0 pt-0.5">
+                <span className="text-xs font-mono text-text-secondary w-10 text-right">{a.leads}</span>
+                <span className="text-xs font-mono text-accent w-10 text-right">{a.vendas > 0 ? a.vendas : "—"}</span>
+                <span className="text-xs font-mono font-semibold w-12 text-right" style={{
+                  color: a.rate > 20 ? "#CAFF04" : a.rate > 10 ? "#F59E0B" : a.rate > 0 ? "#60A5FA" : "#4B5563"
+                }}>
+                  {a.vendas > 0 ? `${a.rate.toFixed(1)}%` : "—"}
+                </span>
               </div>
-              <span className="text-[11px] text-text-primary truncate max-w-[100px]" title={a.answer}>
-                {a.answer}
-              </span>
             </div>
-            <span className="text-[11px] text-text-secondary font-mono text-right self-center">{a.leads}</span>
-            <div className="flex items-center justify-end gap-1.5">
-              <span className="text-[11px] font-mono font-semibold text-right" style={{
-                color: a.rate > 20 ? "#CAFF04" : a.rate > 10 ? "#F59E0B" : a.rate > 0 ? "#60A5FA" : "#4B5563"
-              }}>
-                {a.vendas > 0 ? `${a.rate.toFixed(1)}%` : "—"}
-              </span>
+            {/* Barra de progresso */}
+            <div className="h-1.5 bg-border rounded-full overflow-hidden">
+              <div
+                className="h-full rounded-full transition-all"
+                style={{
+                  width: `${(a.leads / maxLeads) * 100}%`,
+                  background: a.vendas > 0 ? "#CAFF04" : "#1E2433",
+                  opacity: a.vendas > 0 ? 0.7 : 1,
+                }}
+              />
             </div>
           </div>
         ))}

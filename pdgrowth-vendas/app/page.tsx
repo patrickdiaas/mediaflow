@@ -354,8 +354,8 @@ export default function OverviewPage() {
             </div>
           </div>
 
-          {/* Bottom row */}
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+          {/* Bottom row — Produtos */}
+          <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
             <div className="lg:col-span-3">
               <div className="bg-card border border-border rounded-xl p-5 h-full">
                 <span className="text-sm font-semibold text-text-primary block mb-1">Produtos</span>
@@ -373,9 +373,12 @@ export default function OverviewPage() {
             <div className="lg:col-span-1">
               <DonutChart title="Vendas por Produto" data={productDonut} centerLabel="total" />
             </div>
-            <div className="lg:col-span-1">
-              <Funnel steps={mockFunnel} />
-            </div>
+          </div>
+
+          {/* Funil — destaque em linha própria */}
+          <div className="bg-card border border-border rounded-xl p-6">
+            <span className="text-sm font-semibold text-text-primary block mb-4">Funil de Conversão</span>
+            <Funnel steps={mockFunnel} />
           </div>
         </div>
       </main>
