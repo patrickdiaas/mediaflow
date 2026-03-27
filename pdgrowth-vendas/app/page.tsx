@@ -93,8 +93,9 @@ interface SalesStats {
 
 function buildKPIs(stats: SalesStats, loading: boolean): KPIData[] {
   const f = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const totalRevenue = stats.revenue + stats.obRevenue;
   return [
-    { label: "Faturamento",     value: loading ? "…" : `R$ ${f(stats.revenue)}`,    color: "accent"  },
+    { label: "Faturamento",     value: loading ? "…" : `R$ ${f(totalRevenue)}`,       color: "accent"  },
     { label: "Gastos Anúncios", value: "R$ 18.740",  trend: +8.2,  color: "blue"    },
     { label: "ROAS",            value: "4,50×",      trend: +3.8,  color: "purple"  },
     { label: "Lucro",           value: loading ? "…" : `R$ ${f(stats.revenue)}`,    color: "accent"  },
