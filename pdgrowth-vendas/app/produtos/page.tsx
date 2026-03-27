@@ -117,7 +117,7 @@ interface TrackedProduct { product_id: string; product_name: string | null; gate
 function buildProductRows(tracked: TrackedProduct[], sales: any[]): ProductRow[] {
   return tracked.map(tp => {
     const ps       = sales.filter(s => s.product_id === tp.product_id);
-    const approved = ps.filter(s => s.status === "approved" && s.sale_type === "main");
+    const approved = ps.filter(s => s.status === "approved");
     const refunded = ps.filter(s => s.status === "refunded" || s.status === "chargeback");
     const revenue  = approved.reduce((sum, s) => sum + Number(s.amount), 0);
     const refundAmt = refunded.reduce((sum, s) => sum + Number(s.amount), 0);
