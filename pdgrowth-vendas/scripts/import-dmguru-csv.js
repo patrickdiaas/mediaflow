@@ -163,6 +163,13 @@ for (let i = 1; i < lines.length; i++) {
 }
 
 console.log(`\n📦 ${sales.length} vendas lidas do CSV (separador: ${separator === "\t" ? "TAB" : separator})`);
+
+// Debug: mostra primeiros campos do header e da primeira linha de dados
+const firstDataRow = parseCSVLine(lines[1], separator);
+console.log(`\n🔎 Debug header[8]="${headers[8]}" header[17]="${headers[17]}" header[18]="${headers[18]}"`);
+console.log(`🔎 Debug row[8]="${firstDataRow[8]}" row[17]="${firstDataRow[17]}" row[18]="${firstDataRow[18]}"`);
+console.log(`🔎 Total headers: ${headers.length}, total campos linha 1: ${firstDataRow.length}`);
+
 if (sales.length > 0) {
   const s = sales[0];
   console.log(`🔍 Amostra: id=${s.gateway_order_id} produto="${s.product_name}" valor=${s.amount} status=${s.status}`);
