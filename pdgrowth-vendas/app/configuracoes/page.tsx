@@ -171,7 +171,9 @@ export default function ConfiguracoesPage() {
                       product={p}
                       last={i === inactive.length - 1}
                       toggling={toggling === p.id}
+                      savingSheet={savingSheet === p.id}
                       onToggle={() => toggleProduct(p)}
+                      onSaveSheet={(id) => saveSheetId(p, id)}
                     />
                   ))}
                 </div>
