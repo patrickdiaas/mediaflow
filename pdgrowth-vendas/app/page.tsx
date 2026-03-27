@@ -117,15 +117,16 @@ function buildProductRows(tracked: TrackedProduct[], sales: any[]): ProductRow[]
     const refunded = ps.filter(s => s.status === "refunded" || s.status === "chargeback");
     const revenue  = approved.reduce((sum: number, s: any) => sum + Number(s.amount), 0);
     return {
-      product_id:   tp.product_id,
-      product_name: tp.product_name ?? "Produto sem nome",
-      gateway:      tp.gateway as any,
-      sales:        approved.length,
+      product_id:    tp.product_id,
+      product_name:  tp.product_name ?? "Produto sem nome",
+      gateway:       tp.gateway as any,
+      sales:         approved.length,
       revenue,
-      avg_ticket:   approved.length > 0 ? revenue / approved.length : 0,
-      refunds:      refunded.length,
-      refund_rate:  (approved.length + refunded.length) > 0
+      avg_ticket:    approved.length > 0 ? revenue / approved.length : 0,
+      refunds:       refunded.length,
+      refund_rate:   (approved.length + refunded.length) > 0
         ? (refunded.length / (approved.length + refunded.length)) * 100 : 0,
+      is_order_bump: ps.length > 0 && ps.every((s: any) => s.sale_type === "order_bump"),
     };
   });
 }

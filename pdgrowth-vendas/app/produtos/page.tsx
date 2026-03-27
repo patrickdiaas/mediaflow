@@ -56,10 +56,15 @@ const productColumns: Column<ProductRow>[] = [
     key: "product_name",
     label: "Produto",
     render: (v, row) => (
-      <div className="flex items-center gap-2">
+      <div className="flex items-center gap-2 flex-wrap">
         <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md border ${gatewayColor[row.gateway]}`}>
           {gatewayLabel[row.gateway]}
         </span>
+        {row.is_order_bump && (
+          <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-md border text-gold border-gold/30 bg-gold/10">
+            Order Bump
+          </span>
+        )}
         <span className="text-text-primary text-sm">{String(v)}</span>
       </div>
     ),
@@ -123,15 +128,16 @@ function buildProductRows(tracked: TrackedProduct[], sales: any[]): ProductRow[]
     const refundAmt = refunded.reduce((sum, s) => sum + Number(s.amount), 0);
     void refundAmt;
     return {
-      product_id:   tp.product_id,
-      product_name: tp.product_name ?? "Produto sem nome",
-      gateway:      tp.gateway as Gateway,
-      sales:        approved.length,
+      product_id:    tp.product_id,
+      product_name:  tp.product_name ?? "Produto sem nome",
+      gateway:       tp.gateway as Gateway,
+      sales:         approved.length,
       revenue,
-      avg_ticket:   approved.length > 0 ? revenue / approved.length : 0,
-      refunds:      refunded.length,
-      refund_rate:  (approved.length + refunded.length) > 0
+      avg_ticket:    approved.length > 0 ? revenue / approved.length : 0,
+      refunds:       refunded.length,
+      refund_rate:   (approved.length + refunded.length) > 0
         ? (refunded.length / (approved.length + refunded.length)) * 100 : 0,
+      is_order_bump: ps.length > 0 && ps.every(s => s.sale_type === "order_bump"),
     };
   });
 }

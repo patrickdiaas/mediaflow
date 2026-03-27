@@ -203,6 +203,7 @@ export interface ProductRow {
   refunds: number;
   refund_rate: number;
   avg_ticket: number;
+  is_order_bump: boolean;
 }
 
 export interface SaleRow {
