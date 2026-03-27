@@ -74,7 +74,27 @@ function mapPayment(str) {
   return s || null;
 }
 
-// ── Parsear CSV/TSV ────────────────────────────────────────────────────────────
+// ── Parser CSV com suporte a campos entre aspas ────────────────────────────────
+function parseCSVLine(line, sep) {
+  const result = [];
+  let current = "";
+  let inQuotes = false;
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
+    if (ch === '"') {
+      if (inQuotes && line[i + 1] === '"') { current += '"'; i++; }
+      else { inQuotes = !inQuotes; }
+    } else if (ch === sep && !inQuotes) {
+      result.push(current.trim());
+      current = "";
+    } else {
+      current += ch;
+    }
+  }
+  result.push(current.trim());
+  return result;
+}
+
 const raw   = fs.readFileSync(CSV_FILE, "utf-8");
 const lines = raw.split("\n").filter(l => l.trim());
 
@@ -83,7 +103,7 @@ const firstLine = lines[0];
 const separator = firstLine.includes("\t") ? "\t"
   : firstLine.includes(";") ? ";"
   : ",";
-const headers   = lines[0].split(separator).map(h => h.trim().toLowerCase()
+const headers   = parseCSVLine(lines[0], separator).map(h => h.trim().toLowerCase()
   .normalize("NFD").replace(/[\u0300-\u036f]/g, "") // remove acentos
 );
 
@@ -96,7 +116,7 @@ function col(row, name) {
 const sales = [];
 
 for (let i = 1; i < lines.length; i++) {
-  const row = lines[i].split(separator);
+  const row = parseCSVLine(lines[i], separator);
   if (row.length < 5) continue;
 
   const gatewayOrderId = col(row, "id transacao");
