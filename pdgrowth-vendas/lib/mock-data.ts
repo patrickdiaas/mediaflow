@@ -214,10 +214,10 @@ export const mockCreatives: CreativeRow[] = [
 
 // ─── Products ─────────────────────────────────────────────────────────────────
 export const mockProducts: ProductRow[] = [
-  { product_id: "p1", product_name: "Produto A — Plano Anual",    gateway: "dmguru",  sales: 148, revenue: 44_400, refunds: 5,  refund_rate: 3.38, avg_ticket: 300 },
-  { product_id: "p2", product_name: "Produto A — Plano Mensal",   gateway: "hotmart", sales: 94,  revenue: 14_100, refunds: 4,  refund_rate: 4.26, avg_ticket: 150 },
-  { product_id: "p3", product_name: "Produto B — Único",          gateway: "dmguru",  sales: 43,  revenue: 17_200, refunds: 3,  refund_rate: 6.98, avg_ticket: 400 },
-  { product_id: "p4", product_name: "Produto B — Parcelado 12×",  gateway: "eduzz",   sales: 27,  revenue: 8_640,  refunds: 2,  refund_rate: 7.41, avg_ticket: 320 },
+  { product_id: "p1", product_name: "Produto A — Plano Anual",    gateway: "dmguru",  sales: 148, revenue: 44_400, refunds: 5,  refund_rate: 3.38, avg_ticket: 300, is_order_bump: false },
+  { product_id: "p2", product_name: "Produto A — Plano Mensal",   gateway: "hotmart", sales: 94,  revenue: 14_100, refunds: 4,  refund_rate: 4.26, avg_ticket: 150, is_order_bump: false },
+  { product_id: "p3", product_name: "Produto B — Único",          gateway: "dmguru",  sales: 43,  revenue: 17_200, refunds: 3,  refund_rate: 6.98, avg_ticket: 400, is_order_bump: false },
+  { product_id: "p4", product_name: "Produto B — Parcelado 12×",  gateway: "eduzz",   sales: 27,  revenue: 8_640,  refunds: 2,  refund_rate: 7.41, avg_ticket: 320, is_order_bump: false },
 ];
 
 // ─── Sales Table ──────────────────────────────────────────────────────────────
