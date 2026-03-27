@@ -63,11 +63,18 @@ const tableColumns: Column<CreativeRow>[] = [
 
 export default function CriativosPage() {
   const { platform } = useDashboard();
-  const [view, setView] = useState<"grid" | "list">("grid");
+  const [view,     setView]     = useState<"grid" | "list">("grid");
+  const [campaign, setCampaign] = useState<string>("all");
 
-  const filtered = platform === "all"
+  const byPlatform = platform === "all"
     ? mockCreatives
     : mockCreatives.filter(c => c.platform === platform);
+
+  const campaigns = ["all", ...Array.from(new Set(byPlatform.map(c => c.campaign_name).filter(Boolean)))];
+
+  const filtered = campaign === "all"
+    ? byPlatform
+    : byPlatform.filter(c => c.campaign_name === campaign);
 
   return (
     <div className="flex min-h-screen bg-bg">
@@ -79,6 +86,16 @@ export default function CriativosPage() {
             <p className="text-sm text-text-secondary mt-0.5">Performance por anúncio com prévia do criativo</p>
           </div>
           <div className="flex items-center gap-3">
+            {/* Campaign selector */}
+            <select
+              value={campaign}
+              onChange={e => setCampaign(e.target.value)}
+              className="bg-card border border-border rounded-lg px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-accent/40 cursor-pointer max-w-[220px] truncate"
+            >
+              {campaigns.map(c => (
+                <option key={c} value={c}>{c === "all" ? "Todas as campanhas" : c}</option>
+              ))}
+            </select>
             {/* View toggle */}
             <div className="flex items-center bg-card border border-border rounded-lg overflow-hidden">
               <button

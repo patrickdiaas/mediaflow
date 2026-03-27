@@ -4,7 +4,8 @@ import Sidebar from "@/components/sidebar";
 import Header from "@/components/header";
 import { supabase } from "@/lib/supabase";
 import { useDashboard } from "@/lib/dashboard-context";
-import { RefreshCw, Users, FileSpreadsheet, AlertCircle } from "lucide-react";
+import { RefreshCw, FileSpreadsheet, AlertCircle } from "lucide-react";
+import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
 
 interface TrackedProduct {
   id: string;
@@ -14,27 +15,29 @@ interface TrackedProduct {
   gateway: string;
 }
 
-interface AudienceRow {
-  email: string;
-  purchase_date: string;
-  amount: number;
-  payment_method: string | null;
-  utm_medium: string | null;
-  // respostas do formulário (campos dinâmicos)
-  [key: string]: unknown;
+interface AnswerStat {
+  answer: string;
+  leads: number;
+  vendas: number;
+  rate: number;
+}
+
+interface QuestionStat {
+  question: string;
+  answers: AnswerStat[];
 }
 
 export default function AudienciaPage() {
   const { client } = useDashboard();
 
-  const [products,    setProducts]    = useState<TrackedProduct[]>([]);
-  const [selectedId,  setSelectedId]  = useState<string>("");
-  const [headers,     setHeaders]     = useState<string[]>([]);
-  const [rows,        setRows]        = useState<AudienceRow[]>([]);
-  const [loading,     setLoading]     = useState(false);
-  const [error,       setError]       = useState<string | null>(null);
+  const [products,   setProducts]   = useState<TrackedProduct[]>([]);
+  const [selectedId, setSelectedId] = useState<string>("");
+  const [questions,  setQuestions]  = useState<QuestionStat[]>([]);
+  const [totalLeads, setTotalLeads] = useState(0);
+  const [totalSales, setTotalSales] = useState(0);
+  const [loading,    setLoading]    = useState(false);
+  const [error,      setError]      = useState<string | null>(null);
 
-  // Carrega produtos com planilha vinculada
   useEffect(() => {
     supabase
       .from("tracked_products")
@@ -56,8 +59,7 @@ export default function AudienciaPage() {
   async function fetchAudience(productId: string) {
     setLoading(true);
     setError(null);
-    setRows([]);
-    setHeaders([]);
+    setQuestions([]);
 
     // Busca respostas do Google Sheets
     const sheetRes = await fetch(`/api/sheets/${productId}`);
@@ -69,13 +71,12 @@ export default function AudienciaPage() {
     }
     const { headers: sheetHeaders, rows: sheetRows } = await sheetRes.json();
 
-    // Detecta coluna de email (case-insensitive)
+    // Detecta coluna de email
     const emailHeader = sheetHeaders.find((h: string) =>
       h.toLowerCase().includes("email") || h.toLowerCase().includes("e-mail")
     );
-
     if (!emailHeader) {
-      setError("Coluna de email não encontrada na planilha. Certifique-se de que o formulário pede o email.");
+      setError("Coluna de email não encontrada na planilha.");
       setLoading(false);
       return;
     }
@@ -83,58 +84,65 @@ export default function AudienciaPage() {
     // Busca vendas aprovadas do produto
     const { data: sales } = await supabase
       .from("sales")
-      .select("buyer_email, created_at, amount, payment_method, utm_medium")
+      .select("buyer_email")
       .eq("client_slug", client)
       .eq("product_id", productId)
-      .eq("status", "approved")
-      .order("created_at", { ascending: false });
+      .eq("status", "approved");
 
-    const salesByEmail = new Map(
-      (sales ?? []).map(s => [s.buyer_email?.toLowerCase(), s])
+    const salesEmails = new Set(
+      (sales ?? []).map((s: any) => s.buyer_email?.toLowerCase()).filter(Boolean)
     );
 
-    // Cruza por email
-    const matched: AudienceRow[] = sheetRows
-      .filter((row: Record<string, string>) => {
-        const email = row[emailHeader]?.toLowerCase();
-        return email && salesByEmail.has(email);
-      })
-      .map((row: Record<string, string>) => {
-        const email = row[emailHeader].toLowerCase();
-        const sale  = salesByEmail.get(email)!;
-        return {
-          email,
-          purchase_date:  new Date(sale.created_at).toLocaleDateString("pt-BR"),
-          amount:         Number(sale.amount),
-          payment_method: sale.payment_method,
-          utm_medium:     sale.utm_medium,
-          ...row,
-        };
-      });
-
-    // Colunas do formulário (exclui email, timestamp)
-    const formCols = sheetHeaders.filter((h: string) =>
+    // Filtra colunas de perguntas (exclui email e timestamp)
+    const questionCols = sheetHeaders.filter((h: string) =>
       !h.toLowerCase().includes("email") &&
+      !h.toLowerCase().includes("e-mail") &&
       !h.toLowerCase().includes("timestamp") &&
       !h.toLowerCase().includes("carimbo")
     );
 
-    setHeaders(formCols);
-    setRows(matched);
+    // Para cada pergunta, agrupa respostas com contagem de leads e vendas
+    const stats: QuestionStat[] = questionCols.map((col: string) => {
+      const answerMap = new Map<string, { leads: number; vendas: number }>();
+
+      for (const row of sheetRows) {
+        const answer = String(row[col] ?? "").trim();
+        if (!answer) continue;
+        const email = String(row[emailHeader] ?? "").toLowerCase().trim();
+        const existing = answerMap.get(answer) ?? { leads: 0, vendas: 0 };
+        existing.leads++;
+        if (email && salesEmails.has(email)) existing.vendas++;
+        answerMap.set(answer, existing);
+      }
+
+      const answers: AnswerStat[] = Array.from(answerMap.entries())
+        .map(([answer, s]) => ({
+          answer,
+          leads:  s.leads,
+          vendas: s.vendas,
+          rate:   s.leads > 0 ? (s.vendas / s.leads) * 100 : 0,
+        }))
+        .sort((a, b) => b.leads - a.leads);
+
+      return { question: col, answers };
+    });
+
+    const matchedSales = sheetRows.filter((row: any) => {
+      const email = String(row[emailHeader] ?? "").toLowerCase().trim();
+      return email && salesEmails.has(email);
+    }).length;
+
+    setTotalLeads(sheetRows.length);
+    setTotalSales(matchedSales);
+    setQuestions(stats);
     setLoading(false);
   }
-
-  const selectedProduct = products.find(p => p.product_id === selectedId);
-  const totalSales      = rows.length;
 
   return (
     <div className="flex min-h-screen bg-bg">
       <Sidebar />
       <main className="flex-1 p-6 overflow-auto">
-        <Header
-          title="Audiência"
-          subtitle="Respostas do formulário pós-compra cruzadas com as vendas"
-        />
+        <Header title="Audiência" subtitle="Análise de conversão por qualidade das respostas" />
 
         {products.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
@@ -146,7 +154,7 @@ export default function AudienciaPage() {
           </div>
         ) : (
           <>
-            {/* Seletor de produto + stats */}
+            {/* Controles */}
             <div className="flex items-center gap-4 mb-6">
               <select
                 value={selectedId}
@@ -160,12 +168,18 @@ export default function AudienciaPage() {
                 ))}
               </select>
 
-              {!loading && rows.length > 0 && (
-                <div className="flex items-center gap-1.5 text-sm text-text-muted">
-                  <Users size={14} className="text-accent" />
+              {!loading && questions.length > 0 && (
+                <div className="flex items-center gap-4 text-sm text-text-muted">
                   <span>
-                    <span className="font-mono font-semibold text-accent">{totalSales}</span>
-                    {" "}compradores responderam
+                    <span className="font-mono font-semibold text-text-secondary">{totalLeads}</span> respostas
+                  </span>
+                  <span>
+                    <span className="font-mono font-semibold text-accent">{totalSales}</span> compraram
+                  </span>
+                  <span>
+                    <span className="font-mono font-semibold text-gold">
+                      {totalLeads > 0 ? ((totalSales / totalLeads) * 100).toFixed(1) : "0"}%
+                    </span> conversão geral
                   </span>
                 </div>
               )}
@@ -179,74 +193,128 @@ export default function AudienciaPage() {
               </button>
             </div>
 
-            {/* Estado de erro */}
             {error && (
               <div className="flex items-center gap-2 p-4 bg-red/10 border border-red/30 rounded-xl text-red text-sm mb-4">
-                <AlertCircle size={16} />
-                {error}
+                <AlertCircle size={16} />{error}
               </div>
             )}
 
-            {/* Loading */}
             {loading && (
               <div className="flex items-center gap-2 py-16 text-text-muted text-sm justify-center">
                 <RefreshCw size={16} className="animate-spin" /> Carregando respostas...
               </div>
             )}
 
-            {/* Sem resultados */}
-            {!loading && !error && rows.length === 0 && selectedProduct && (
+            {!loading && !error && questions.length === 0 && (
               <div className="flex flex-col items-center justify-center py-16 text-center gap-2">
-                <Users size={28} className="text-text-muted" />
-                <p className="text-text-secondary text-sm">Nenhum comprador respondeu o formulário ainda.</p>
-                <p className="text-text-muted text-xs">O cruzamento é feito pelo email — certifique-se de que o formulário pede o mesmo email da compra.</p>
+                <p className="text-text-secondary text-sm">Nenhuma resposta encontrada.</p>
               </div>
             )}
 
-            {/* Tabela */}
-            {!loading && rows.length > 0 && (
-              <div className="bg-card border border-border rounded-xl overflow-hidden">
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b border-border">
-                        <th className="text-left px-4 py-3 text-text-muted font-medium whitespace-nowrap">Email</th>
-                        <th className="text-left px-4 py-3 text-text-muted font-medium whitespace-nowrap">Compra</th>
-                        <th className="text-right px-4 py-3 text-text-muted font-medium whitespace-nowrap">Valor</th>
-                        <th className="text-left px-4 py-3 text-text-muted font-medium whitespace-nowrap">Campanha</th>
-                        {headers.map(h => (
-                          <th key={h} className="text-left px-4 py-3 text-text-muted font-medium whitespace-nowrap max-w-[200px]">
-                            {h}
-                          </th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {rows.map((row, i) => (
-                        <tr key={i} className={`border-b border-border last:border-0 hover:bg-bg/50 transition-colors`}>
-                          <td className="px-4 py-3 font-mono text-text-secondary">{row.email}</td>
-                          <td className="px-4 py-3 text-text-muted whitespace-nowrap">{row.purchase_date}</td>
-                          <td className="px-4 py-3 text-right font-mono text-accent whitespace-nowrap">
-                            R$ {row.amount.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}
-                          </td>
-                          <td className="px-4 py-3 text-text-secondary max-w-[160px] truncate" title={row.utm_medium ?? ""}>
-                            {row.utm_medium ?? <span className="text-text-dark">—</span>}
-                          </td>
-                          {headers.map(h => (
-                            <td key={h} className="px-4 py-3 text-text-primary max-w-[200px] truncate" title={String(row[h] ?? "")}>
-                              {String(row[h] ?? "") || <span className="text-text-dark">—</span>}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
+            {/* Cards de perguntas */}
+            {!loading && questions.length > 0 && (
+              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
+                {questions.map(q => (
+                  <QuestionCard key={q.question} stat={q} />
+                ))}
               </div>
             )}
           </>
         )}
       </main>
+    </div>
+  );
+}
+
+function QuestionCard({ stat }: { stat: QuestionStat }) {
+  const maxLeads = Math.max(...stat.answers.map(a => a.leads), 1);
+
+  // Trunca rótulos longos para o gráfico
+  const chartData = stat.answers.slice(0, 8).map(a => ({
+    ...a,
+    label: a.answer.length > 22 ? a.answer.slice(0, 22) + "…" : a.answer,
+  }));
+
+  return (
+    <div className="bg-card border border-border rounded-xl overflow-hidden">
+      {/* Título */}
+      <div className="px-4 pt-4 pb-2">
+        <p className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider leading-snug line-clamp-2">
+          {stat.question}
+        </p>
+      </div>
+
+      {/* Gráfico */}
+      <div className="px-2 pb-1" style={{ height: 120 }}>
+        <ResponsiveContainer width="100%" height="100%">
+          <BarChart data={chartData} margin={{ top: 4, right: 4, left: -28, bottom: 0 }}>
+            <XAxis
+              dataKey="label"
+              tick={{ fontSize: 9, fill: "#6B7280" }}
+              axisLine={false}
+              tickLine={false}
+              interval={0}
+            />
+            <YAxis tick={{ fontSize: 9, fill: "#6B7280" }} axisLine={false} tickLine={false} />
+            <Tooltip
+              content={({ active, payload }) => {
+                if (!active || !payload?.length) return null;
+                const d = payload[0].payload as AnswerStat;
+                return (
+                  <div className="bg-surface border border-border rounded-lg px-3 py-2 text-xs shadow-lg">
+                    <p className="text-text-primary font-medium mb-1">{d.answer}</p>
+                    <p className="text-text-secondary">Leads: <span className="text-text-primary font-mono">{d.leads}</span></p>
+                    <p className="text-text-secondary">Vendas: <span className="text-accent font-mono">{d.vendas}</span></p>
+                    <p className="text-text-secondary">Conv.: <span className="text-gold font-mono">{d.rate.toFixed(1)}%</span></p>
+                  </div>
+                );
+              }}
+            />
+            <Bar dataKey="leads" radius={[3, 3, 0, 0]}>
+              {chartData.map((entry, i) => (
+                <Cell
+                  key={i}
+                  fill={entry.vendas > 0 ? "#CAFF04" : "#1E2433"}
+                  opacity={entry.vendas > 0 ? 0.85 : 1}
+                />
+              ))}
+            </Bar>
+          </BarChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* Tabela */}
+      <div className="border-t border-border">
+        <div className="grid grid-cols-4 px-4 py-2 border-b border-border">
+          <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider col-span-2">Resposta</span>
+          <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider text-right">Leads</span>
+          <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider text-right">Conv.</span>
+        </div>
+        {stat.answers.slice(0, 6).map((a, i) => (
+          <div key={i} className="grid grid-cols-4 px-4 py-2 border-b border-border last:border-0 hover:bg-bg/40 transition-colors">
+            <div className="col-span-2 flex items-center gap-2 min-w-0">
+              {/* Barra de progresso inline */}
+              <div className="flex-1 h-1 bg-border rounded-full overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-accent/40"
+                  style={{ width: `${(a.leads / maxLeads) * 100}%` }}
+                />
+              </div>
+              <span className="text-[11px] text-text-primary truncate max-w-[100px]" title={a.answer}>
+                {a.answer}
+              </span>
+            </div>
+            <span className="text-[11px] text-text-secondary font-mono text-right self-center">{a.leads}</span>
+            <div className="flex items-center justify-end gap-1.5">
+              <span className="text-[11px] font-mono font-semibold text-right" style={{
+                color: a.rate > 20 ? "#CAFF04" : a.rate > 10 ? "#F59E0B" : a.rate > 0 ? "#60A5FA" : "#4B5563"
+              }}>
+                {a.vendas > 0 ? `${a.rate.toFixed(1)}%` : "—"}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
