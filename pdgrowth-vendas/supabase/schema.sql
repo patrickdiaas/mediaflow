@@ -96,14 +96,18 @@ create table if not exists ad_creatives (
   creative_type   text check (creative_type in ('image', 'video', 'carousel', 'collection')),
   thumbnail_url   text,
   video_url       text,
-  headline        text,
-  body            text,
-  date            date not null,
-  impressions     bigint default 0,
-  clicks          bigint default 0,
-  spend           numeric(10,2) default 0,
-  reach           bigint default 0,
-  created_at      timestamptz default now(),
+  headline              text,
+  body                  text,
+  permalink_url         text,                    -- link direto para o anúncio
+  date                  date not null,
+  impressions           bigint default 0,
+  clicks                bigint default 0,
+  spend                 numeric(10,2) default 0,
+  reach                 bigint default 0,
+  frequency             numeric(6,2),            -- impressions/reach (fadiga)
+  video_3s_views        bigint,                  -- views de 3 segundos
+  video_thruplay_views  bigint,                  -- views completos (ThruPlay)
+  created_at            timestamptz default now(),
   unique (platform, ad_id, date)
 );
 

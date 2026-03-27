@@ -7,8 +7,20 @@ import DataTable, { Column } from "@/components/data-table";
 import { useDashboard } from "@/lib/dashboard-context";
 import { mockCreatives } from "@/lib/mock-data";
 import type { CreativeRow, Platform } from "@/lib/types";
-import { LayoutGrid, List } from "lucide-react";
+import { LayoutGrid, List, ArrowUpDown } from "lucide-react";
 import Image from "next/image";
+
+type SortKey = "roas" | "ctr" | "cpa" | "spend" | "sales" | "cpm" | "conv_rate";
+
+const sortOptions: { value: SortKey; label: string }[] = [
+  { value: "roas",      label: "ROAS"           },
+  { value: "ctr",       label: "CTR"            },
+  { value: "conv_rate", label: "Conv. Rate"     },
+  { value: "cpa",       label: "CPA (menor)"    },
+  { value: "spend",     label: "Investimento"   },
+  { value: "sales",     label: "Vendas"         },
+  { value: "cpm",       label: "CPM (menor)"    },
+];
 
 const roasColor = (v: number) =>
   v >= 4.5 ? "text-accent" : v >= 3 ? "text-gold" : "text-red";
@@ -65,6 +77,7 @@ export default function CriativosPage() {
   const { platform } = useDashboard();
   const [view,     setView]     = useState<"grid" | "list">("grid");
   const [campaign, setCampaign] = useState<string>("all");
+  const [sortBy,   setSortBy]   = useState<SortKey>("roas");
 
   const byPlatform = platform === "all"
     ? mockCreatives
@@ -72,9 +85,12 @@ export default function CriativosPage() {
 
   const campaigns = ["all", ...Array.from(new Set(byPlatform.map(c => c.campaign_name).filter(Boolean)))];
 
-  const filtered = campaign === "all"
-    ? byPlatform
-    : byPlatform.filter(c => c.campaign_name === campaign);
+  const filtered = (campaign === "all" ? byPlatform : byPlatform.filter(c => c.campaign_name === campaign))
+    .slice()
+    .sort((a, b) => {
+      if (sortBy === "cpa" || sortBy === "cpm") return (a[sortBy] ?? 0) - (b[sortBy] ?? 0);
+      return (b[sortBy] ?? 0) - (a[sortBy] ?? 0);
+    });
 
   return (
     <div className="flex min-h-screen bg-bg">
@@ -85,17 +101,30 @@ export default function CriativosPage() {
             <h1 className="text-lg font-semibold text-text-primary">Criativos</h1>
             <p className="text-sm text-text-secondary mt-0.5">Performance por anúncio com prévia do criativo</p>
           </div>
-          <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2 flex-wrap">
             {/* Campaign selector */}
             <select
               value={campaign}
               onChange={e => setCampaign(e.target.value)}
-              className="bg-card border border-border rounded-lg px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-accent/40 cursor-pointer max-w-[220px] truncate"
+              className="bg-card border border-border rounded-lg px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-accent/40 cursor-pointer max-w-[200px] truncate"
             >
               {campaigns.map(c => (
                 <option key={c} value={c}>{c === "all" ? "Todas as campanhas" : c}</option>
               ))}
             </select>
+            {/* Sort selector */}
+            <div className="flex items-center gap-1.5 bg-card border border-border rounded-lg px-2.5 py-2">
+              <ArrowUpDown size={12} className="text-text-muted flex-shrink-0" />
+              <select
+                value={sortBy}
+                onChange={e => setSortBy(e.target.value as SortKey)}
+                className="bg-transparent text-xs text-text-primary focus:outline-none cursor-pointer"
+              >
+                {sortOptions.map(o => (
+                  <option key={o.value} value={o.value}>{o.label}</option>
+                ))}
+              </select>
+            </div>
             {/* View toggle */}
             <div className="flex items-center bg-card border border-border rounded-lg overflow-hidden">
               <button
