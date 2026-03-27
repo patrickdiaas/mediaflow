@@ -173,7 +173,7 @@ export async function POST(req: NextRequest) {
       const campName = s.utm_medium;
       if (!campName) continue;
       // Try exact match or partial match
-      for (const [key, e] of campAgg.entries()) {
+      for (const [key, e] of Array.from(campAgg.entries())) {
         if (key === campName || key.includes(campName) || campName.includes(key)) {
           e.salesCount++;
           e.salesRevenue += Number(s.amount);
@@ -232,7 +232,7 @@ export async function POST(req: NextRequest) {
         e.salesCount++;
         e.salesRevenue += Number(s.amount);
       } else if (adName) {
-        for (const [, e] of creativeAgg.entries()) {
+        for (const [, e] of Array.from(creativeAgg.entries())) {
           if (e.name === adName || e.name.includes(adName) || adName.includes(e.name)) {
             e.salesCount++;
             e.salesRevenue += Number(s.amount);
