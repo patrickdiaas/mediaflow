@@ -4,7 +4,7 @@ import Sidebar from "@/components/sidebar";
 import Header from "@/components/header";
 import { supabase } from "@/lib/supabase";
 import { useDashboard } from "@/lib/dashboard-context";
-import { RefreshCw, Package } from "lucide-react";
+import { RefreshCw, Package, FileSpreadsheet, Check } from "lucide-react";
 
 interface TrackedProduct {
   id: string;
@@ -13,6 +13,7 @@ interface TrackedProduct {
   product_id: string;
   product_name: string | null;
   active: boolean;
+  sheet_id: string | null;
   first_seen: string;
 }
 
@@ -28,10 +29,11 @@ const gatewayLabel: Record<string, string> = {
 
 export default function ConfiguracoesPage() {
   const { client } = useDashboard();
-  const [products, setProducts] = useState<TrackedProduct[]>([]);
-  const [loading, setLoading]   = useState(true);
-  const [toggling, setToggling] = useState<string | null>(null);
-  const [error, setError]       = useState<string | null>(null);
+  const [products, setProducts]   = useState<TrackedProduct[]>([]);
+  const [loading, setLoading]     = useState(true);
+  const [toggling, setToggling]   = useState<string | null>(null);
+  const [savingSheet, setSavingSheet] = useState<string | null>(null);
+  const [error, setError]         = useState<string | null>(null);
 
   async function fetchProducts() {
     setLoading(true);
@@ -51,6 +53,23 @@ export default function ConfiguracoesPage() {
   }
 
   useEffect(() => { fetchProducts(); }, [client]);
+
+  async function saveSheetId(product: TrackedProduct, sheetId: string) {
+    setSavingSheet(product.id);
+    const res = await fetch(`/api/products/${product.id}`, {
+      method:  "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ sheet_id: sheetId.trim() || null }),
+    });
+    if (res.ok) {
+      setProducts(prev =>
+        prev.map(p => p.id === product.id ? { ...p, sheet_id: sheetId.trim() || null } : p)
+      );
+    } else {
+      setError("Erro ao salvar planilha.");
+    }
+    setSavingSheet(null);
+  }
 
   async function toggleProduct(product: TrackedProduct) {
     setToggling(product.id);
@@ -130,7 +149,9 @@ export default function ConfiguracoesPage() {
                       product={p}
                       last={i === active.length - 1}
                       toggling={toggling === p.id}
+                      savingSheet={savingSheet === p.id}
                       onToggle={() => toggleProduct(p)}
+                      onSaveSheet={(id) => saveSheetId(p, id)}
                     />
                   ))}
                 </div>
@@ -150,7 +171,9 @@ export default function ConfiguracoesPage() {
                       product={p}
                       last={i === inactive.length - 1}
                       toggling={toggling === p.id}
+                      savingSheet={savingSheet === p.id}
                       onToggle={() => toggleProduct(p)}
+                      onSaveSheet={(id) => saveSheetId(p, id)}
                     />
                   ))}
                 </div>
@@ -163,47 +186,79 @@ export default function ConfiguracoesPage() {
   );
 }
 
-function ProductRow({ product, last, toggling, onToggle }: {
+function ProductRow({ product, last, toggling, savingSheet, onToggle, onSaveSheet }: {
   product: TrackedProduct;
   last: boolean;
   toggling: boolean;
+  savingSheet: boolean;
   onToggle: () => void;
+  onSaveSheet: (id: string) => void;
 }) {
+  const [sheetInput, setSheetInput] = useState(product.sheet_id ?? "");
+  const [saved, setSaved] = useState(false);
+
   const firstSeen = new Date(product.first_seen).toLocaleDateString("pt-BR", {
     day: "2-digit", month: "2-digit", year: "2-digit",
   });
 
+  async function handleSave() {
+    await onSaveSheet(sheetInput);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  }
+
   return (
-    <div className={`flex items-center justify-between px-5 py-4 ${!last ? "border-b border-border" : ""}`}>
-      <div className="flex items-center gap-3">
-        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md border ${gatewayColor[product.gateway] ?? "text-text-muted border-border"}`}>
-          {gatewayLabel[product.gateway] ?? product.gateway}
-        </span>
-        <div>
-          <div className="text-sm text-text-primary font-medium">
-            {product.product_name ?? "Produto sem nome"}
-          </div>
-          <div className="text-xs text-text-muted font-mono mt-0.5">
-            ID: {product.product_id} · Primeira venda: {firstSeen}
+    <div className={`px-5 py-4 ${!last ? "border-b border-border" : ""}`}>
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md border ${gatewayColor[product.gateway] ?? "text-text-muted border-border"}`}>
+            {gatewayLabel[product.gateway] ?? product.gateway}
+          </span>
+          <div>
+            <div className="text-sm text-text-primary font-medium">
+              {product.product_name ?? "Produto sem nome"}
+            </div>
+            <div className="text-xs text-text-muted font-mono mt-0.5">
+              ID: {product.product_id} · Primeira venda: {firstSeen}
+            </div>
           </div>
         </div>
+
+        <button
+          onClick={onToggle}
+          disabled={toggling}
+          className={`relative w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none ${
+            product.active ? "bg-accent" : "bg-border"
+          } ${toggling ? "opacity-50 cursor-wait" : "cursor-pointer"}`}
+        >
+          <span
+            className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full shadow transition-transform duration-200 ${
+              product.active ? "translate-x-5" : "translate-x-0"
+            }`}
+            style={{ backgroundColor: product.active ? "#0A0A0C" : "#F2F2F5" }}
+          />
+        </button>
       </div>
 
-      {/* Toggle */}
-      <button
-        onClick={onToggle}
-        disabled={toggling}
-        className={`relative w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none ${
-          product.active ? "bg-accent" : "bg-border"
-        } ${toggling ? "opacity-50 cursor-wait" : "cursor-pointer"}`}
-      >
-        <span
-          className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white shadow transition-transform duration-200 ${
-            product.active ? "translate-x-5" : "translate-x-0"
-          }`}
-          style={{ backgroundColor: product.active ? "#0A0A0C" : "#F2F2F5" }}
+      {/* Sheet ID input */}
+      <div className="mt-3 flex items-center gap-2">
+        <FileSpreadsheet size={13} className="text-text-muted flex-shrink-0" />
+        <input
+          type="text"
+          value={sheetInput}
+          onChange={e => setSheetInput(e.target.value)}
+          placeholder="ID da planilha Google (ex: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms)"
+          className="flex-1 bg-bg border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono placeholder:text-text-dark focus:outline-none focus:border-accent/40"
         />
-      </button>
+        <button
+          onClick={handleSave}
+          disabled={savingSheet}
+          className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-card border border-border text-text-secondary hover:text-accent hover:border-accent/30 transition-colors disabled:opacity-50"
+        >
+          {saved ? <Check size={12} className="text-accent" /> : <FileSpreadsheet size={12} />}
+          {saved ? "Salvo!" : "Salvar"}
+        </button>
+      </div>
     </div>
   );
 }

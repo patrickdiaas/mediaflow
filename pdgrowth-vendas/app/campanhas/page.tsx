@@ -124,24 +124,29 @@ const adColumns: Column<CreativeRow>[] = [
 
 export default function CampanhasPage() {
   const { platform } = useDashboard();
-  const [tab, setTab] = useState<Tab>("campanhas");
+  const [tab, setTab]                       = useState<Tab>("campanhas");
+  const [selectedCampaign, setSelectedCampaign] = useState<string>("all");
 
-  const filteredCampaigns = platform === "all"
-    ? mockCampaigns
-    : mockCampaigns.filter(c => c.platform === platform);
+  const byPlatform = <T extends { platform: Platform }>(arr: T[]) =>
+    platform === "all" ? arr : arr.filter(c => c.platform === platform);
 
-  const filteredAdSets = platform === "all"
-    ? mockAdSets
-    : mockAdSets.filter(c => c.platform === platform);
+  const filteredCampaigns = byPlatform(mockCampaigns);
 
-  const filteredAds = platform === "all"
-    ? mockCreatives
-    : mockCreatives.filter(c => c.platform === platform);
+  const filteredAdSets = (selectedCampaign === "all"
+    ? byPlatform(mockAdSets)
+    : byPlatform(mockAdSets).filter(c => c.campaign_name === selectedCampaign));
+
+  const filteredAds = (selectedCampaign === "all"
+    ? byPlatform(mockCreatives)
+    : byPlatform(mockCreatives).filter(c => c.campaign_name === selectedCampaign));
 
   const activeData =
     tab === "campanhas" ? filteredCampaigns :
     tab === "conjuntos" ? filteredAdSets :
     filteredAds;
+
+  // Campaign options for the selector (populated from campaigns list)
+  const campaignOptions = ["all", ...Array.from(new Set(byPlatform(mockCampaigns).map(c => c.campaign_name)))];
 
   const totalSpend   = activeData.reduce((s, c) => s + c.spend, 0);
   const totalRevenue = activeData.reduce((s, c) => s + c.revenue, 0);
@@ -160,21 +165,35 @@ export default function CampanhasPage() {
       <main className="flex-1 p-6 overflow-auto">
         <Header title="Campanhas" subtitle="Performance por campanha, conjunto e anúncio" />
 
-        {/* Tabs */}
-        <div className="flex items-center gap-1 bg-card border border-border rounded-xl px-2 py-1.5 mb-4 w-fit">
-          {tabs.map(t => (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-                tab === t.id
-                  ? "bg-accent/10 text-accent border border-accent/20"
-                  : "text-text-secondary hover:text-text-primary"
-              }`}
+        {/* Tabs + Campaign selector */}
+        <div className="flex items-center gap-3 mb-4 flex-wrap">
+          <div className="flex items-center gap-1 bg-card border border-border rounded-xl px-2 py-1.5">
+            {tabs.map(t => (
+              <button
+                key={t.id}
+                onClick={() => setTab(t.id)}
+                className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+                  tab === t.id
+                    ? "bg-accent/10 text-accent border border-accent/20"
+                    : "text-text-secondary hover:text-text-primary"
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+          </div>
+          {tab !== "campanhas" && (
+            <select
+              value={selectedCampaign}
+              onChange={e => setSelectedCampaign(e.target.value)}
+              className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent/40 cursor-pointer font-mono"
             >
-              {t.label}
-            </button>
-          ))}
+              <option value="all">Todas as campanhas</option>
+              {campaignOptions.filter(c => c !== "all").map(c => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+          )}
         </div>
 
         {/* Summary bar */}

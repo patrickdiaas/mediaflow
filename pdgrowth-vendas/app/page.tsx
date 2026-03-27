@@ -13,10 +13,9 @@ import { getPeriodDates } from "@/lib/period";
 import { mockClients } from "@/lib/mock-data";
 import {
   mockFunnel, mockTrend,
-  mockPaymentDonut, mockProductDonut, mockUTMSources,
   mockCampaigns,
 } from "@/lib/mock-data";
-import type { CampaignRow, ProductRow, Platform, KPIData } from "@/lib/types";
+import type { ProductRow, Platform, KPIData, DonutSlice, HorizontalBarItem } from "@/lib/types";
 import { RefreshCw, Calendar } from "lucide-react";
 
 const periods = [
@@ -39,26 +38,6 @@ const PlatformBadge = ({ p }: { p: Platform }) => (
   </span>
 );
 
-const campaignColumns: Column<CampaignRow>[] = [
-  {
-    key: "campaign_name",
-    label: "Campanha",
-    render: (v, row) => (
-      <div className="flex items-center gap-2">
-        <PlatformBadge p={row.platform} />
-        <span className="text-text-primary text-xs truncate max-w-[180px]" title={String(v)}>{String(v)}</span>
-      </div>
-    ),
-  },
-  { key: "spend",   label: "Invest.", align: "right",
-    render: v => <span className="text-blue text-xs">R$ {Number(v).toLocaleString("pt-BR")}</span> },
-  { key: "revenue", label: "Receita", align: "right",
-    render: v => <span className="text-accent text-xs">R$ {Number(v).toLocaleString("pt-BR")}</span> },
-  { key: "sales",   label: "Vendas",  align: "right",
-    render: v => <span className="text-green font-semibold text-xs">{String(v)}</span> },
-  { key: "roas",    label: "ROAS",    align: "right",
-    render: v => <span className={`font-semibold text-xs ${roasColor(Number(v))}`}>{Number(v).toFixed(2)}×</span> },
-];
 
 const productColumns: Column<ProductRow>[] = [
   { key: "product_name", label: "Produto",
@@ -76,6 +55,16 @@ const productColumns: Column<ProductRow>[] = [
     }},
 ];
 
+// ─── Cores para os gráficos ───────────────────────────────────────────────────
+const CHART_COLORS = ["#CAFF04", "#60A5FA", "#F59E0B", "#EF4444", "#A78BFA", "#34D399"];
+
+const PAYMENT_COLORS: Record<string, string> = {
+  pix:         "#CAFF04",
+  credit_card: "#60A5FA",
+  boleto:      "#F59E0B",
+  debit_card:  "#34D399",
+};
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 interface SalesStats {
   revenue: number; sales: number; avgTicket: number;
@@ -84,8 +73,9 @@ interface SalesStats {
 
 function buildKPIs(stats: SalesStats, loading: boolean): KPIData[] {
   const f = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const totalRevenue = stats.revenue + stats.obRevenue;
   return [
-    { label: "Faturamento",     value: loading ? "…" : `R$ ${f(stats.revenue)}`,    color: "accent"  },
+    { label: "Faturamento",     value: loading ? "…" : `R$ ${f(totalRevenue)}`,       color: "accent"  },
     { label: "Gastos Anúncios", value: "R$ 18.740",  trend: +8.2,  color: "blue"    },
     { label: "ROAS",            value: "4,50×",      trend: +3.8,  color: "purple"  },
     { label: "Lucro",           value: loading ? "…" : `R$ ${f(stats.revenue)}`,    color: "accent"  },
@@ -103,31 +93,95 @@ interface TrackedProduct { product_id: string; product_name: string | null; gate
 function buildProductRows(tracked: TrackedProduct[], sales: any[]): ProductRow[] {
   return tracked.map(tp => {
     const ps       = sales.filter(s => s.product_id === tp.product_id);
-    const approved = ps.filter(s => s.status === "approved" && s.sale_type === "main");
+    const approved = ps.filter(s => s.status === "approved");
     const refunded = ps.filter(s => s.status === "refunded" || s.status === "chargeback");
     const revenue  = approved.reduce((sum: number, s: any) => sum + Number(s.amount), 0);
     return {
-      product_id:   tp.product_id,
-      product_name: tp.product_name ?? "Produto sem nome",
-      gateway:      tp.gateway as any,
-      sales:        approved.length,
+      product_id:    tp.product_id,
+      product_name:  tp.product_name ?? "Produto sem nome",
+      gateway:       tp.gateway as any,
+      sales:         approved.length,
       revenue,
-      avg_ticket:   approved.length > 0 ? revenue / approved.length : 0,
-      refunds:      refunded.length,
-      refund_rate:  (approved.length + refunded.length) > 0
+      avg_ticket:    approved.length > 0 ? revenue / approved.length : 0,
+      refunds:       refunded.length,
+      refund_rate:   (approved.length + refunded.length) > 0
         ? (refunded.length / (approved.length + refunded.length)) * 100 : 0,
+      is_order_bump: ps.length > 0 && ps.every((s: any) => s.sale_type === "order_bump"),
     };
   });
+}
+
+function buildUTMSources(sales: any[]): HorizontalBarItem[] {
+  const approved = sales.filter(s => s.status === "approved");
+  const total = approved.length;
+  if (total === 0) return [];
+  const counts: Record<string, number> = {};
+  for (const s of approved) {
+    const key = s.utm_source || "Direto";
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 6)
+    .map(([label, value], i) => ({
+      label,
+      value,
+      rate: (value / total) * 100,
+      color: CHART_COLORS[i % CHART_COLORS.length],
+    }));
+}
+
+function buildPaymentDonut(sales: any[]): DonutSlice[] {
+  const approved = sales.filter(s => s.status === "approved");
+  if (approved.length === 0) return [];
+  const counts: Record<string, number> = {};
+  for (const s of approved) {
+    const key = s.payment_method || "outros";
+    counts[key] = (counts[key] ?? 0) + 1;
+  }
+  const labels: Record<string, string> = {
+    pix: "Pix", credit_card: "Cartão", boleto: "Boleto", debit_card: "Débito",
+  };
+  return Object.entries(counts)
+    .sort((a, b) => b[1] - a[1])
+    .map(([key, value], i) => ({
+      label: labels[key] ?? key,
+      value,
+      color: PAYMENT_COLORS[key] ?? CHART_COLORS[i % CHART_COLORS.length],
+    }));
+}
+
+function buildProductDonut(tracked: TrackedProduct[], sales: any[]): DonutSlice[] {
+  const approved = sales.filter(s => s.status === "approved" && s.sale_type === "main");
+  if (approved.length === 0) return [];
+  const counts: Record<string, { name: string; count: number }> = {};
+  for (const s of approved) {
+    const id = s.product_id;
+    const name = tracked.find(t => t.product_id === id)?.product_name ?? s.product_name ?? id;
+    if (!counts[id]) counts[id] = { name, count: 0 };
+    counts[id].count++;
+  }
+  return Object.values(counts)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 5)
+    .map((item, i) => ({
+      label: item.name,
+      value: item.count,
+      color: CHART_COLORS[i % CHART_COLORS.length],
+    }));
 }
 
 // ─── Página ───────────────────────────────────────────────────────────────────
 export default function OverviewPage() {
   const { client, setClient, platform, setPlatform, period, setPeriod, campaign, setCampaign } = useDashboard();
 
-  const [stats,    setStats]    = useState<SalesStats>({ revenue: 0, sales: 0, avgTicket: 0, refunds: 0, refundAmt: 0, orderBumps: 0, obRevenue: 0 });
-  const [products, setProducts] = useState<ProductRow[]>([]);
-  const [loading,  setLoading]  = useState(true);
-  const [updatedAt, setUpdatedAt] = useState("");
+  const [stats,         setStats]         = useState<SalesStats>({ revenue: 0, sales: 0, avgTicket: 0, refunds: 0, refundAmt: 0, orderBumps: 0, obRevenue: 0 });
+  const [products,      setProducts]      = useState<ProductRow[]>([]);
+  const [utmSources,    setUtmSources]    = useState<HorizontalBarItem[]>([]);
+  const [paymentDonut,  setPaymentDonut]  = useState<DonutSlice[]>([]);
+  const [productDonut,  setProductDonut]  = useState<DonutSlice[]>([]);
+  const [loading,       setLoading]       = useState(true);
+  const [updatedAt,     setUpdatedAt]     = useState("");
 
   async function fetchData() {
     setLoading(true);
@@ -142,11 +196,11 @@ export default function OverviewPage() {
 
     const ids = tracked?.map((p: any) => p.product_id) ?? [];
 
-    // Vendas no período
+    // Vendas no período (inclui campos para os gráficos)
     const { data: sales } = ids.length > 0
       ? await supabase
           .from("sales")
-          .select("id, amount, status, sale_type, product_id")
+          .select("id, amount, status, sale_type, product_id, product_name, utm_source, payment_method")
           .eq("client_slug", client)
           .in("product_id", ids)
           .gte("created_at", from)
@@ -165,6 +219,9 @@ export default function OverviewPage() {
 
     setStats({ revenue, sales: mainSales.length, avgTicket, refunds: refunded.length, refundAmt, orderBumps: obSales.length, obRevenue });
     setProducts(buildProductRows(tracked ?? [], allSales));
+    setUtmSources(buildUTMSources(allSales));
+    setPaymentDonut(buildPaymentDonut(allSales));
+    setProductDonut(buildProductDonut(tracked ?? [], allSales));
     setUpdatedAt(new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
     setLoading(false);
   }
@@ -173,9 +230,6 @@ export default function OverviewPage() {
 
   const kpis = buildKPIs(stats, loading);
 
-  const filteredCampaigns = mockCampaigns
-    .filter(c => platform === "all" || c.platform === platform)
-    .filter(c => campaign === "all" || c.campaign_id === campaign);
 
   return (
     <div className="flex min-h-screen bg-bg">
@@ -261,44 +315,31 @@ export default function OverviewPage() {
           {/* Gráfico */}
           <DualAxisChart data={mockTrend} />
 
-          {/* Mid row */}
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-            <div className="lg:col-span-3">
-              <div className="bg-card border border-border rounded-xl p-5 h-full">
-                <span className="text-sm font-semibold text-text-primary block mb-3">Campanhas</span>
-                <DataTable<CampaignRow> columns={campaignColumns} data={filteredCampaigns} rowKey="campaign_id" />
-              </div>
-            </div>
-            <div className="lg:col-span-1">
-              <HorizontalBar title="Conversão por Origem" data={mockUTMSources} valueLabel="vendas por fonte" />
-            </div>
-            <div className="lg:col-span-1">
-              <DonutChart title="Método de Pagamento" data={mockPaymentDonut} centerLabel="vendas" />
-            </div>
+          {/* Mid row — 3 gráficos em colunas iguais */}
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+            <DonutChart title="Vendas por Produto"      data={productDonut} centerLabel="total" />
+            <HorizontalBar title="Conversão por Origem" data={utmSources}   valueLabel="vendas por fonte" />
+            <DonutChart title="Método de Pagamento"     data={paymentDonut} centerLabel="vendas" />
           </div>
 
-          {/* Bottom row */}
-          <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
-            <div className="lg:col-span-3">
-              <div className="bg-card border border-border rounded-xl p-5 h-full">
-                <span className="text-sm font-semibold text-text-primary block mb-1">Produtos</span>
-                {loading ? (
-                  <div className="flex items-center gap-2 py-8 text-text-muted text-xs">
-                    <RefreshCw size={13} className="animate-spin" /> Carregando...
-                  </div>
-                ) : products.length === 0 ? (
-                  <p className="text-text-muted text-xs py-8">Nenhum produto rastreado. Ative em Configurações.</p>
-                ) : (
-                  <DataTable<ProductRow> columns={productColumns} data={products} rowKey="product_id" />
-                )}
+          {/* Produtos */}
+          <div className="bg-card border border-border rounded-xl p-5">
+            <span className="text-sm font-semibold text-text-primary block mb-1">Produtos</span>
+            {loading ? (
+              <div className="flex items-center gap-2 py-8 text-text-muted text-xs">
+                <RefreshCw size={13} className="animate-spin" /> Carregando...
               </div>
-            </div>
-            <div className="lg:col-span-1">
-              <DonutChart title="Vendas por Produto" data={mockProductDonut} centerLabel="total" />
-            </div>
-            <div className="lg:col-span-1">
-              <Funnel steps={mockFunnel} />
-            </div>
+            ) : products.length === 0 ? (
+              <p className="text-text-muted text-xs py-8">Nenhum produto rastreado. Ative em Configurações.</p>
+            ) : (
+              <DataTable<ProductRow> columns={productColumns} data={products} rowKey="product_id" />
+            )}
+          </div>
+
+          {/* Funil — destaque em linha própria */}
+          <div className="bg-card border border-border rounded-xl p-6">
+            <span className="text-sm font-semibold text-text-primary block mb-4">Funil de Conversão</span>
+            <Funnel steps={mockFunnel} />
           </div>
         </div>
       </main>

@@ -18,9 +18,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: "Invalid JSON" }, { status: 400 });
   }
 
-  // DMGuru payload shape (simplified):
-  // { event, sale: { id, status, value, product: { id, name }, buyer: { name, email, phone }, tracking: { utm_* } } }
-  const sale = body?.sale ?? body;
+  // DMGuru payload: o body inteiro é a transação (não tem wrapper "sale")
+  // Estrutura real: { id, status, product: { id, name }, payment: { total, method },
+  //                   source: { utm_* }, contact: { name, email }, is_order_bump, dates: { confirmed_at } }
 
   const statusMap: Record<string, string> = {
     approved:   "approved",
@@ -30,34 +30,45 @@ export async function POST(req: NextRequest) {
     cancelled:  "cancelled",
   };
 
-  // DMGuru sends order_bump=true on the sale object for bump purchases
-  const saleType = sale?.order_bump === true ? "order_bump"
-    : sale?.sale_type === "upsell" ? "upsell"
+  const saleType = body?.is_order_bump === 1 || body?.is_order_bump === true ? "order_bump"
+    : body?.sale_type === "upsell" ? "upsell"
     : "main";
 
-  const clientSlug = req.nextUrl.searchParams.get("client") ?? "unknown";
+  const amount      = Number(body?.payment?.total ?? body?.payment?.gross ?? 0);
+  const rawStatus   = String(body?.status ?? "").toLowerCase();
+  const mappedStatus = statusMap[rawStatus] ?? "pending";
+  const productId   = String(body?.product?.id ?? body?.items?.[0]?.id ?? "");
+  const productName = body?.product?.name ?? body?.items?.[0]?.name ?? null;
+  const clientSlug  = req.nextUrl.searchParams.get("client") ?? "unknown";
+
+  console.log("[dmguru] extracted:", {
+    clientSlug, productId, amount,
+    status: mappedStatus, saleType,
+    utm_medium: body?.source?.utm_medium,
+    gateway_order_id: body?.id,
+  });
 
   const supabase = createServiceClient();
   const { error } = await supabase.from("sales").upsert({
     client_slug:      clientSlug,
     gateway:          "dmguru",
-    gateway_order_id: String(sale?.id ?? sale?.order_id ?? ""),
-    status:           statusMap[sale?.status] ?? "pending",
+    gateway_order_id: String(body?.id ?? ""),
+    status:           mappedStatus,
     sale_type:        saleType,
-    product_id:       String(sale?.product?.id ?? ""),
-    product_name:     sale?.product?.name ?? null,
-    plan_name:        sale?.product?.plan ?? null,
-    amount:           Number(sale?.value ?? sale?.amount ?? 0),
-    payment_method:   sale?.payment_method ?? null,
-    buyer_name:       sale?.buyer?.name ?? null,
-    buyer_email:      sale?.buyer?.email ?? null,
-    buyer_phone:      sale?.buyer?.phone ?? null,
-    utm_source:       sale?.tracking?.utm_source ?? sale?.utm_source ?? null,
-    utm_medium:       sale?.tracking?.utm_medium ?? sale?.utm_medium ?? null,
-    utm_campaign:     sale?.tracking?.utm_campaign ?? sale?.utm_campaign ?? null,
-    utm_content:      sale?.tracking?.utm_content ?? sale?.utm_content ?? null,
-    utm_term:         sale?.tracking?.utm_term ?? sale?.utm_term ?? null,
-    approved_at:      sale?.status === "approved" ? new Date().toISOString() : null,
+    product_id:       productId,
+    product_name:     productName,
+    plan_name:        body?.product?.offer?.name ?? null,
+    amount,
+    payment_method:   body?.payment?.method ?? null,
+    buyer_name:       body?.contact?.name ?? null,
+    buyer_email:      body?.contact?.email ?? null,
+    buyer_phone:      body?.contact?.phone_number ?? null,
+    utm_source:       body?.source?.utm_source ?? null,
+    utm_medium:       body?.source?.utm_medium ?? null,
+    utm_campaign:     body?.source?.utm_campaign ?? null,
+    utm_content:      body?.source?.utm_content ?? null,
+    utm_term:         body?.source?.utm_term ?? null,
+    approved_at:      body?.dates?.confirmed_at ?? null,
     raw_payload:      body,
   }, { onConflict: "gateway,gateway_order_id" });
 
@@ -67,8 +78,6 @@ export async function POST(req: NextRequest) {
   }
 
   // Auto-registrar produto na tabela tracked_products (active=false por padrão)
-  const productId   = String(sale?.product?.id ?? "");
-  const productName = sale?.product?.name ?? null;
   if (productId) {
     await supabase.from("tracked_products").upsert({
       client_slug:  clientSlug,
