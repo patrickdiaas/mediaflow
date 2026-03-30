@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
+import { validateWebhookSecret } from "@/lib/webhook-auth";
 
 // Eduzz (Nutror) webhook handler
 // Configure in Eduzz: Settings → Notifications → Webhooks
@@ -8,7 +9,7 @@ import { createServiceClient } from "@/lib/supabase";
 
 export async function POST(req: NextRequest) {
   const secret = req.nextUrl.searchParams.get("secret");
-  if (secret !== process.env.EDUZZ_WEBHOOK_SECRET) {
+  if (!validateWebhookSecret(secret, process.env.EDUZZ_WEBHOOK_SECRET)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 

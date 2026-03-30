@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
+import { validateWebhookSecret } from "@/lib/webhook-auth";
 
 // Hotmart webhook handler
 // Configure in Hotmart: Tools → Webhooks → Add Webhook
@@ -8,7 +9,7 @@ import { createServiceClient } from "@/lib/supabase";
 
 export async function POST(req: NextRequest) {
   const secret = req.nextUrl.searchParams.get("secret");
-  if (secret !== process.env.HOTMART_WEBHOOK_SECRET) {
+  if (!validateWebhookSecret(secret, process.env.HOTMART_WEBHOOK_SECRET)) {
     return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
   }
 
