@@ -95,13 +95,26 @@ export default function CreativeCard({ creative: c }: { creative: CreativeRow })
 
       {/* Info */}
       <div className="p-2.5 flex flex-col gap-2 flex-1">
-        {/* Nome + campanha */}
-        <div className="min-w-0">
-          <p className="text-xs font-medium text-text-primary truncate leading-snug" title={c.ad_name}>{c.ad_name}</p>
-          {c.headline && (
-            <p className="text-[10px] text-text-secondary truncate italic mt-0.5" title={c.headline}>"{c.headline}"</p>
+        {/* Nome + campanha + link */}
+        <div className="flex items-start gap-2">
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-text-primary truncate leading-snug" title={c.ad_name}>{c.ad_name}</p>
+            {c.headline && (
+              <p className="text-[10px] text-text-secondary truncate italic mt-0.5" title={c.headline}>"{c.headline}"</p>
+            )}
+            <p className="text-[10px] text-text-muted truncate mt-0.5">{c.campaign_name || "—"}</p>
+          </div>
+          {linkUrl && (
+            <a
+              href={linkUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              title="Ver criativo no Meta"
+              className="flex-shrink-0 p-1.5 rounded-lg border border-border text-text-secondary hover:text-accent hover:border-accent/40 transition-colors"
+            >
+              <ExternalLink size={12} />
+            </a>
           )}
-          <p className="text-[10px] text-text-muted truncate mt-0.5">{c.campaign_name || "—"}</p>
         </div>
 
         {/* Métricas principais */}

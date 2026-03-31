@@ -368,18 +368,16 @@ export default function CampanhasPage() {
               </button>
             ))}
           </div>
-          {tab !== "campanhas" && (
-            <select
-              value={selectedCampaign}
-              onChange={e => setSelectedCampaign(e.target.value)}
-              className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent/40 cursor-pointer font-mono"
-            >
-              <option value="all">Todas as campanhas</option>
-              {campaignOptions.filter(c => c !== "all").map(c => (
-                <option key={c} value={c}>{c}</option>
-              ))}
-            </select>
-          )}
+          <select
+            value={selectedCampaign}
+            onChange={e => setSelectedCampaign(e.target.value)}
+            className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent/40 cursor-pointer font-mono"
+          >
+            <option value="all">Todas as campanhas</option>
+            {campaignOptions.filter(c => c !== "all").map(c => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
         </div>
 
         <div className="flex gap-4 mb-5 p-3 bg-card border border-border rounded-xl text-sm">
@@ -397,7 +395,7 @@ export default function CampanhasPage() {
         ) : (
           <>
             {tab === "campanhas" && (
-              <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-5 items-start">
+              <div className="space-y-5">
                 <DataTable<CampaignRow> columns={campaignColumns} data={filteredCampaigns} rowKey="campaign_id" />
                 {funnelSteps.length > 0 && (
                   <Funnel steps={funnelSteps} metrics={funnelMetrics} />

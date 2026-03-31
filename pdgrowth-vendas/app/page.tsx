@@ -3,14 +3,13 @@ import { useEffect, useState } from "react";
 import Sidebar from "@/components/sidebar";
 import KPICard from "@/components/kpi-card";
 import DualAxisChart from "@/components/dual-axis-chart";
-import Funnel from "@/components/funnel";
 import DonutChart from "@/components/donut-chart";
 import HorizontalBar from "@/components/horizontal-bar";
 import DataTable, { Column } from "@/components/data-table";
 import { useDashboard } from "@/lib/dashboard-context";
 import { supabase } from "@/lib/supabase";
 import { getPeriodDates } from "@/lib/period";
-import type { ProductRow, Platform, KPIData, DonutSlice, HorizontalBarItem, TrendPoint, FunnelStep } from "@/lib/types";
+import type { ProductRow, Platform, KPIData, DonutSlice, HorizontalBarItem, TrendPoint } from "@/lib/types";
 import { RefreshCw, Calendar, Building2 } from "lucide-react";
 
 const periods = [
@@ -182,8 +181,6 @@ export default function OverviewPage() {
   const [paymentDonut,  setPaymentDonut]  = useState<DonutSlice[]>([]);
   const [productDonut,  setProductDonut]  = useState<DonutSlice[]>([]);
   const [trendData,     setTrendData]     = useState<TrendPoint[]>([]);
-  const [funnelSteps,   setFunnelSteps]   = useState<FunnelStep[]>([]);
-  const [funnelMetrics, setFunnelMetrics] = useState<{ cpm: number; ctr: number; convRate: number } | null>(null);
   const [loading,       setLoading]       = useState(true);
   const [updatedAt,     setUpdatedAt]     = useState("");
 
@@ -230,13 +227,11 @@ export default function OverviewPage() {
     const avgTicket = mainSales.length > 0 ? revenue / mainSales.length : 0;
 
     // Dados de campanhas Meta por dia (spend + impressions + clicks)
-    const adQ = supabase.from("ad_campaigns").select("date, spend, impressions, clicks")
+    const adQ = supabase.from("ad_campaigns").select("date, spend")
       .gte("date", since).lte("date", until);
     const { data: adData } = await (metaSlug ? adQ.eq("client_slug", metaSlug) : adQ);
 
     const spend = (adData ?? []).reduce((sum: number, r: any) => sum + Number(r.spend), 0);
-    const totalImpressions = (adData ?? []).reduce((sum: number, r: any) => sum + Number(r.impressions), 0);
-    const totalClicks      = (adData ?? []).reduce((sum: number, r: any) => sum + Number(r.clicks), 0);
 
     // Trend: receita e investimento por dia
     const revenueByDay = new Map<string, number>();
@@ -255,36 +250,12 @@ export default function OverviewPage() {
       return { date: day.slice(5), revenue: rev, spend: sp, sales: 0, roas: sp > 0 ? rev / sp : 0 };
     });
 
-    // Funil: impressões → cliques → vendas aprovadas
-    const funnelStepsData: FunnelStep[] = [];
-    if (totalImpressions > 0 || totalClicks > 0 || approved.length > 0) {
-      funnelStepsData.push({ label: "Impressões", value: totalImpressions });
-      if (totalClicks > 0) {
-        funnelStepsData.push({
-          label: "Cliques",
-          value: totalClicks,
-          rate: totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0,
-        });
-      }
-      funnelStepsData.push({
-        label: "Vendas Aprovadas",
-        value: approved.length,
-        rate: totalClicks > 0 ? (approved.length / totalClicks) * 100 : 0,
-      });
-    }
-
-    const cpm      = totalImpressions > 0 ? (spend / totalImpressions) * 1000 : 0;
-    const ctr      = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
-    const convRate = totalClicks > 0 ? (approved.length / totalClicks) * 100 : 0;
-
     setStats({ revenue, sales: mainSales.length, avgTicket, refunds: refunded.length, refundAmt, orderBumps: obSales.length, obRevenue, spend });
     setProducts(buildProductRows(tracked ?? [], allSales));
     setUtmSources(buildUTMSources(allSales));
     setPaymentDonut(buildPaymentDonut(allSales));
     setProductDonut(buildProductDonut(tracked ?? [], allSales));
     setTrendData(trend);
-    setFunnelSteps(funnelStepsData);
-    setFunnelMetrics(funnelStepsData.length > 0 ? { cpm, ctr, convRate } : null);
     setUpdatedAt(new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
     setLoading(false);
   }
@@ -394,10 +365,6 @@ export default function OverviewPage() {
             )}
           </div>
 
-          {/* Funil */}
-          {funnelSteps.length > 0 && (
-            <Funnel steps={funnelSteps} metrics={funnelMetrics} />
-          )}
         </div>
       </main>
     </div>
