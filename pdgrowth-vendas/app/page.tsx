@@ -10,13 +10,9 @@ import DataTable, { Column } from "@/components/data-table";
 import { useDashboard } from "@/lib/dashboard-context";
 import { supabase } from "@/lib/supabase";
 import { getPeriodDates } from "@/lib/period";
-import { mockClients } from "@/lib/mock-data";
-import {
-  mockFunnel, mockTrend,
-  mockCampaigns,
-} from "@/lib/mock-data";
+import { mockFunnel, mockTrend } from "@/lib/mock-data";
 import type { ProductRow, Platform, KPIData, DonutSlice, HorizontalBarItem } from "@/lib/types";
-import { RefreshCw, Calendar } from "lucide-react";
+import { RefreshCw, Calendar, Building2 } from "lucide-react";
 
 const periods = [
   { value: "today",     label: "Hoje" },
@@ -173,8 +169,9 @@ function buildProductDonut(tracked: TrackedProduct[], sales: any[]): DonutSlice[
 
 // ─── Página ───────────────────────────────────────────────────────────────────
 export default function OverviewPage() {
-  const { client, setClient, platform, setPlatform, period, setPeriod, campaign, setCampaign } = useDashboard();
+  const { client, setClient, platform, setPlatform, period, setPeriod } = useDashboard();
 
+  const [clients,       setClients]       = useState<{ slug: string; name: string }[]>([]);
   const [stats,         setStats]         = useState<SalesStats>({ revenue: 0, sales: 0, avgTicket: 0, refunds: 0, refundAmt: 0, orderBumps: 0, obRevenue: 0 });
   const [products,      setProducts]      = useState<ProductRow[]>([]);
   const [utmSources,    setUtmSources]    = useState<HorizontalBarItem[]>([]);
@@ -182,6 +179,11 @@ export default function OverviewPage() {
   const [productDonut,  setProductDonut]  = useState<DonutSlice[]>([]);
   const [loading,       setLoading]       = useState(true);
   const [updatedAt,     setUpdatedAt]     = useState("");
+
+  useEffect(() => {
+    supabase.from("clients").select("slug, name").eq("active", true).order("name")
+      .then(({ data }) => { if (data) setClients(data); });
+  }, []);
 
   async function fetchData() {
     setLoading(true);
@@ -239,21 +241,27 @@ export default function OverviewPage() {
         {/* Top bar */}
         <div className="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-bg/95 backdrop-blur-sm z-10">
           <div className="flex items-center gap-3">
-            <select
-              value={client}
-              onChange={e => setClient(e.target.value)}
-              className="bg-card border border-border rounded-lg px-3 py-1.5 text-sm text-text-primary focus:outline-none focus:border-accent/50 cursor-pointer"
-            >
-              {mockClients.map(c => (
-                <option key={c.slug} value={c.slug}>{c.name}</option>
-              ))}
-            </select>
+            {clients.length > 0 && (
+              <div className="flex items-center gap-2 bg-card border border-border rounded-lg px-3 py-1.5">
+                <Building2 size={13} className="text-text-muted" />
+                <select
+                  value={client}
+                  onChange={e => setClient(e.target.value)}
+                  className="bg-transparent text-xs text-text-primary focus:outline-none cursor-pointer max-w-[180px]"
+                >
+                  <option value="all">Todas as contas</option>
+                  {clients.map(c => (
+                    <option key={c.slug} value={c.slug}>{c.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div className="flex items-center bg-card border border-border rounded-lg overflow-hidden text-xs font-medium">
               {(["all", "meta", "google"] as const).map(p => (
                 <button
                   key={p}
-                  onClick={() => setPlatform(p)}
+                  onClick={() => setPlatform(p as Platform | "all")}
                   className={`px-3 py-1.5 transition-colors ${
                     platform === p ? "bg-accent/10 text-accent" : "text-text-secondary hover:text-text-primary"
                   }`}
@@ -262,17 +270,6 @@ export default function OverviewPage() {
                 </button>
               ))}
             </div>
-
-            <select
-              value={campaign}
-              onChange={e => setCampaign(e.target.value)}
-              className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent/50 cursor-pointer"
-            >
-              <option value="all">Todas as campanhas</option>
-              {mockCampaigns.map(c => (
-                <option key={c.campaign_id} value={c.campaign_id}>{c.campaign_name}</option>
-              ))}
-            </select>
           </div>
 
           <div className="flex items-center gap-3">
