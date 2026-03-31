@@ -5,30 +5,50 @@ import { supabase } from "@/lib/supabase";
 import { useDashboard } from "@/lib/dashboard-context";
 import { RefreshCw, Printer, Copy, Check, TrendingUp, TrendingDown, Minus, Building2 } from "lucide-react";
 
+type ReportMode = "weekly" | "monthly";
 
 function fmt(n: number) {
   return n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 function fmtInt(n: number) { return n.toLocaleString("pt-BR"); }
 
+// ─── Ranges ───────────────────────────────────────────────────────────────────
+
 function getWeekRange(offset = 0) {
   const now = new Date();
-  const day = now.getDay(); // 0=dom
+  const day = now.getDay();
   const monday = new Date(now);
   monday.setDate(now.getDate() - ((day + 6) % 7) + offset * 7);
   monday.setHours(0, 0, 0, 0);
   const sunday = new Date(monday);
   sunday.setDate(monday.getDate() + 6);
   sunday.setHours(23, 59, 59, 999);
-  return { from: monday.toISOString(), to: sunday.toISOString(), monday, sunday };
+  return { from: monday.toISOString(), to: sunday.toISOString(), start: monday, end: sunday };
 }
 
-function formatWeekLabel(monday: Date, sunday: Date) {
-  const opts: Intl.DateTimeFormatOptions = { day: "2-digit", month: "2-digit" };
-  return `${monday.toLocaleDateString("pt-BR", opts)} – ${sunday.toLocaleDateString("pt-BR", opts)}`;
+function getMonthRange(offset = 0) {
+  const now = new Date();
+  const first = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+  const last  = new Date(now.getFullYear(), now.getMonth() + offset + 1, 0);
+  last.setHours(23, 59, 59, 999);
+  return { from: first.toISOString(), to: last.toISOString(), start: first, end: last };
 }
 
-interface WeekStats {
+function formatRangeLabel(mode: ReportMode, offset: number) {
+  if (mode === "weekly") {
+    const { start, end } = getWeekRange(offset);
+    const opts: Intl.DateTimeFormatOptions = { day: "2-digit", month: "2-digit" };
+    return `${start.toLocaleDateString("pt-BR", opts)} – ${end.toLocaleDateString("pt-BR", opts)}`;
+  } else {
+    const { start } = getMonthRange(offset);
+    return start.toLocaleDateString("pt-BR", { month: "long", year: "numeric" })
+      .replace(/^\w/, c => c.toUpperCase());
+  }
+}
+
+// ─── Stats ────────────────────────────────────────────────────────────────────
+
+interface PeriodStats {
   revenue: number;
   sales: number;
   orderBumps: number;
@@ -39,18 +59,20 @@ interface WeekStats {
   spend: number;
   roas: number;
   roi: number;
+  cpa: number;
   topProducts: { name: string; sales: number; revenue: number }[];
   topCampaigns: { name: string; sales: number; revenue: number; spend?: number }[];
   byDay: { label: string; vendas: number; receita: number }[];
 }
 
-function emptyStats(): WeekStats {
-  return { revenue: 0, sales: 0, orderBumps: 0, obRevenue: 0, refunds: 0, refundAmt: 0, avgTicket: 0, spend: 0, roas: 0, roi: 0, topProducts: [], topCampaigns: [], byDay: [] };
+function emptyStats(): PeriodStats {
+  return { revenue: 0, sales: 0, orderBumps: 0, obRevenue: 0, refunds: 0, refundAmt: 0,
+    avgTicket: 0, spend: 0, roas: 0, roi: 0, cpa: 0, topProducts: [], topCampaigns: [], byDay: [] };
 }
 
 const DAY_LABELS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
-async function fetchWeekStats(salesSlug: string | null, metaSlug: string | null, from: string, to: string): Promise<WeekStats> {
+async function fetchPeriodStats(salesSlug: string | null, metaSlug: string | null, from: string, to: string): Promise<PeriodStats> {
   const trackedQ = supabase.from("tracked_products").select("product_id").eq("active", true);
   const { data: tracked } = await (salesSlug ? trackedQ.eq("client_slug", salesSlug) : trackedQ);
 
@@ -98,7 +120,7 @@ async function fetchWeekStats(salesSlug: string | null, metaSlug: string | null,
     campMap.set(name, e);
   }
 
-  // Ad spend — usa metaSlug (conta Meta)
+  // Ad spend — Meta Ads
   const adQ = supabase.from("ad_campaigns").select("campaign_name, spend")
     .gte("date", from.slice(0, 10)).lte("date", to.slice(0, 10));
   const { data: adData } = await (metaSlug ? adQ.eq("client_slug", metaSlug) : adQ);
@@ -128,12 +150,13 @@ async function fetchWeekStats(salesSlug: string | null, metaSlug: string | null,
   const totalRevenue = revenue + obRevenue;
   const roas = totalSpend > 0 ? totalRevenue / totalSpend : 0;
   const roi  = totalSpend > 0 ? ((totalRevenue - totalSpend) / totalSpend) * 100 : 0;
+  const cpa  = main.length > 0 && totalSpend > 0 ? totalSpend / main.length : 0;
 
   return {
     revenue, sales: main.length, orderBumps: obs.length,
     obRevenue, refunds: refunded.length, refundAmt,
     avgTicket: main.length > 0 ? revenue / main.length : 0,
-    spend: totalSpend, roas, roi,
+    spend: totalSpend, roas, roi, cpa,
     topProducts, topCampaigns, byDay,
   };
 }
@@ -147,14 +170,17 @@ function Trend({ curr, prev }: { curr: number; prev: number }) {
     : <span className="flex items-center gap-0.5 text-red text-xs"><TrendingDown size={12} />{Math.abs(pct).toFixed(0)}%</span>;
 }
 
+// ─── Página ───────────────────────────────────────────────────────────────────
+
 export default function RelatoriosPage() {
   const { client, setClient } = useDashboard();
-  const [weekOffset, setWeekOffset] = useState(0);
-  const [curr, setCurr] = useState<WeekStats>(emptyStats());
-  const [prev, setPrev] = useState<WeekStats>(emptyStats());
-  const [loading, setLoading] = useState(true);
-  const [copied, setCopied] = useState(false);
-  const [clients, setClients] = useState<{ slug: string; name: string; display_name: string | null; sales_slug: string | null }[]>([]);
+  const [reportMode, setReportMode] = useState<ReportMode>("weekly");
+  const [offset, setOffset]         = useState(0);
+  const [curr, setCurr]             = useState<PeriodStats>(emptyStats());
+  const [prev, setPrev]             = useState<PeriodStats>(emptyStats());
+  const [loading, setLoading]       = useState(true);
+  const [copied, setCopied]         = useState(false);
+  const [clients, setClients]       = useState<{ slug: string; name: string; display_name: string | null; sales_slug: string | null }[]>([]);
   const reportRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -166,62 +192,80 @@ export default function RelatoriosPage() {
   function getSlugs() {
     if (client === "all") return { salesSlug: null, metaSlug: null };
     const found = clients.find(c => c.slug === client);
-    return {
-      salesSlug: found?.sales_slug ?? client,
-      metaSlug: client,
-    };
+    return { salesSlug: found?.sales_slug ?? client, metaSlug: client };
+  }
+
+  function getRange(off: number) {
+    return reportMode === "weekly" ? getWeekRange(off) : getMonthRange(off);
   }
 
   async function load() {
     setLoading(true);
     const { salesSlug, metaSlug } = getSlugs();
-    const w  = getWeekRange(weekOffset);
-    const wp = getWeekRange(weekOffset - 1);
+    const curr = getRange(offset);
+    const prevR = getRange(offset - 1);
     const [c, p] = await Promise.all([
-      fetchWeekStats(salesSlug, metaSlug, w.from, w.to),
-      fetchWeekStats(salesSlug, metaSlug, wp.from, wp.to),
+      fetchPeriodStats(salesSlug, metaSlug, curr.from, curr.to),
+      fetchPeriodStats(salesSlug, metaSlug, prevR.from, prevR.to),
     ]);
     setCurr(c);
     setPrev(p);
     setLoading(false);
   }
 
-  useEffect(() => { load(); }, [client, weekOffset, clients]);
+  useEffect(() => { load(); }, [client, reportMode, offset, clients]);
 
-  const week  = getWeekRange(weekOffset);
-  const label = formatWeekLabel(week.monday, week.sunday);
+  // Reset offset when switching mode
+  function switchMode(mode: ReportMode) {
+    setOffset(0);
+    setReportMode(mode);
+  }
+
+  const label    = formatRangeLabel(reportMode, offset);
+  const prevLabel = formatRangeLabel(reportMode, offset - 1);
+  const totalRev  = curr.revenue + curr.obRevenue;
+  const prevTotalRev = prev.revenue + prev.obRevenue;
+  const maxDay = Math.max(...curr.byDay.map(d => d.receita), 1);
+  const clientName = client === "all" ? "Todas as contas"
+    : (clients.find(c => c.slug === client)?.display_name ?? clients.find(c => c.slug === client)?.name ?? client);
 
   function buildTextReport() {
-    const totalRev = curr.revenue + curr.obRevenue;
-    const prevTotalRevLocal = prev.revenue + prev.obRevenue;
-    const revDiff = prevTotalRevLocal > 0 ? ((totalRev - prevTotalRevLocal) / prevTotalRevLocal) * 100 : 0;
+    const revDiff   = prevTotalRev > 0 ? ((totalRev - prevTotalRev) / prevTotalRev) * 100 : 0;
     const salesDiff = prev.sales > 0 ? ((curr.sales - prev.sales) / prev.sales) * 100 : 0;
+    const lucro     = curr.spend > 0 ? totalRev - curr.spend : null;
 
     const lines = [
-      `📊 *Relatório Semanal — ${label}*`,
+      `📊 *Relatório ${reportMode === "weekly" ? "Semanal" : "Mensal"} — ${label}*`,
+      client !== "all" ? `🏢 ${clientName}` : "",
       ``,
-      `💰 *Faturamento:* R$ ${fmt(totalRev)}${revDiff !== 0 ? ` (${revDiff > 0 ? "+" : ""}${revDiff.toFixed(0)}% vs semana anterior)` : ""}`,
+      `💰 *Faturamento:* R$ ${fmt(totalRev)}${revDiff !== 0 ? ` (${revDiff > 0 ? "+" : ""}${revDiff.toFixed(0)}% vs ${reportMode === "weekly" ? "semana" : "mês"} anterior)` : ""}`,
       `🛒 *Vendas:* ${fmtInt(curr.sales)}${salesDiff !== 0 ? ` (${salesDiff > 0 ? "+" : ""}${salesDiff.toFixed(0)}%)` : ""}`,
-      `⬆️ *Order Bumps:* ${curr.orderBumps} · R$ ${fmt(curr.obRevenue)}`,
       `🎫 *Ticket médio:* R$ ${fmt(curr.avgTicket)}`,
-      `↩️ *Reembolsos:* ${curr.refunds} · R$ ${fmt(curr.refundAmt)}`,
-    ];
+      curr.orderBumps > 0 ? `⬆️ *Order Bumps:* ${curr.orderBumps} · R$ ${fmt(curr.obRevenue)}` : "",
+      curr.refunds > 0    ? `↩️ *Reembolsos:* ${curr.refunds} · R$ ${fmt(curr.refundAmt)}` : "",
+    ].filter(l => l !== "");
 
     if (curr.spend > 0) {
-      lines.push(``, `📈 *Performance de Anúncios*`);
+      lines.push(``, `📈 *Meta Ads*`);
       lines.push(`💸 *Investimento:* R$ ${fmt(curr.spend)}`);
       lines.push(`📊 *ROAS:* ${curr.roas.toFixed(2)}×`);
       lines.push(`💹 *ROI:* ${curr.roi.toFixed(1)}%`);
+      if (lucro !== null) lines.push(`💵 *Lucro bruto:* R$ ${fmt(lucro)}`);
+      if (curr.cpa > 0)   lines.push(`🎯 *CPA:* R$ ${fmt(curr.cpa)}`);
     }
 
-    lines.push(``, `📦 *Top Produtos:*`);
-    lines.push(...curr.topProducts.map((p, i) => `${i + 1}. ${p.name} — ${p.sales}v · R$ ${fmt(p.revenue)}`));
+    if (curr.topProducts.length > 0) {
+      lines.push(``, `📦 *Top Produtos:*`);
+      lines.push(...curr.topProducts.map((p, i) => `${i + 1}. ${p.name} — ${p.sales}v · R$ ${fmt(p.revenue)}`));
+    }
 
-    lines.push(``, `📣 *Top Campanhas:*`);
-    lines.push(...curr.topCampaigns.map((c, i) => {
-      const roasStr = c.spend && c.spend > 0 ? ` · ROAS ${(c.revenue / c.spend).toFixed(2)}×` : "";
-      return `${i + 1}. ${c.name} — ${c.sales}v · R$ ${fmt(c.revenue)}${roasStr}`;
-    }));
+    if (curr.topCampaigns.length > 0) {
+      lines.push(``, `📣 *Top Campanhas:*`);
+      lines.push(...curr.topCampaigns.map((c, i) => {
+        const roasStr = c.spend && c.spend > 0 ? ` · ROAS ${(c.revenue / c.spend).toFixed(2)}×` : "";
+        return `${i + 1}. ${c.name} — ${c.sales}v · R$ ${fmt(c.revenue)}${roasStr}`;
+      }));
+    }
 
     return lines.join("\n");
   }
@@ -231,10 +275,6 @@ export default function RelatoriosPage() {
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   }
-
-  const totalRev = curr.revenue + curr.obRevenue;
-  const prevTotalRev = prev.revenue + prev.obRevenue;
-  const maxDay = Math.max(...curr.byDay.map(d => d.receita), 1);
 
   return (
     <div className="flex min-h-screen bg-bg">
@@ -256,12 +296,13 @@ export default function RelatoriosPage() {
       <Sidebar />
       <main className="flex-1 p-6 overflow-auto">
         {/* Header */}
-        <div className="flex items-center justify-between mb-6">
+        <div className="flex items-center justify-between mb-6 flex-wrap gap-3">
           <div>
-            <h1 className="text-lg font-semibold text-text-primary">Relatório Semanal</h1>
-            <p className="text-sm text-text-secondary mt-0.5">Resumo de performance por semana</p>
+            <h1 className="text-lg font-semibold text-text-primary">Relatórios</h1>
+            <p className="text-sm text-text-secondary mt-0.5">Performance semanal e mensal</p>
           </div>
-          <div className="flex items-center gap-2 no-print">
+          <div className="flex items-center gap-2 no-print flex-wrap">
+            {/* Seletor de cliente */}
             {clients.length > 0 && (
               <div className="flex items-center gap-2 bg-card border border-border rounded-lg px-3 py-2">
                 <Building2 size={14} className="text-text-muted" />
@@ -277,20 +318,32 @@ export default function RelatoriosPage() {
                 </select>
               </div>
             )}
-            <button onClick={() => setWeekOffset(w => w - 1)}
+
+            {/* Modo: Semanal / Mensal */}
+            <div className="flex items-center bg-card border border-border rounded-lg overflow-hidden text-xs font-medium">
+              {(["weekly", "monthly"] as ReportMode[]).map(m => (
+                <button key={m} onClick={() => switchMode(m)}
+                  className={`px-3 py-2 transition-colors ${reportMode === m ? "bg-accent/10 text-accent" : "text-text-secondary hover:text-text-primary"}`}>
+                  {m === "weekly" ? "Semanal" : "Mensal"}
+                </button>
+              ))}
+            </div>
+
+            {/* Navegação de período */}
+            <button onClick={() => setOffset(o => o - 1)}
               className="px-3 py-1.5 text-xs bg-card border border-border rounded-lg text-text-secondary hover:text-text-primary transition-colors">
               ← Anterior
             </button>
-            <span className="text-xs font-mono text-text-primary bg-card border border-border px-3 py-1.5 rounded-lg min-w-[150px] text-center">
+            <span className="text-xs font-mono text-text-primary bg-card border border-border px-3 py-1.5 rounded-lg min-w-[160px] text-center">
               {label}
             </span>
-            <button onClick={() => setWeekOffset(w => Math.min(w + 1, 0))}
-              disabled={weekOffset === 0}
+            <button onClick={() => setOffset(o => Math.min(o + 1, 0))}
+              disabled={offset === 0}
               className="px-3 py-1.5 text-xs bg-card border border-border rounded-lg text-text-secondary hover:text-text-primary transition-colors disabled:opacity-40">
-              Próxima →
+              Próximo →
             </button>
-            <button onClick={load}
-              className="p-1.5 text-text-muted hover:text-text-primary transition-colors">
+
+            <button onClick={load} className="p-1.5 text-text-muted hover:text-text-primary transition-colors">
               <RefreshCw size={14} className={loading ? "animate-spin" : ""} />
             </button>
             <button onClick={() => window.print()}
@@ -314,11 +367,11 @@ export default function RelatoriosPage() {
             {/* KPIs — vendas */}
             <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
               {[
-                { label: "Faturamento Total", value: `R$ ${fmt(totalRev)}`,                                    curr: totalRev,          prev: prevTotalRev,      color: "text-accent" },
-                { label: "Vendas",            value: fmtInt(curr.sales),                                       curr: curr.sales,        prev: prev.sales,        color: "text-green" },
-                { label: "Order Bumps",       value: `${curr.orderBumps} · R$ ${fmt(curr.obRevenue)}`,         curr: curr.orderBumps,   prev: prev.orderBumps,   color: "text-gold" },
-                { label: "Ticket Médio",      value: `R$ ${fmt(curr.avgTicket)}`,                              curr: curr.avgTicket,    prev: prev.avgTicket,    color: "text-gold" },
-                { label: "Reembolsos",        value: `${curr.refunds} · R$ ${fmt(curr.refundAmt)}`,            curr: curr.refunds,      prev: prev.refunds,      color: "text-red"  },
+                { label: "Faturamento Total", value: `R$ ${fmt(totalRev)}`,                          curr: totalRev,        prev: prevTotalRev,    color: "text-accent" },
+                { label: "Vendas",            value: fmtInt(curr.sales),                             curr: curr.sales,      prev: prev.sales,      color: "text-accent" },
+                { label: "Order Bumps",       value: `${curr.orderBumps} · R$ ${fmt(curr.obRevenue)}`, curr: curr.orderBumps, prev: prev.orderBumps, color: "text-gold" },
+                { label: "Ticket Médio",      value: `R$ ${fmt(curr.avgTicket)}`,                    curr: curr.avgTicket,  prev: prev.avgTicket,  color: "text-gold" },
+                { label: "Reembolsos",        value: `${curr.refunds} · R$ ${fmt(curr.refundAmt)}`,  curr: curr.refunds,    prev: prev.refunds,    color: "text-red"  },
               ].map(k => (
                 <div key={k.label} className="bg-card border border-border rounded-xl p-4">
                   <p className="text-[11px] text-text-muted mb-1">{k.label}</p>
@@ -328,18 +381,19 @@ export default function RelatoriosPage() {
               ))}
             </div>
 
-            {/* KPIs — anúncios (exibe só se houver dados de spend) */}
+            {/* KPIs — Meta Ads (só exibe se houver spend) */}
             {(curr.spend > 0 || prev.spend > 0) && (
-              <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                <div className="col-span-2 lg:col-span-4 flex items-center gap-2">
-                  <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Anúncios (Meta + Google)</span>
+              <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+                <div className="col-span-2 lg:col-span-5 flex items-center gap-2">
+                  <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Meta Ads</span>
                   <div className="flex-1 h-px bg-border" />
                 </div>
                 {[
-                  { label: "Investimento",  value: curr.spend > 0 ? `R$ ${fmt(curr.spend)}`     : "—", curr: curr.spend,  prev: prev.spend,  color: "text-blue", invert: true },
-                  { label: "ROAS",          value: curr.roas > 0  ? `${curr.roas.toFixed(2)}×`   : "—", curr: curr.roas,   prev: prev.roas,   color: curr.roas >= 3 ? "text-accent" : curr.roas >= 2 ? "text-gold" : "text-red", invert: false },
-                  { label: "ROI",           value: curr.roi !== 0 ? `${curr.roi.toFixed(1)}%`    : "—", curr: curr.roi,    prev: prev.roi,    color: curr.roi >= 0 ? "text-accent" : "text-red", invert: false },
-                  { label: "Lucro Bruto",   value: curr.spend > 0 ? `R$ ${fmt(totalRev - curr.spend)}` : "—", curr: totalRev - curr.spend, prev: (prev.revenue + prev.obRevenue) - prev.spend, color: "text-accent", invert: false },
+                  { label: "Investimento", value: curr.spend > 0 ? `R$ ${fmt(curr.spend)}` : "—",  curr: curr.spend, prev: prev.spend, color: "text-blue" },
+                  { label: "ROAS",  value: curr.roas > 0 ? `${curr.roas.toFixed(2)}×` : "—",        curr: curr.roas,  prev: prev.roas,  color: curr.roas >= 3 ? "text-accent" : curr.roas >= 2 ? "text-gold" : "text-red" },
+                  { label: "ROI",   value: curr.roi !== 0 ? `${curr.roi.toFixed(1)}%` : "—",         curr: curr.roi,   prev: prev.roi,   color: curr.roi >= 0 ? "text-accent" : "text-red" },
+                  { label: "Lucro Bruto", value: curr.spend > 0 ? `R$ ${fmt(totalRev - curr.spend)}` : "—", curr: totalRev - curr.spend, prev: prevTotalRev - prev.spend, color: "text-accent" },
+                  { label: "CPA",   value: curr.cpa > 0 ? `R$ ${fmt(curr.cpa)}` : "—",              curr: curr.cpa,   prev: prev.cpa,   color: "text-gold" },
                 ].map(k => (
                   <div key={k.label} className="bg-card border border-border rounded-xl p-4">
                     <p className="text-[11px] text-text-muted mb-1">{k.label}</p>
@@ -352,7 +406,9 @@ export default function RelatoriosPage() {
 
             {/* Faturamento por dia da semana */}
             <div className="bg-card border border-border rounded-xl p-5">
-              <span className="text-sm font-semibold text-text-primary block mb-4">Faturamento por dia da semana</span>
+              <span className="text-sm font-semibold text-text-primary block mb-4">
+                Faturamento por dia da semana
+              </span>
               <div className="flex items-end gap-2 h-24">
                 {curr.byDay.map((d, i) => (
                   <div key={i} className="flex-1 flex flex-col items-center gap-1">
@@ -435,14 +491,15 @@ export default function RelatoriosPage() {
             {/* Comparativo */}
             <div className="bg-card border border-border rounded-xl p-5">
               <span className="text-sm font-semibold text-text-primary block mb-3">
-                Comparativo vs semana anterior
+                Comparativo vs {reportMode === "weekly" ? "semana" : "mês"} anterior
+                <span className="text-text-muted font-normal text-xs ml-2">({prevLabel})</span>
               </span>
               <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
                 {[
-                  { label: "Faturamento", curr: totalRev,        prev: prevTotalRev,    format: (v: number) => `R$ ${fmt(v)}` },
-                  { label: "Vendas",      curr: curr.sales,      prev: prev.sales,       format: (v: number) => fmtInt(v) },
-                  { label: "Ticket Médio",curr: curr.avgTicket,  prev: prev.avgTicket,  format: (v: number) => `R$ ${fmt(v)}` },
-                  { label: "Reembolsos",  curr: curr.refunds,    prev: prev.refunds,    format: (v: number) => fmtInt(v) },
+                  { label: "Faturamento",  curr: totalRev,       prev: prevTotalRev,   format: (v: number) => `R$ ${fmt(v)}` },
+                  { label: "Vendas",       curr: curr.sales,     prev: prev.sales,     format: (v: number) => fmtInt(v) },
+                  { label: "Ticket Médio", curr: curr.avgTicket, prev: prev.avgTicket, format: (v: number) => `R$ ${fmt(v)}` },
+                  { label: "Reembolsos",   curr: curr.refunds,   prev: prev.refunds,   format: (v: number) => fmtInt(v) },
                 ].map(r => {
                   const diff = r.prev > 0 ? ((r.curr - r.prev) / r.prev) * 100 : 0;
                   const up = diff > 0;
