@@ -185,7 +185,7 @@ export default function OverviewPage() {
 
   async function fetchData() {
     setLoading(true);
-    const { from, to } = getPeriodDates(period);
+    const { since, until } = getPeriodDates(period);
 
     // Produtos rastreados
     const { data: tracked } = await supabase
@@ -203,8 +203,8 @@ export default function OverviewPage() {
           .select("id, amount, status, sale_type, product_id, product_name, utm_source, payment_method")
           .eq("client_slug", client)
           .in("product_id", ids)
-          .gte("created_at", from)
-          .lte("created_at", to)
+          .gte("created_at", since)
+          .lte("created_at", until + "T23:59:59")
       : { data: [] };
 
     const allSales   = sales ?? [];

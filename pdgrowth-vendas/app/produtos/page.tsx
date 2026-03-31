@@ -134,7 +134,7 @@ export default function ProdutosPage() {
     setError(null);
     setNoTracked(false);
 
-    const { from, to } = getPeriodDates(period);
+    const { since, until } = getPeriodDates(period);
 
     const { data: tracked, error: tErr } = await supabase
       .from("tracked_products")
@@ -152,8 +152,8 @@ export default function ProdutosPage() {
       .select("id, created_at, gateway, sale_type, amount, status, product_name, product_id, utm_medium, utm_campaign, utm_content, utm_source")
       .eq("client_slug", client)
       .in("product_id", ids)
-      .gte("created_at", from)
-      .lte("created_at", to)
+      .gte("created_at", since)
+      .lte("created_at", until + "T23:59:59")
       .order("created_at", { ascending: true });
 
     if (sErr) { setError(sErr.message); setLoading(false); return; }

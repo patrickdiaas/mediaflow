@@ -163,13 +163,13 @@ export default function AnalisesPage() {
     setRawContext("");
     setDataSources(null);
 
-    const { from, to } = getPeriodDates(period);
+    const { since, until } = getPeriodDates(period);
 
     try {
       const res = await fetch("/api/analises", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ client, period_from: from, period_to: to }),
+        body: JSON.stringify({ client, period_from: since, period_to: until }),
       });
 
       const data = await res.json();
