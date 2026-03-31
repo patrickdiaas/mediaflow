@@ -152,7 +152,7 @@ async function fetchAllPages<T>(initialUrl: string): Promise<T[]> {
   const results: T[] = []
   let url: string | undefined = initialUrl
   while (url) {
-    const page = await metaFetch<MetaPage<T>>(url)
+    const page: MetaPage<T> = await metaFetch<MetaPage<T>>(url)
     results.push(...page.data)
     url = page.paging?.next
   }
