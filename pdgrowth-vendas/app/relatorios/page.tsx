@@ -3,7 +3,8 @@ import { useEffect, useState, useRef } from "react";
 import Sidebar from "@/components/sidebar";
 import { supabase } from "@/lib/supabase";
 import { useDashboard } from "@/lib/dashboard-context";
-import { RefreshCw, Printer, Copy, Check, TrendingUp, TrendingDown, Minus } from "lucide-react";
+import { RefreshCw, Printer, Copy, Check, TrendingUp, TrendingDown, Minus, Building2 } from "lucide-react";
+
 
 function fmt(n: number) {
   return n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -49,23 +50,20 @@ function emptyStats(): WeekStats {
 
 const DAY_LABELS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
 
-async function fetchWeekStats(client: string, from: string, to: string): Promise<WeekStats> {
-  const { data: tracked } = await supabase
-    .from("tracked_products")
-    .select("product_id")
-    .eq("client_slug", client)
-    .eq("active", true);
+async function fetchWeekStats(salesSlug: string | null, metaSlug: string | null, from: string, to: string): Promise<WeekStats> {
+  const trackedQ = supabase.from("tracked_products").select("product_id").eq("active", true);
+  const { data: tracked } = await (salesSlug ? trackedQ.eq("client_slug", salesSlug) : trackedQ);
 
   if (!tracked?.length) return emptyStats();
   const ids = tracked.map((p: any) => p.product_id);
 
-  const { data: sales } = await supabase
+  const salesQ = supabase
     .from("sales")
     .select("amount, status, sale_type, product_name, product_id, utm_medium, created_at")
-    .eq("client_slug", client)
     .in("product_id", ids)
     .gte("created_at", from)
     .lte("created_at", to);
+  const { data: sales } = await (salesSlug ? salesQ.eq("client_slug", salesSlug) : salesQ);
 
   if (!sales?.length) return emptyStats();
 
@@ -78,7 +76,6 @@ async function fetchWeekStats(client: string, from: string, to: string): Promise
   const obRevenue = obs.reduce((a: number, s: any)  => a + Number(s.amount), 0);
   const refundAmt = refunded.reduce((a: number, s: any) => a + Number(s.amount), 0);
 
-  // Top produtos
   const prodMap = new Map<string, { sales: number; revenue: number }>();
   for (const s of approved) {
     const name = s.product_name ?? "Desconhecido";
@@ -92,7 +89,6 @@ async function fetchWeekStats(client: string, from: string, to: string): Promise
     .sort((a, b) => b.revenue - a.revenue)
     .slice(0, 5);
 
-  // Top campanhas (correlacionadas com ad spend via utm_medium)
   const campMap = new Map<string, { sales: number; revenue: number }>();
   for (const s of approved) {
     const name = s.utm_medium ?? "Direto";
@@ -102,13 +98,10 @@ async function fetchWeekStats(client: string, from: string, to: string): Promise
     campMap.set(name, e);
   }
 
-  // Fetch ad spend from ad_campaigns
-  const { data: adData } = await supabase
-    .from("ad_campaigns")
-    .select("campaign_name, spend")
-    .eq("client_slug", client)
-    .gte("date", from.slice(0, 10))
-    .lte("date", to.slice(0, 10));
+  // Ad spend — usa metaSlug (conta Meta)
+  const adQ = supabase.from("ad_campaigns").select("campaign_name, spend")
+    .gte("date", from.slice(0, 10)).lte("date", to.slice(0, 10));
+  const { data: adData } = await (metaSlug ? adQ.eq("client_slug", metaSlug) : adQ);
 
   const adSpendMap = new Map<string, number>();
   for (const a of (adData ?? [])) {
@@ -155,28 +148,45 @@ function Trend({ curr, prev }: { curr: number; prev: number }) {
 }
 
 export default function RelatoriosPage() {
-  const { client } = useDashboard();
-  const [weekOffset, setWeekOffset] = useState(0); // 0 = semana atual, -1 = anterior
+  const { client, setClient } = useDashboard();
+  const [weekOffset, setWeekOffset] = useState(0);
   const [curr, setCurr] = useState<WeekStats>(emptyStats());
   const [prev, setPrev] = useState<WeekStats>(emptyStats());
   const [loading, setLoading] = useState(true);
   const [copied, setCopied] = useState(false);
+  const [clients, setClients] = useState<{ slug: string; name: string; display_name: string | null; sales_slug: string | null }[]>([]);
   const reportRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    supabase.from("clients").select("slug, name, display_name, sales_slug")
+      .eq("active", true).order("name")
+      .then(({ data }) => { if (data) setClients(data); });
+  }, []);
+
+  function getSlugs() {
+    if (client === "all") return { salesSlug: null, metaSlug: null };
+    const found = clients.find(c => c.slug === client);
+    return {
+      salesSlug: found?.sales_slug ?? client,
+      metaSlug: client,
+    };
+  }
 
   async function load() {
     setLoading(true);
+    const { salesSlug, metaSlug } = getSlugs();
     const w  = getWeekRange(weekOffset);
     const wp = getWeekRange(weekOffset - 1);
     const [c, p] = await Promise.all([
-      fetchWeekStats(client, w.from, w.to),
-      fetchWeekStats(client, wp.from, wp.to),
+      fetchWeekStats(salesSlug, metaSlug, w.from, w.to),
+      fetchWeekStats(salesSlug, metaSlug, wp.from, wp.to),
     ]);
     setCurr(c);
     setPrev(p);
     setLoading(false);
   }
 
-  useEffect(() => { load(); }, [client, weekOffset]);
+  useEffect(() => { load(); }, [client, weekOffset, clients]);
 
   const week  = getWeekRange(weekOffset);
   const label = formatWeekLabel(week.monday, week.sunday);
@@ -252,6 +262,21 @@ export default function RelatoriosPage() {
             <p className="text-sm text-text-secondary mt-0.5">Resumo de performance por semana</p>
           </div>
           <div className="flex items-center gap-2 no-print">
+            {clients.length > 0 && (
+              <div className="flex items-center gap-2 bg-card border border-border rounded-lg px-3 py-2">
+                <Building2 size={14} className="text-text-muted" />
+                <select
+                  value={client}
+                  onChange={e => setClient(e.target.value)}
+                  className="bg-transparent text-xs text-text-primary focus:outline-none cursor-pointer max-w-[180px]"
+                >
+                  <option value="all">Todas as contas</option>
+                  {clients.map(c => (
+                    <option key={c.slug} value={c.slug}>{c.display_name ?? c.name}</option>
+                  ))}
+                </select>
+              </div>
+            )}
             <button onClick={() => setWeekOffset(w => w - 1)}
               className="px-3 py-1.5 text-xs bg-card border border-border rounded-lg text-text-secondary hover:text-text-primary transition-colors">
               ← Anterior
