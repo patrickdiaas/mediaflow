@@ -171,7 +171,7 @@ function buildProductDonut(tracked: TrackedProduct[], sales: any[]): DonutSlice[
 export default function OverviewPage() {
   const { client, setClient, platform, setPlatform, period, setPeriod } = useDashboard();
 
-  const [clients,       setClients]       = useState<{ slug: string; name: string }[]>([]);
+  const [clients,       setClients]       = useState<{ slug: string; name: string; sales_slug: string | null }[]>([]);
   const [stats,         setStats]         = useState<SalesStats>({ revenue: 0, sales: 0, avgTicket: 0, refunds: 0, refundAmt: 0, orderBumps: 0, obRevenue: 0 });
   const [products,      setProducts]      = useState<ProductRow[]>([]);
   const [utmSources,    setUtmSources]    = useState<HorizontalBarItem[]>([]);
@@ -181,33 +181,37 @@ export default function OverviewPage() {
   const [updatedAt,     setUpdatedAt]     = useState("");
 
   useEffect(() => {
-    supabase.from("clients").select("slug, name").eq("active", true).order("name")
-      .then(({ data }) => { if (data) setClients(data); });
+    supabase.from("clients").select("slug, name, sales_slug").eq("active", true).order("name")
+      .then(({ data }) => { if (data) setClients(data as { slug: string; name: string; sales_slug: string | null }[]); });
   }, []);
+
+  function getSalesSlug(): string | null {
+    if (client === "all") return null;
+    const found = clients.find(c => c.slug === client);
+    return found?.sales_slug ?? client;
+  }
 
   async function fetchData() {
     setLoading(true);
     const { since, until } = getPeriodDates(period);
+    const salesSlug = getSalesSlug();
 
     // Produtos rastreados
-    const { data: tracked } = await supabase
-      .from("tracked_products")
-      .select("product_id, product_name, gateway")
-      .eq("client_slug", client)
-      .eq("active", true);
+    const trackedQ = supabase.from("tracked_products").select("product_id, product_name, gateway").eq("active", true);
+    const { data: tracked } = await (salesSlug ? trackedQ.eq("client_slug", salesSlug) : trackedQ);
 
     const ids = tracked?.map((p: any) => p.product_id) ?? [];
 
-    // Vendas no período (inclui campos para os gráficos)
-    const { data: sales } = ids.length > 0
-      ? await supabase
-          .from("sales")
-          .select("id, amount, status, sale_type, product_id, product_name, utm_source, payment_method")
-          .eq("client_slug", client)
-          .in("product_id", ids)
-          .gte("created_at", since)
-          .lte("created_at", until + "T23:59:59")
-      : { data: [] };
+    // Vendas no período
+    const salesQ = supabase
+      .from("sales")
+      .select("id, amount, status, sale_type, product_id, product_name, utm_source, payment_method")
+      .gte("created_at", since)
+      .lte("created_at", until + "T23:59:59");
+    if (salesSlug) salesQ.eq("client_slug", salesSlug);
+    if (ids.length > 0) salesQ.in("product_id", ids);
+
+    const { data: sales } = ids.length > 0 ? await salesQ : { data: [] };
 
     const allSales   = sales ?? [];
     const approved   = allSales.filter((s: any) => s.status === "approved");

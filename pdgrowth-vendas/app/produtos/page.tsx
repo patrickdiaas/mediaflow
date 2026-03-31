@@ -121,6 +121,7 @@ function buildTopUTMs(sales: any[], key: UTMKey) {
 export default function ProdutosPage() {
   const { client, period } = useDashboard();
 
+  const [clients,         setClients]         = useState<{ slug: string; sales_slug: string | null }[]>([]);
   const [products,        setProducts]        = useState<ProductRow[]>([]);
   const [allSales,        setAllSales]        = useState<any[]>([]);
   const [selectedProduct, setSelectedProduct] = useState<string>("all");
@@ -129,32 +130,43 @@ export default function ProdutosPage() {
   const [error,           setError]           = useState<string | null>(null);
   const [noTracked,       setNoTracked]       = useState(false);
 
+  useEffect(() => {
+    supabase.from("clients").select("slug, sales_slug").eq("active", true)
+      .then(({ data }) => { if (data) setClients(data as { slug: string; sales_slug: string | null }[]); });
+  }, []);
+
+  function getSalesSlug(): string | null {
+    if (client === "all") return null;
+    const found = clients.find(c => c.slug === client);
+    return found?.sales_slug ?? client;
+  }
+
   async function fetchData() {
     setLoading(true);
     setError(null);
     setNoTracked(false);
 
     const { since, until } = getPeriodDates(period);
+    const salesSlug = getSalesSlug();
 
-    const { data: tracked, error: tErr } = await supabase
-      .from("tracked_products")
-      .select("product_id, product_name, gateway")
-      .eq("client_slug", client)
-      .eq("active", true);
+    const trackedQ = supabase.from("tracked_products").select("product_id, product_name, gateway").eq("active", true);
+    const { data: tracked, error: tErr } = await (salesSlug ? trackedQ.eq("client_slug", salesSlug) : trackedQ);
 
     if (tErr) { setError(tErr.message); setLoading(false); return; }
     if (!tracked?.length) { setNoTracked(true); setProducts([]); setAllSales([]); setLoading(false); return; }
 
     const ids = tracked.map(p => p.product_id);
 
-    const { data: rawSales, error: sErr } = await supabase
+    const salesQ = supabase
       .from("sales")
       .select("id, created_at, gateway, sale_type, amount, status, product_name, product_id, utm_medium, utm_campaign, utm_content, utm_source")
-      .eq("client_slug", client)
       .in("product_id", ids)
       .gte("created_at", since)
       .lte("created_at", until + "T23:59:59")
       .order("created_at", { ascending: true });
+    if (salesSlug) salesQ.eq("client_slug", salesSlug);
+
+    const { data: rawSales, error: sErr } = await salesQ;
 
     if (sErr) { setError(sErr.message); setLoading(false); return; }
 
@@ -164,7 +176,7 @@ export default function ProdutosPage() {
     setLoading(false);
   }
 
-  useEffect(() => { fetchData(); }, [client, period]);
+  useEffect(() => { fetchData(); }, [client, period, clients]);
 
   const filteredSales = selectedProduct === "all"
     ? allSales
