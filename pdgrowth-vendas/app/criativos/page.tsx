@@ -82,19 +82,49 @@ export default function CriativosPage() {
   const [data,     setData]     = useState<CreativeRow[]>(mockCreatives);
   const [loading,  setLoading]  = useState(false);
 
+  const [clients, setClients] = useState<{ slug: string; sales_slug: string | null }[]>([]);
+
+  useEffect(() => {
+    supabase.from("clients").select("slug, sales_slug").eq("active", true)
+      .then(({ data }) => { if (data) setClients(data); });
+  }, []);
+
   useEffect(() => {
     const { since, until } = getPeriodDates(period);
     setLoading(true);
+
+    const metaSlug  = client !== "all" ? client : null;
+    const found     = clients.find(c => c.slug === client);
+    const salesSlug = client !== "all" ? (found?.sales_slug ?? client) : null;
 
     const base = supabase.from("ad_creatives")
       .select("ad_id,ad_name,campaign_name,platform,creative_type,thumbnail_url,video_url,permalink_url,headline,impressions,clicks,spend,frequency")
       .gte("date", since).lte("date", until);
 
     const q1    = platform !== "all" ? base.eq("platform", platform) : base;
-    const query = client  !== "all" ? q1.eq("client_slug", client)   : q1;
+    const qAds  = metaSlug ? q1.eq("client_slug", metaSlug) : q1;
 
-    query.then(({ data: rows, error }) => {
+    // Vendas por utm_content (nome do criativo)
+    const baseSales = supabase.from("sales")
+      .select("amount, sale_type, utm_content")
+      .eq("status", "approved")
+      .gte("created_at", since)
+      .lte("created_at", until + "T23:59:59");
+    const qSales = salesSlug ? baseSales.eq("client_slug", salesSlug) : baseSales;
+
+    Promise.all([qAds, qSales]).then(([{ data: rows, error }, { data: salesData }]) => {
       setLoading(false);
+
+      const mainSales = (salesData ?? []).filter((s: any) => s.sale_type === "main");
+      const byAdName  = new Map<string, { sales: number; revenue: number }>();
+      for (const s of mainSales) {
+        if (!s.utm_content) continue;
+        const e = byAdName.get(s.utm_content) ?? { sales: 0, revenue: 0 };
+        e.sales++;
+        e.revenue += Number(s.amount);
+        byAdName.set(s.utm_content, e);
+      }
+
       if (!error && rows && rows.length > 0) {
         const map = new Map<string, CreativeRow>();
         for (const r of rows) {
@@ -117,16 +147,23 @@ export default function CriativosPage() {
             });
           }
         }
-        setData(Array.from(map.values()).map(c => ({
-          ...c,
-          ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0,
-          cpm: c.impressions > 0 ? (c.spend / c.impressions) * 1000 : 0,
-        })));
+        setData(Array.from(map.values()).map(c => {
+          const sv = byAdName.get(c.ad_name) ?? { sales: 0, revenue: 0 };
+          return {
+            ...c,
+            ctr:     c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0,
+            cpm:     c.impressions > 0 ? (c.spend / c.impressions) * 1000 : 0,
+            sales:   sv.sales,
+            revenue: sv.revenue,
+            roas:    c.spend > 0 ? sv.revenue / c.spend : 0,
+            cpa:     sv.sales > 0 ? c.spend / sv.sales : 0,
+          };
+        }));
       } else {
         setData(mockCreatives);
       }
     });
-  }, [platform, period, client]);
+  }, [platform, period, client, clients]);
 
   const campaigns = ["all", ...Array.from(new Set(data.map(c => c.campaign_name).filter(Boolean)))];
 

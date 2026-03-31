@@ -10,8 +10,7 @@ import DataTable, { Column } from "@/components/data-table";
 import { useDashboard } from "@/lib/dashboard-context";
 import { supabase } from "@/lib/supabase";
 import { getPeriodDates } from "@/lib/period";
-import { mockFunnel, mockTrend } from "@/lib/mock-data";
-import type { ProductRow, Platform, KPIData, DonutSlice, HorizontalBarItem } from "@/lib/types";
+import type { ProductRow, Platform, KPIData, DonutSlice, HorizontalBarItem, TrendPoint, FunnelStep } from "@/lib/types";
 import { RefreshCw, Calendar, Building2 } from "lucide-react";
 
 const periods = [
@@ -182,6 +181,9 @@ export default function OverviewPage() {
   const [utmSources,    setUtmSources]    = useState<HorizontalBarItem[]>([]);
   const [paymentDonut,  setPaymentDonut]  = useState<DonutSlice[]>([]);
   const [productDonut,  setProductDonut]  = useState<DonutSlice[]>([]);
+  const [trendData,     setTrendData]     = useState<TrendPoint[]>([]);
+  const [funnelSteps,   setFunnelSteps]   = useState<FunnelStep[]>([]);
+  const [funnelMetrics, setFunnelMetrics] = useState<{ cpm: number; ctr: number; convRate: number } | null>(null);
   const [loading,       setLoading]       = useState(true);
   const [updatedAt,     setUpdatedAt]     = useState("");
 
@@ -200,46 +202,89 @@ export default function OverviewPage() {
     setLoading(true);
     const { since, until } = getPeriodDates(period);
     const salesSlug = getSalesSlug();
+    const metaSlug  = client === "all" ? null : client;
 
     // Produtos rastreados
     const trackedQ = supabase.from("tracked_products").select("product_id, product_name, gateway").eq("active", true);
     const { data: tracked } = await (salesSlug ? trackedQ.eq("client_slug", salesSlug) : trackedQ);
-
     const ids = tracked?.map((p: any) => p.product_id) ?? [];
 
     // Vendas no período
     const salesQ = supabase
       .from("sales")
-      .select("id, amount, status, sale_type, product_id, product_name, utm_source, payment_method")
+      .select("id, amount, status, sale_type, product_id, product_name, utm_source, payment_method, created_at")
       .gte("created_at", since)
       .lte("created_at", until + "T23:59:59");
     if (salesSlug) salesQ.eq("client_slug", salesSlug);
     if (ids.length > 0) salesQ.in("product_id", ids);
-
     const { data: sales } = ids.length > 0 ? await salesQ : { data: [] };
 
-    const allSales   = sales ?? [];
-    const approved   = allSales.filter((s: any) => s.status === "approved");
-    const mainSales  = approved.filter((s: any) => s.sale_type === "main");
-    const obSales    = approved.filter((s: any) => s.sale_type === "order_bump");
-    const refunded   = allSales.filter((s: any) => s.status === "refunded" || s.status === "chargeback");
-    const revenue    = mainSales.reduce((sum: number, s: any) => sum + Number(s.amount), 0);
-    const obRevenue  = obSales.reduce((sum: number, s: any) => sum + Number(s.amount), 0);
-    const refundAmt  = refunded.reduce((sum: number, s: any) => sum + Number(s.amount), 0);
-    const avgTicket  = mainSales.length > 0 ? revenue / mainSales.length : 0;
+    const allSales  = sales ?? [];
+    const approved  = allSales.filter((s: any) => s.status === "approved");
+    const mainSales = approved.filter((s: any) => s.sale_type === "main");
+    const obSales   = approved.filter((s: any) => s.sale_type === "order_bump");
+    const refunded  = allSales.filter((s: any) => s.status === "refunded" || s.status === "chargeback");
+    const revenue   = mainSales.reduce((sum: number, s: any) => sum + Number(s.amount), 0);
+    const obRevenue = obSales.reduce((sum: number, s: any) => sum + Number(s.amount), 0);
+    const refundAmt = refunded.reduce((sum: number, s: any) => sum + Number(s.amount), 0);
+    const avgTicket = mainSales.length > 0 ? revenue / mainSales.length : 0;
 
-    // Busca investimento Meta no período
-    const metaSlug = client === "all" ? null : client;
-    const adQ = supabase.from("ad_campaigns").select("spend")
+    // Dados de campanhas Meta por dia (spend + impressions + clicks)
+    const adQ = supabase.from("ad_campaigns").select("date, spend, impressions, clicks")
       .gte("date", since).lte("date", until);
     const { data: adData } = await (metaSlug ? adQ.eq("client_slug", metaSlug) : adQ);
+
     const spend = (adData ?? []).reduce((sum: number, r: any) => sum + Number(r.spend), 0);
+    const totalImpressions = (adData ?? []).reduce((sum: number, r: any) => sum + Number(r.impressions), 0);
+    const totalClicks      = (adData ?? []).reduce((sum: number, r: any) => sum + Number(r.clicks), 0);
+
+    // Trend: receita e investimento por dia
+    const revenueByDay = new Map<string, number>();
+    for (const s of mainSales) {
+      const day = String(s.created_at).slice(0, 10);
+      revenueByDay.set(day, (revenueByDay.get(day) ?? 0) + Number(s.amount));
+    }
+    const spendByDay = new Map<string, number>();
+    for (const a of (adData ?? [])) {
+      spendByDay.set(a.date, (spendByDay.get(a.date) ?? 0) + Number(a.spend));
+    }
+    const allDays = Array.from(new Set([...Array.from(revenueByDay.keys()), ...Array.from(spendByDay.keys())])).sort();
+    const trend: TrendPoint[] = allDays.map(day => {
+      const rev = revenueByDay.get(day) ?? 0;
+      const sp  = spendByDay.get(day) ?? 0;
+      return { date: day.slice(5), revenue: rev, spend: sp, sales: 0, roas: sp > 0 ? rev / sp : 0 };
+    });
+
+    // Funil: impressões → cliques → vendas aprovadas
+    const funnelStepsData: FunnelStep[] = [];
+    if (totalImpressions > 0 || totalClicks > 0 || approved.length > 0) {
+      funnelStepsData.push({ label: "Impressões", value: totalImpressions });
+      if (totalClicks > 0) {
+        funnelStepsData.push({
+          label: "Cliques",
+          value: totalClicks,
+          rate: totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0,
+        });
+      }
+      funnelStepsData.push({
+        label: "Vendas Aprovadas",
+        value: approved.length,
+        rate: totalClicks > 0 ? (approved.length / totalClicks) * 100 : 0,
+      });
+    }
+
+    const cpm      = totalImpressions > 0 ? (spend / totalImpressions) * 1000 : 0;
+    const ctr      = totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0;
+    const convRate = totalClicks > 0 ? (approved.length / totalClicks) * 100 : 0;
 
     setStats({ revenue, sales: mainSales.length, avgTicket, refunds: refunded.length, refundAmt, orderBumps: obSales.length, obRevenue, spend });
     setProducts(buildProductRows(tracked ?? [], allSales));
     setUtmSources(buildUTMSources(allSales));
     setPaymentDonut(buildPaymentDonut(allSales));
     setProductDonut(buildProductDonut(tracked ?? [], allSales));
+    setTrendData(trend);
+    setFunnelSteps(funnelStepsData);
+    setFunnelMetrics(funnelStepsData.length > 0 ? { cpm, ctr, convRate } : null);
     setUpdatedAt(new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
     setLoading(false);
   }
@@ -326,7 +371,7 @@ export default function OverviewPage() {
           </div>
 
           {/* Gráfico */}
-          <DualAxisChart data={mockTrend} />
+          {trendData.length > 0 && <DualAxisChart data={trendData} />}
 
           {/* Mid row — 3 gráficos em colunas iguais */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
@@ -349,11 +394,10 @@ export default function OverviewPage() {
             )}
           </div>
 
-          {/* Funil — destaque em linha própria */}
-          <div className="bg-card border border-border rounded-xl p-6">
-            <span className="text-sm font-semibold text-text-primary block mb-4">Funil de Conversão</span>
-            <Funnel steps={mockFunnel} />
-          </div>
+          {/* Funil */}
+          {funnelSteps.length > 0 && (
+            <Funnel steps={funnelSteps} metrics={funnelMetrics} />
+          )}
         </div>
       </main>
     </div>
