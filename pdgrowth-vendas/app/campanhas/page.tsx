@@ -132,10 +132,21 @@ export default function CampanhasPage() {
   const [adSets,    setAdSets]    = useState<AdSetRow[]>(mockAdSets);
   const [ads,       setAds]       = useState<CreativeRow[]>(mockCreatives);
   const [loading,   setLoading]   = useState(false);
+  const [clients,   setClients]   = useState<{ slug: string; sales_slug: string | null }[]>([]);
+
+  useEffect(() => {
+    supabase.from("clients").select("slug, sales_slug").eq("active", true)
+      .then(({ data }) => { if (data) setClients(data); });
+  }, []);
 
   useEffect(() => {
     const { since, until } = getPeriodDates(period);
     setLoading(true);
+
+    // Resolve slugs: metaSlug para campanhas, salesSlug para vendas
+    const metaSlug  = client !== "all" ? client : null;
+    const found     = clients.find(c => c.slug === client);
+    const salesSlug = client !== "all" ? (found?.sales_slug ?? client) : null;
 
     const baseCamp = supabase.from("ad_campaigns").select("campaign_id,campaign_name,platform,impressions,clicks,spend").gte("date", since).lte("date", until);
     const baseSets = supabase.from("ad_sets").select("ad_set_id,ad_set_name,campaign_name,platform,impressions,clicks,spend").gte("date", since).lte("date", until);
@@ -145,11 +156,49 @@ export default function CampanhasPage() {
     const q1Sets = platform !== "all" ? baseSets.eq("platform", platform) : baseSets;
     const q1Ads  = platform !== "all" ? baseAds.eq("platform", platform)  : baseAds;
 
-    const qCamp = client !== "all" ? q1Camp.eq("client_slug", client) : q1Camp;
-    const qSets = client !== "all" ? q1Sets.eq("client_slug", client) : q1Sets;
-    const qAds  = client !== "all" ? q1Ads.eq("client_slug", client)  : q1Ads;
+    const qCamp = metaSlug ? q1Camp.eq("client_slug", metaSlug) : q1Camp;
+    const qSets = metaSlug ? q1Sets.eq("client_slug", metaSlug) : q1Sets;
+    const qAds  = metaSlug ? q1Ads.eq("client_slug", metaSlug)  : q1Ads;
 
-    Promise.all([qCamp, qSets, qAds]).then(([campRes, setsRes, adsRes]) => {
+    // Busca vendas aprovadas no período para cruzar via UTMs
+    const baseSales = supabase.from("sales")
+      .select("amount, status, sale_type, utm_medium, utm_campaign, utm_content, utm_term")
+      .eq("status", "approved")
+      .gte("created_at", since)
+      .lte("created_at", until + "T23:59:59");
+    const qSales = salesSlug ? baseSales.eq("client_slug", salesSlug) : baseSales;
+
+    Promise.all([qCamp, qSets, qAds, qSales]).then(([campRes, setsRes, adsRes, salesRes]) => {
+      const salesData = salesRes.data ?? [];
+      const mainSales = salesData.filter((s: any) => s.sale_type === "main");
+
+      // Mapas de vendas por UTM
+      // utm_medium = nome da campanha
+      const byCampaign = new Map<string, { sales: number; revenue: number }>();
+      // utm_campaign = nome do conjunto
+      const byAdSet    = new Map<string, { sales: number; revenue: number }>();
+      // utm_content = nome do anúncio
+      const byAdName   = new Map<string, { sales: number; revenue: number }>();
+
+      for (const s of mainSales) {
+        const amt = Number(s.amount);
+        if (s.utm_medium) {
+          const e = byCampaign.get(s.utm_medium) ?? { sales: 0, revenue: 0 };
+          e.sales++; e.revenue += amt;
+          byCampaign.set(s.utm_medium, e);
+        }
+        if (s.utm_campaign) {
+          const e = byAdSet.get(s.utm_campaign) ?? { sales: 0, revenue: 0 };
+          e.sales++; e.revenue += amt;
+          byAdSet.set(s.utm_campaign, e);
+        }
+        if (s.utm_content) {
+          const e = byAdName.get(s.utm_content) ?? { sales: 0, revenue: 0 };
+          e.sales++; e.revenue += amt;
+          byAdName.set(s.utm_content, e);
+        }
+      }
+
       setLoading(false);
 
       if (campRes.data && campRes.data.length > 0) {
@@ -167,7 +216,16 @@ export default function CampanhasPage() {
               revenue: 0, sales: 0, roas: 0, cpa: 0, ctr: 0 });
           }
         }
-        setCampaigns(Array.from(map.values()).map(c => ({ ...c, ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0 })));
+        setCampaigns(Array.from(map.values()).map(c => {
+          const sv = byCampaign.get(c.campaign_name) ?? { sales: 0, revenue: 0 };
+          return { ...c,
+            ctr:     c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0,
+            sales:   sv.sales,
+            revenue: sv.revenue,
+            roas:    c.spend > 0 ? sv.revenue / c.spend : 0,
+            cpa:     sv.sales > 0 ? c.spend / sv.sales : 0,
+          };
+        }));
       } else {
         setCampaigns(mockCampaigns);
       }
@@ -187,7 +245,16 @@ export default function CampanhasPage() {
               revenue: 0, sales: 0, roas: 0, cpa: 0, ctr: 0 });
           }
         }
-        setAdSets(Array.from(map.values()).map(c => ({ ...c, ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0 })));
+        setAdSets(Array.from(map.values()).map(c => {
+          const sv = byAdSet.get(c.ad_set_name) ?? { sales: 0, revenue: 0 };
+          return { ...c,
+            ctr:     c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0,
+            sales:   sv.sales,
+            revenue: sv.revenue,
+            roas:    c.spend > 0 ? sv.revenue / c.spend : 0,
+            cpa:     sv.sales > 0 ? c.spend / sv.sales : 0,
+          };
+        }));
       } else {
         setAdSets(mockAdSets);
       }
@@ -211,16 +278,22 @@ export default function CampanhasPage() {
               video_3s_rate: null, video_thruplay_rate: null });
           }
         }
-        setAds(Array.from(map.values()).map(c => ({
-          ...c,
-          ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0,
-          cpm: c.impressions > 0 ? (c.spend / c.impressions) * 1000 : 0,
-        })));
+        setAds(Array.from(map.values()).map(c => {
+          const sv = byAdName.get(c.ad_name) ?? { sales: 0, revenue: 0 };
+          return { ...c,
+            ctr:     c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0,
+            cpm:     c.impressions > 0 ? (c.spend / c.impressions) * 1000 : 0,
+            sales:   sv.sales,
+            revenue: sv.revenue,
+            roas:    c.spend > 0 ? sv.revenue / c.spend : 0,
+            cpa:     sv.sales > 0 ? c.spend / sv.sales : 0,
+          };
+        }));
       } else {
         setAds(mockCreatives);
       }
     });
-  }, [platform, period, client]);
+  }, [platform, period, client, clients]);
 
   const byPlatform = <T extends { platform: Platform }>(arr: T[]) =>
     platform === "all" ? arr : arr.filter(c => c.platform === platform);
