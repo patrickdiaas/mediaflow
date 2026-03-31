@@ -65,22 +65,27 @@ const PAYMENT_COLORS: Record<string, string> = {
 interface SalesStats {
   revenue: number; sales: number; avgTicket: number;
   refunds: number; refundAmt: number; orderBumps: number; obRevenue: number;
+  spend: number;
 }
 
 function buildKPIs(stats: SalesStats, loading: boolean): KPIData[] {
   const f = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const totalRevenue = stats.revenue + stats.obRevenue;
+  const roas  = stats.spend > 0 ? totalRevenue / stats.spend : 0;
+  const roi   = stats.spend > 0 ? ((totalRevenue - stats.spend) / stats.spend) * 100 : 0;
+  const cpa   = stats.sales > 0 && stats.spend > 0 ? stats.spend / stats.sales : 0;
+  const roasC = roas >= 4.5 ? "accent" : roas >= 3 ? "gold" : roas > 0 ? "red" : "gold";
   return [
-    { label: "Faturamento",     value: loading ? "…" : `R$ ${f(totalRevenue)}`,       color: "accent"  },
-    { label: "Gastos Anúncios", value: "R$ 18.740",  trend: +8.2,  color: "blue"    },
-    { label: "ROAS",            value: "4,50×",      trend: +3.8,  color: "purple"  },
-    { label: "Lucro",           value: loading ? "…" : `R$ ${f(stats.revenue)}`,    color: "accent"  },
-    { label: "ROI",             value: "349,9%",     trend: +5.2,  color: "purple"  },
-    { label: "Vendas",          value: loading ? "…" : String(stats.sales),         color: "accent"  },
-    { label: "CPA",             value: "R$ 60,06",  trend: -9.4,  color: "gold"    },
-    { label: "Ticket Médio",    value: loading ? "…" : `R$ ${f(stats.avgTicket)}`,  color: "gold"    },
-    { label: "Reembolsos",      value: loading ? "…" : `R$ ${f(stats.refundAmt)}`,  color: "red"     },
-    { label: "Taxa Conversão",  value: "1,68%",      trend: +0.3,  color: "blue"    },
+    { label: "Faturamento",     value: loading ? "…" : `R$ ${f(totalRevenue)}`,                                             color: "accent"  },
+    { label: "Gastos Anúncios", value: loading ? "…" : stats.spend > 0 ? `R$ ${f(stats.spend)}` : "—",                     color: "blue"    },
+    { label: "ROAS",            value: loading ? "…" : roas > 0 ? `${roas.toFixed(2)}×` : "—",                             color: roasC     },
+    { label: "Lucro",           value: loading ? "…" : stats.spend > 0 ? `R$ ${f(totalRevenue - stats.spend)}` : `R$ ${f(totalRevenue)}`, color: "accent" },
+    { label: "ROI",             value: loading ? "…" : roi !== 0 ? `${roi.toFixed(1)}%` : "—",                             color: roi >= 0 ? "accent" : "red" },
+    { label: "Vendas",          value: loading ? "…" : String(stats.sales),                                                color: "accent"  },
+    { label: "CPA",             value: loading ? "…" : cpa > 0 ? `R$ ${f(cpa)}` : "—",                                    color: "gold"    },
+    { label: "Ticket Médio",    value: loading ? "…" : `R$ ${f(stats.avgTicket)}`,                                         color: "gold"    },
+    { label: "Reembolsos",      value: loading ? "…" : `R$ ${f(stats.refundAmt)}`,                                         color: "red"     },
+    { label: "Order Bumps",     value: loading ? "…" : `${stats.orderBumps} · R$ ${f(stats.obRevenue)}`,                   color: "gold"    },
   ];
 }
 
@@ -172,7 +177,7 @@ export default function OverviewPage() {
   const { client, setClient, platform, setPlatform, period, setPeriod } = useDashboard();
 
   const [clients,       setClients]       = useState<{ slug: string; name: string; display_name: string | null; sales_slug: string | null }[]>([]);
-  const [stats,         setStats]         = useState<SalesStats>({ revenue: 0, sales: 0, avgTicket: 0, refunds: 0, refundAmt: 0, orderBumps: 0, obRevenue: 0 });
+  const [stats,         setStats]         = useState<SalesStats>({ revenue: 0, sales: 0, avgTicket: 0, refunds: 0, refundAmt: 0, orderBumps: 0, obRevenue: 0, spend: 0 });
   const [products,      setProducts]      = useState<ProductRow[]>([]);
   const [utmSources,    setUtmSources]    = useState<HorizontalBarItem[]>([]);
   const [paymentDonut,  setPaymentDonut]  = useState<DonutSlice[]>([]);
@@ -223,7 +228,14 @@ export default function OverviewPage() {
     const refundAmt  = refunded.reduce((sum: number, s: any) => sum + Number(s.amount), 0);
     const avgTicket  = mainSales.length > 0 ? revenue / mainSales.length : 0;
 
-    setStats({ revenue, sales: mainSales.length, avgTicket, refunds: refunded.length, refundAmt, orderBumps: obSales.length, obRevenue });
+    // Busca investimento Meta no período
+    const metaSlug = client === "all" ? null : client;
+    const adQ = supabase.from("ad_campaigns").select("spend")
+      .gte("date", since).lte("date", until);
+    const { data: adData } = await (metaSlug ? adQ.eq("client_slug", metaSlug) : adQ);
+    const spend = (adData ?? []).reduce((sum: number, r: any) => sum + Number(r.spend), 0);
+
+    setStats({ revenue, sales: mainSales.length, avgTicket, refunds: refunded.length, refundAmt, orderBumps: obSales.length, obRevenue, spend });
     setProducts(buildProductRows(tracked ?? [], allSales));
     setUtmSources(buildUTMSources(allSales));
     setPaymentDonut(buildPaymentDonut(allSales));
