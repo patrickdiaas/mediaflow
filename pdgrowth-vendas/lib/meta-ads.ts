@@ -245,7 +245,6 @@ async function fetchInsights(
     ...(level === 'adset' || level === 'ad' ? ['adset_id', 'adset_name'] : []),
     ...(level === 'ad' ? ['ad_id', 'ad_name'] : []),
     'impressions', 'clicks', 'spend', 'reach', 'frequency', 'date_start',
-    ...(level === 'ad' ? ['video_3_sec_watched_actions', 'video_thruplay_watched_actions'] : []),
   ]
   const url = buildUrl(`/${accountId}/insights`, {
     level,
