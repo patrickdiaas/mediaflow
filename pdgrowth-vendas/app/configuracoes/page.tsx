@@ -29,20 +29,30 @@ const gatewayLabel: Record<string, string> = {
 
 export default function ConfiguracoesPage() {
   const { client } = useDashboard();
+  const [clients, setClients] = useState<{ slug: string; sales_slug: string | null }[]>([]);
   const [products, setProducts]   = useState<TrackedProduct[]>([]);
   const [loading, setLoading]     = useState(true);
   const [toggling, setToggling]   = useState<string | null>(null);
   const [savingSheet, setSavingSheet] = useState<string | null>(null);
   const [error, setError]         = useState<string | null>(null);
 
+  useEffect(() => {
+    supabase.from("clients").select("slug, sales_slug").eq("active", true)
+      .then(({ data }) => { if (data) setClients(data); });
+  }, []);
+
+  function getSalesSlug(): string | null {
+    if (client === "all") return null;
+    const found = clients.find(c => c.slug === client);
+    return found?.sales_slug ?? client;
+  }
+
   async function fetchProducts() {
     setLoading(true);
     setError(null);
-    const { data, error } = await supabase
-      .from("tracked_products")
-      .select("*")
-      .eq("client_slug", client)
-      .order("first_seen", { ascending: false });
+    const salesSlug = getSalesSlug();
+    const q = supabase.from("tracked_products").select("*").order("first_seen", { ascending: false });
+    const { data, error } = await (salesSlug ? q.eq("client_slug", salesSlug) : q);
 
     if (error) {
       setError("Erro ao carregar produtos: " + error.message);
@@ -52,7 +62,7 @@ export default function ConfiguracoesPage() {
     setLoading(false);
   }
 
-  useEffect(() => { fetchProducts(); }, [client]);
+  useEffect(() => { fetchProducts(); }, [client, clients]);
 
   async function saveSheetId(product: TrackedProduct, sheetId: string) {
     setSavingSheet(product.id);
