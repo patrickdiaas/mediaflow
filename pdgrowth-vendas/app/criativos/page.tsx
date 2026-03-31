@@ -1,12 +1,12 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Sidebar from "@/components/sidebar";
-import Header from "@/components/header";
 import CreativeCard from "@/components/creative-card";
 import DataTable, { Column } from "@/components/data-table";
 import { useDashboard } from "@/lib/dashboard-context";
 import { mockCreatives } from "@/lib/mock-data";
 import type { CreativeRow, Platform } from "@/lib/types";
+import { supabase } from "@/lib/supabase";
 import { LayoutGrid, List, ArrowUpDown } from "lucide-react";
 import Image from "next/image";
 
@@ -33,6 +33,18 @@ const PlatformBadge = ({ p }: { p: Platform }) => (
   </span>
 );
 
+function getPeriodDates(period: string) {
+  const days = period === "last7" ? 7 : period === "last90" ? 90 : 30;
+  const until = new Date();
+  until.setDate(until.getDate() - 1);
+  const since = new Date(until);
+  since.setDate(since.getDate() - days + 1);
+  return {
+    since: since.toISOString().split("T")[0],
+    until: until.toISOString().split("T")[0],
+  };
+}
+
 const tableColumns: Column<CreativeRow>[] = [
   {
     key: "ad_name",
@@ -41,7 +53,7 @@ const tableColumns: Column<CreativeRow>[] = [
       <div className="flex items-center gap-3">
         <div className="relative w-14 h-9 rounded-md overflow-hidden bg-bg flex-shrink-0 border border-border">
           {row.thumbnail_url
-            ? <Image src={row.thumbnail_url} alt={String(v)} fill className="object-cover" sizes="56px" />
+            ? <Image src={row.thumbnail_url} alt={String(v)} fill className="object-cover" sizes="56px" unoptimized />
             : <div className="w-full h-full flex items-center justify-center text-text-muted text-[10px]">—</div>
           }
         </div>
@@ -61,12 +73,12 @@ const tableColumns: Column<CreativeRow>[] = [
     render: v => Number(v).toLocaleString("pt-BR") },
   { key: "ctr",         label: "CTR",        align: "right",
     render: v => <span className="text-text-secondary">{Number(v).toFixed(1)}%</span> },
+  { key: "cpm",         label: "CPM",        align: "right",
+    render: v => <span className="text-text-secondary">R$ {Number(v).toFixed(2)}</span> },
   { key: "spend",       label: "Investido",  align: "right",
     render: v => <span className="text-blue">R$ {Number(v).toLocaleString("pt-BR")}</span> },
   { key: "revenue",     label: "Receita",    align: "right",
     render: v => <span className="text-accent">R$ {Number(v).toLocaleString("pt-BR")}</span> },
-  { key: "sales",       label: "Vendas",     align: "right",
-    render: v => <span className="text-purple font-semibold">{String(v)}</span> },
   { key: "roas",        label: "ROAS",       align: "right",
     render: v => <span className={`font-semibold ${roasColor(Number(v))}`}>{Number(v).toFixed(2)}×</span> },
   { key: "cpa",         label: "CPA",        align: "right",
@@ -74,18 +86,61 @@ const tableColumns: Column<CreativeRow>[] = [
 ];
 
 export default function CriativosPage() {
-  const { platform } = useDashboard();
+  const { platform, period } = useDashboard();
   const [view,     setView]     = useState<"grid" | "list">("grid");
   const [campaign, setCampaign] = useState<string>("all");
   const [sortBy,   setSortBy]   = useState<SortKey>("roas");
+  const [data,     setData]     = useState<CreativeRow[]>(mockCreatives);
+  const [loading,  setLoading]  = useState(false);
 
-  const byPlatform = platform === "all"
-    ? mockCreatives
-    : mockCreatives.filter(c => c.platform === platform);
+  useEffect(() => {
+    const { since, until } = getPeriodDates(period);
+    setLoading(true);
 
-  const campaigns = ["all", ...Array.from(new Set(byPlatform.map(c => c.campaign_name).filter(Boolean)))];
+    const base = supabase.from("ad_creatives")
+      .select("ad_id,ad_name,campaign_name,platform,creative_type,thumbnail_url,video_url,permalink_url,headline,impressions,clicks,spend,frequency")
+      .gte("date", since).lte("date", until);
 
-  const filtered = (campaign === "all" ? byPlatform : byPlatform.filter(c => c.campaign_name === campaign))
+    const query = platform !== "all" ? base.eq("platform", platform) : base;
+
+    query.then(({ data: rows, error }) => {
+      setLoading(false);
+      if (!error && rows && rows.length > 0) {
+        const map = new Map<string, CreativeRow>();
+        for (const r of rows) {
+          const key = `${r.platform}:${r.ad_id}`;
+          const ex  = map.get(key);
+          if (ex) {
+            ex.impressions += r.impressions ?? 0;
+            ex.clicks      += r.clicks ?? 0;
+            ex.spend       += r.spend ?? 0;
+          } else {
+            map.set(key, {
+              ad_id: r.ad_id, ad_name: r.ad_name, campaign_name: r.campaign_name ?? "",
+              platform: r.platform as Platform, creative_type: r.creative_type ?? null,
+              thumbnail_url: r.thumbnail_url ?? null, video_url: r.video_url ?? null,
+              permalink_url: r.permalink_url ?? null, headline: r.headline ?? null,
+              impressions: r.impressions ?? 0, clicks: r.clicks ?? 0, spend: r.spend ?? 0,
+              frequency: r.frequency ?? null,
+              revenue: 0, sales: 0, roas: 0, cpa: 0, ctr: 0, cpm: 0, conv_rate: 0,
+              video_3s_rate: null, video_thruplay_rate: null,
+            });
+          }
+        }
+        setData(Array.from(map.values()).map(c => ({
+          ...c,
+          ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0,
+          cpm: c.impressions > 0 ? (c.spend / c.impressions) * 1000 : 0,
+        })));
+      } else {
+        setData(mockCreatives);
+      }
+    });
+  }, [platform, period]);
+
+  const campaigns = ["all", ...Array.from(new Set(data.map(c => c.campaign_name).filter(Boolean)))];
+
+  const filtered = (campaign === "all" ? data : data.filter(c => c.campaign_name === campaign))
     .slice()
     .sort((a, b) => {
       if (sortBy === "cpa" || sortBy === "cpm") return (a[sortBy] ?? 0) - (b[sortBy] ?? 0);
@@ -102,7 +157,6 @@ export default function CriativosPage() {
             <p className="text-sm text-text-secondary mt-0.5">Performance por anúncio com prévia do criativo</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            {/* Campaign selector */}
             <select
               value={campaign}
               onChange={e => setCampaign(e.target.value)}
@@ -112,7 +166,6 @@ export default function CriativosPage() {
                 <option key={c} value={c}>{c === "all" ? "Todas as campanhas" : c}</option>
               ))}
             </select>
-            {/* Sort selector */}
             <div className="flex items-center gap-1.5 bg-card border border-border rounded-lg px-2.5 py-2">
               <ArrowUpDown size={12} className="text-text-muted flex-shrink-0" />
               <select
@@ -125,7 +178,6 @@ export default function CriativosPage() {
                 ))}
               </select>
             </div>
-            {/* View toggle */}
             <div className="flex items-center bg-card border border-border rounded-lg overflow-hidden">
               <button
                 onClick={() => setView("grid")}
@@ -143,7 +195,9 @@ export default function CriativosPage() {
           </div>
         </div>
 
-        {view === "grid" ? (
+        {loading ? (
+          <div className="text-text-secondary text-sm py-8 text-center">Carregando...</div>
+        ) : view === "grid" ? (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
             {filtered.map(c => <CreativeCard key={c.ad_id} creative={c} />)}
           </div>
