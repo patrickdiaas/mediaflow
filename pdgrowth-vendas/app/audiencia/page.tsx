@@ -30,6 +30,7 @@ interface QuestionStat {
 export default function AudienciaPage() {
   const { client } = useDashboard();
 
+  const [salesSlug,  setSalesSlug]  = useState<string | null>(null);
   const [products,   setProducts]   = useState<TrackedProduct[]>([]);
   const [selectedId, setSelectedId] = useState<string>("");
   const [questions,  setQuestions]  = useState<QuestionStat[]>([]);
@@ -38,18 +39,25 @@ export default function AudienciaPage() {
   const [loading,    setLoading]    = useState(false);
   const [error,      setError]      = useState<string | null>(null);
 
+  // Resolve sales_slug para o cliente selecionado
   useEffect(() => {
-    supabase
+    if (client === "all") { setSalesSlug(null); return; }
+    supabase.from("clients").select("sales_slug").eq("slug", client).single()
+      .then(({ data }) => setSalesSlug(data?.sales_slug ?? client));
+  }, [client]);
+
+  useEffect(() => {
+    const slug = salesSlug ?? (client === "all" ? null : client);
+    const q = supabase
       .from("tracked_products")
       .select("id, product_id, product_name, sheet_id, gateway")
-      .eq("client_slug", client)
       .eq("active", true)
-      .not("sheet_id", "is", null)
-      .then(({ data }) => {
-        setProducts(data ?? []);
-        if (data && data.length > 0) setSelectedId(data[0].product_id);
-      });
-  }, [client]);
+      .not("sheet_id", "is", null);
+    (slug ? q.eq("client_slug", slug) : q).then(({ data }) => {
+      setProducts(data ?? []);
+      if (data && data.length > 0) setSelectedId(data[0].product_id);
+    });
+  }, [salesSlug, client]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -82,12 +90,9 @@ export default function AudienciaPage() {
     }
 
     // Busca vendas aprovadas do produto
-    const { data: sales } = await supabase
-      .from("sales")
-      .select("buyer_email")
-      .eq("client_slug", client)
-      .eq("product_id", productId)
-      .eq("status", "approved");
+    const slug = salesSlug ?? client;
+    const salesQ = supabase.from("sales").select("buyer_email").eq("product_id", productId).eq("status", "approved");
+    const { data: sales } = await (slug !== "all" ? salesQ.eq("client_slug", slug) : salesQ);
 
     const salesEmails = new Set(
       (sales ?? []).map((s: any) => s.buyer_email?.toLowerCase()).filter(Boolean)

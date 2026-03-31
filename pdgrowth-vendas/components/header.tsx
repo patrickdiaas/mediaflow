@@ -14,7 +14,7 @@ const periods = [
   { value: "last90",    label: "Últimos 90 dias" },
 ];
 
-interface Client { slug: string; name: string }
+interface Client { slug: string; name: string; display_name: string | null }
 
 interface HeaderProps {
   title: string;
@@ -28,7 +28,7 @@ export default function Header({ title, subtitle }: HeaderProps) {
   useEffect(() => {
     supabase
       .from("clients")
-      .select("slug, name")
+      .select("slug, name, display_name")
       .eq("active", true)
       .order("name")
       .then(({ data }) => {
@@ -54,7 +54,7 @@ export default function Header({ title, subtitle }: HeaderProps) {
             >
               <option value="all">Todas as contas</option>
               {clients.map(c => (
-                <option key={c.slug} value={c.slug}>{c.name}</option>
+                <option key={c.slug} value={c.slug}>{c.display_name ?? c.name}</option>
               ))}
             </select>
           </div>

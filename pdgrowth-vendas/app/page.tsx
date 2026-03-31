@@ -171,7 +171,7 @@ function buildProductDonut(tracked: TrackedProduct[], sales: any[]): DonutSlice[
 export default function OverviewPage() {
   const { client, setClient, platform, setPlatform, period, setPeriod } = useDashboard();
 
-  const [clients,       setClients]       = useState<{ slug: string; name: string; sales_slug: string | null }[]>([]);
+  const [clients,       setClients]       = useState<{ slug: string; name: string; display_name: string | null; sales_slug: string | null }[]>([]);
   const [stats,         setStats]         = useState<SalesStats>({ revenue: 0, sales: 0, avgTicket: 0, refunds: 0, refundAmt: 0, orderBumps: 0, obRevenue: 0 });
   const [products,      setProducts]      = useState<ProductRow[]>([]);
   const [utmSources,    setUtmSources]    = useState<HorizontalBarItem[]>([]);
@@ -181,8 +181,8 @@ export default function OverviewPage() {
   const [updatedAt,     setUpdatedAt]     = useState("");
 
   useEffect(() => {
-    supabase.from("clients").select("slug, name, sales_slug").eq("active", true).order("name")
-      .then(({ data }) => { if (data) setClients(data as { slug: string; name: string; sales_slug: string | null }[]); });
+    supabase.from("clients").select("slug, name, display_name, sales_slug").eq("active", true).order("name")
+      .then(({ data }) => { if (data) setClients(data as { slug: string; name: string; display_name: string | null; sales_slug: string | null }[]); });
   }, []);
 
   function getSalesSlug(): string | null {
@@ -255,7 +255,7 @@ export default function OverviewPage() {
                 >
                   <option value="all">Todas as contas</option>
                   {clients.map(c => (
-                    <option key={c.slug} value={c.slug}>{c.name}</option>
+                    <option key={c.slug} value={c.slug}>{c.display_name ?? c.name}</option>
                   ))}
                 </select>
               </div>
