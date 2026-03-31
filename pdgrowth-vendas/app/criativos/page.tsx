@@ -7,6 +7,7 @@ import { useDashboard } from "@/lib/dashboard-context";
 import { mockCreatives } from "@/lib/mock-data";
 import type { CreativeRow, Platform } from "@/lib/types";
 import { supabase } from "@/lib/supabase";
+import { getPeriodDates } from "@/lib/period";
 import { LayoutGrid, List, ArrowUpDown } from "lucide-react";
 import Image from "next/image";
 
@@ -32,18 +33,6 @@ const PlatformBadge = ({ p }: { p: Platform }) => (
     {p === "meta" ? "Meta" : "Google"}
   </span>
 );
-
-function getPeriodDates(period: string) {
-  const days = period === "last7" ? 7 : period === "last90" ? 90 : 30;
-  const until = new Date();
-  until.setDate(until.getDate() - 1);
-  const since = new Date(until);
-  since.setDate(since.getDate() - days + 1);
-  return {
-    since: since.toISOString().split("T")[0],
-    until: until.toISOString().split("T")[0],
-  };
-}
 
 const tableColumns: Column<CreativeRow>[] = [
   {
@@ -86,7 +75,7 @@ const tableColumns: Column<CreativeRow>[] = [
 ];
 
 export default function CriativosPage() {
-  const { platform, period } = useDashboard();
+  const { platform, period, client } = useDashboard();
   const [view,     setView]     = useState<"grid" | "list">("grid");
   const [campaign, setCampaign] = useState<string>("all");
   const [sortBy,   setSortBy]   = useState<SortKey>("roas");
@@ -101,7 +90,8 @@ export default function CriativosPage() {
       .select("ad_id,ad_name,campaign_name,platform,creative_type,thumbnail_url,video_url,permalink_url,headline,impressions,clicks,spend,frequency")
       .gte("date", since).lte("date", until);
 
-    const query = platform !== "all" ? base.eq("platform", platform) : base;
+    const q1    = platform !== "all" ? base.eq("platform", platform) : base;
+    const query = client  !== "all" ? q1.eq("client_slug", client)   : q1;
 
     query.then(({ data: rows, error }) => {
       setLoading(false);
@@ -136,7 +126,7 @@ export default function CriativosPage() {
         setData(mockCreatives);
       }
     });
-  }, [platform, period]);
+  }, [platform, period, client]);
 
   const campaigns = ["all", ...Array.from(new Set(data.map(c => c.campaign_name).filter(Boolean)))];
 

@@ -7,21 +7,10 @@ import { useDashboard } from "@/lib/dashboard-context";
 import { mockCampaigns, mockAdSets, mockCreatives } from "@/lib/mock-data";
 import type { CampaignRow, AdSetRow, CreativeRow, Platform } from "@/lib/types";
 import { supabase } from "@/lib/supabase";
+import { getPeriodDates } from "@/lib/period";
 import Image from "next/image";
 
 type Tab = "campanhas" | "conjuntos" | "anuncios";
-
-function getPeriodDates(period: string) {
-  const days = period === "last7" ? 7 : period === "last90" ? 90 : 30;
-  const until = new Date();
-  until.setDate(until.getDate() - 1);
-  const since = new Date(until);
-  since.setDate(since.getDate() - days + 1);
-  return {
-    since: since.toISOString().split("T")[0],
-    until: until.toISOString().split("T")[0],
-  };
-}
 
 const PlatformBadge = ({ p }: { p: Platform }) => (
   <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md border ${
@@ -136,7 +125,7 @@ const adColumns: Column<CreativeRow>[] = [
 ];
 
 export default function CampanhasPage() {
-  const { platform, period } = useDashboard();
+  const { platform, period, client } = useDashboard();
   const [tab, setTab]       = useState<Tab>("campanhas");
   const [selectedCampaign, setSelectedCampaign] = useState<string>("all");
   const [campaigns, setCampaigns] = useState<CampaignRow[]>(mockCampaigns);
@@ -152,9 +141,13 @@ export default function CampanhasPage() {
     const baseSets = supabase.from("ad_sets").select("ad_set_id,ad_set_name,campaign_name,platform,impressions,clicks,spend").gte("date", since).lte("date", until);
     const baseAds  = supabase.from("ad_creatives").select("ad_id,ad_name,campaign_name,platform,creative_type,thumbnail_url,video_url,permalink_url,headline,impressions,clicks,spend,frequency").gte("date", since).lte("date", until);
 
-    const qCamp = platform !== "all" ? baseCamp.eq("platform", platform) : baseCamp;
-    const qSets = platform !== "all" ? baseSets.eq("platform", platform) : baseSets;
-    const qAds  = platform !== "all" ? baseAds.eq("platform", platform)  : baseAds;
+    const q1Camp = platform !== "all" ? baseCamp.eq("platform", platform) : baseCamp;
+    const q1Sets = platform !== "all" ? baseSets.eq("platform", platform) : baseSets;
+    const q1Ads  = platform !== "all" ? baseAds.eq("platform", platform)  : baseAds;
+
+    const qCamp = client !== "all" ? q1Camp.eq("client_slug", client) : q1Camp;
+    const qSets = client !== "all" ? q1Sets.eq("client_slug", client) : q1Sets;
+    const qAds  = client !== "all" ? q1Ads.eq("client_slug", client)  : q1Ads;
 
     Promise.all([qCamp, qSets, qAds]).then(([campRes, setsRes, adsRes]) => {
       setLoading(false);
@@ -227,7 +220,7 @@ export default function CampanhasPage() {
         setAds(mockCreatives);
       }
     });
-  }, [platform, period]);
+  }, [platform, period, client]);
 
   const byPlatform = <T extends { platform: Platform }>(arr: T[]) =>
     platform === "all" ? arr : arr.filter(c => c.platform === platform);

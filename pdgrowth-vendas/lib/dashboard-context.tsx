@@ -1,7 +1,6 @@
 "use client";
 import { createContext, useContext, useState, ReactNode } from "react";
 import type { Platform } from "./types";
-import { mockClients } from "./mock-data";
 
 interface DashboardState {
   client: string;
@@ -17,7 +16,7 @@ interface DashboardState {
 const DashboardContext = createContext<DashboardState | null>(null);
 
 export function DashboardProvider({ children }: { children: ReactNode }) {
-  const [client,   setClient]   = useState(mockClients[0].slug);
+  const [client,   setClient]   = useState("all");
   const [platform, setPlatform] = useState<Platform | "all">("all");
   const [period,   setPeriod]   = useState("last30");
   const [campaign, setCampaign] = useState("all");

@@ -1,34 +1,29 @@
-export function getPeriodDates(period: string): { from: string; to: string } {
-  const now   = new Date();
-  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+export function getPeriodDates(period: string): { since: string; until: string } {
+  const fmt   = (d: Date) => d.toISOString().split("T")[0];
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
 
-  switch (period) {
-    case "today":
-      return { from: today.toISOString(), to: now.toISOString() };
-    case "yesterday": {
-      const y = new Date(today); y.setDate(y.getDate() - 1);
-      return { from: y.toISOString(), to: today.toISOString() };
-    }
-    case "last7": {
-      const d = new Date(today); d.setDate(d.getDate() - 7);
-      return { from: d.toISOString(), to: now.toISOString() };
-    }
-    case "last30": {
-      const d = new Date(today); d.setDate(d.getDate() - 30);
-      return { from: d.toISOString(), to: now.toISOString() };
-    }
-    case "thisMonth": {
-      const d = new Date(now.getFullYear(), now.getMonth(), 1);
-      return { from: d.toISOString(), to: now.toISOString() };
-    }
-    case "lastMonth": {
-      const start = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-      const end   = new Date(now.getFullYear(), now.getMonth(), 1);
-      return { from: start.toISOString(), to: end.toISOString() };
-    }
-    default: {
-      const d = new Date(today); d.setDate(d.getDate() - 30);
-      return { from: d.toISOString(), to: now.toISOString() };
-    }
+  if (period === "today") {
+    const s = fmt(today);
+    return { since: s, until: s };
   }
+  if (period === "yesterday") {
+    const d = new Date(today); d.setDate(d.getDate() - 1);
+    const s = fmt(d);
+    return { since: s, until: s };
+  }
+  if (period === "thisMonth") {
+    const since = new Date(today.getFullYear(), today.getMonth(), 1);
+    const until = new Date(today); until.setDate(until.getDate() - 1);
+    return { since: fmt(since), until: fmt(until) };
+  }
+  if (period === "lastMonth") {
+    const since = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const until = new Date(today.getFullYear(), today.getMonth(), 0);
+    return { since: fmt(since), until: fmt(until) };
+  }
+  const days  = period === "last7" ? 7 : period === "last90" ? 90 : 30;
+  const until = new Date(today); until.setDate(until.getDate() - 1);
+  const since = new Date(until); since.setDate(since.getDate() - days + 1);
+  return { since: fmt(since), until: fmt(until) };
 }
