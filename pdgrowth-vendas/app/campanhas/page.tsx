@@ -5,9 +5,10 @@ import Header from "@/components/header";
 import DataTable, { Column } from "@/components/data-table";
 import { useDashboard } from "@/lib/dashboard-context";
 import { mockCampaigns, mockAdSets, mockCreatives } from "@/lib/mock-data";
-import type { CampaignRow, AdSetRow, CreativeRow, Platform } from "@/lib/types";
+import type { CampaignRow, AdSetRow, CreativeRow, Platform, FunnelStep } from "@/lib/types";
 import { supabase } from "@/lib/supabase";
 import { getPeriodDates } from "@/lib/period";
+import Funnel from "@/components/funnel";
 import Image from "next/image";
 
 type Tab = "campanhas" | "conjuntos" | "anuncios";
@@ -133,6 +134,8 @@ export default function CampanhasPage() {
   const [ads,       setAds]       = useState<CreativeRow[]>(mockCreatives);
   const [loading,   setLoading]   = useState(false);
   const [clients,   setClients]   = useState<{ slug: string; sales_slug: string | null }[]>([]);
+  const [funnelSteps,   setFunnelSteps]   = useState<FunnelStep[]>([]);
+  const [funnelMetrics, setFunnelMetrics] = useState<{ cpm: number; ctr: number; convRate: number } | null>(null);
 
   useEffect(() => {
     supabase.from("clients").select("slug, sales_slug").eq("active", true)
@@ -171,6 +174,29 @@ export default function CampanhasPage() {
     Promise.all([qCamp, qSets, qAds, qSales]).then(([campRes, setsRes, adsRes, salesRes]) => {
       const salesData = salesRes.data ?? [];
       const mainSales = salesData.filter((s: any) => s.sale_type === "main");
+
+      // Funil: impressões → cliques → vendas (agregado ou por campanha)
+      const allCampRows = campRes.data ?? [];
+      const totalImpressions = allCampRows.reduce((s: number, r: any) => s + (r.impressions ?? 0), 0);
+      const totalClicks      = allCampRows.reduce((s: number, r: any) => s + (r.clicks ?? 0), 0);
+      const totalSpendAll    = allCampRows.reduce((s: number, r: any) => s + (r.spend ?? 0), 0);
+      const totalSalesAll    = mainSales.length;
+      if (totalImpressions > 0 || totalClicks > 0 || totalSalesAll > 0) {
+        const steps: FunnelStep[] = [
+          { label: "Impressões", value: totalImpressions },
+          { label: "Cliques", value: totalClicks, rate: totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0 },
+          { label: "Vendas", value: totalSalesAll, rate: totalClicks > 0 ? (totalSalesAll / totalClicks) * 100 : 0 },
+        ];
+        setFunnelSteps(steps);
+        setFunnelMetrics({
+          cpm:      totalImpressions > 0 ? (totalSpendAll / totalImpressions) * 1000 : 0,
+          ctr:      totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0,
+          convRate: totalClicks > 0 ? (totalSalesAll / totalClicks) * 100 : 0,
+        });
+      } else {
+        setFunnelSteps([]);
+        setFunnelMetrics(null);
+      }
 
       // Mapas de vendas por UTM
       // utm_medium = nome da campanha
@@ -371,7 +397,12 @@ export default function CampanhasPage() {
         ) : (
           <>
             {tab === "campanhas" && (
-              <DataTable<CampaignRow> columns={campaignColumns} data={filteredCampaigns} rowKey="campaign_id" />
+              <div className="grid grid-cols-1 lg:grid-cols-[1fr_260px] gap-5 items-start">
+                <DataTable<CampaignRow> columns={campaignColumns} data={filteredCampaigns} rowKey="campaign_id" />
+                {funnelSteps.length > 0 && (
+                  <Funnel steps={funnelSteps} metrics={funnelMetrics} />
+                )}
+              </div>
             )}
             {tab === "conjuntos" && (
               <DataTable<AdSetRow> columns={adSetColumns} data={filteredAdSets} rowKey="ad_set_id" />

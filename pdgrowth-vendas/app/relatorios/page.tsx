@@ -62,12 +62,13 @@ interface PeriodStats {
   cpa: number;
   topProducts: { name: string; sales: number; revenue: number }[];
   topCampaigns: { name: string; sales: number; revenue: number; spend?: number }[];
+  topCreatives: { name: string; sales: number; revenue: number; spend: number; roas: number; link: string | null }[];
   byDay: { label: string; vendas: number; receita: number }[];
 }
 
 function emptyStats(): PeriodStats {
   return { revenue: 0, sales: 0, orderBumps: 0, obRevenue: 0, refunds: 0, refundAmt: 0,
-    avgTicket: 0, spend: 0, roas: 0, roi: 0, cpa: 0, topProducts: [], topCampaigns: [], byDay: [] };
+    avgTicket: 0, spend: 0, roas: 0, roi: 0, cpa: 0, topProducts: [], topCampaigns: [], topCreatives: [], byDay: [] };
 }
 
 const DAY_LABELS = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
@@ -81,7 +82,7 @@ async function fetchPeriodStats(salesSlug: string | null, metaSlug: string | nul
 
   const salesQ = supabase
     .from("sales")
-    .select("amount, status, sale_type, product_name, product_id, utm_medium, created_at")
+    .select("amount, status, sale_type, product_name, product_id, utm_medium, utm_content, created_at")
     .in("product_id", ids)
     .gte("created_at", from)
     .lte("created_at", to);
@@ -111,19 +112,30 @@ async function fetchPeriodStats(salesSlug: string | null, metaSlug: string | nul
     .sort((a, b) => b.revenue - a.revenue)
     .slice(0, 5);
 
-  const campMap = new Map<string, { sales: number; revenue: number }>();
-  for (const s of approved) {
-    const name = s.utm_medium ?? "Direto";
-    const e = campMap.get(name) ?? { sales: 0, revenue: 0 };
-    e.sales++;
-    e.revenue += Number(s.amount);
-    campMap.set(name, e);
+  const campMap   = new Map<string, { sales: number; revenue: number }>();
+  const adNameMap = new Map<string, { sales: number; revenue: number }>();
+  for (const s of main) {
+    const camp = s.utm_medium ?? "Direto";
+    const ce = campMap.get(camp) ?? { sales: 0, revenue: 0 };
+    ce.sales++; ce.revenue += Number(s.amount);
+    campMap.set(camp, ce);
+
+    if (s.utm_content) {
+      const ae = adNameMap.get(s.utm_content) ?? { sales: 0, revenue: 0 };
+      ae.sales++; ae.revenue += Number(s.amount);
+      adNameMap.set(s.utm_content, ae);
+    }
   }
 
-  // Ad spend — Meta Ads
-  const adQ = supabase.from("ad_campaigns").select("campaign_name, spend")
+  // Ad spend — Meta Ads (campanhas + criativos com link)
+  const adQ  = supabase.from("ad_campaigns").select("campaign_name, spend")
     .gte("date", from.slice(0, 10)).lte("date", to.slice(0, 10));
-  const { data: adData } = await (metaSlug ? adQ.eq("client_slug", metaSlug) : adQ);
+  const adCrQ = supabase.from("ad_creatives").select("ad_name, spend, impressions, clicks, permalink_url, video_url")
+    .gte("date", from.slice(0, 10)).lte("date", to.slice(0, 10));
+  const [{ data: adData }, { data: adCreativeData }] = await Promise.all([
+    metaSlug ? adQ.eq("client_slug", metaSlug) : adQ,
+    metaSlug ? adCrQ.eq("client_slug", metaSlug) : adCrQ,
+  ]);
 
   const adSpendMap = new Map<string, number>();
   for (const a of (adData ?? [])) {
@@ -131,9 +143,28 @@ async function fetchPeriodStats(salesSlug: string | null, metaSlug: string | nul
   }
   const totalSpend = Array.from(adSpendMap.values()).reduce((a, b) => a + b, 0);
 
+  // Spend e link por nome de criativo
+  const creativeSpendMap = new Map<string, { spend: number; link: string | null }>();
+  for (const a of (adCreativeData ?? [])) {
+    const ex = creativeSpendMap.get(a.ad_name) ?? { spend: 0, link: a.permalink_url ?? a.video_url ?? null };
+    ex.spend += Number(a.spend);
+    creativeSpendMap.set(a.ad_name, ex);
+  }
+
   const topCampaigns = Array.from(campMap.entries())
     .map(([name, v]) => ({ name, ...v, spend: adSpendMap.get(name) ?? 0 }))
     .sort((a, b) => b.revenue - a.revenue)
+    .slice(0, 5);
+
+  // Top criativos: cruzado via utm_content
+  const topCreatives = Array.from(adNameMap.entries())
+    .map(([name, v]: [string, { sales: number; revenue: number }]) => {
+      const cr    = creativeSpendMap.get(name);
+      const spend = cr?.spend ?? 0;
+      return { name, sales: v.sales, revenue: v.revenue, spend, roas: spend > 0 ? v.revenue / spend : 0, link: cr?.link ?? null };
+    })
+    .filter((c: any) => c.sales > 0 || c.spend > 0)
+    .sort((a: any, b: any) => b.revenue - a.revenue)
     .slice(0, 5);
 
   // Por dia da semana
@@ -157,7 +188,7 @@ async function fetchPeriodStats(salesSlug: string | null, metaSlug: string | nul
     obRevenue, refunds: refunded.length, refundAmt,
     avgTicket: main.length > 0 ? revenue / main.length : 0,
     spend: totalSpend, roas, roi, cpa,
-    topProducts, topCampaigns, byDay,
+    topProducts, topCampaigns, topCreatives, byDay,
   };
 }
 
@@ -264,6 +295,15 @@ export default function RelatoriosPage() {
       lines.push(...curr.topCampaigns.map((c, i) => {
         const roasStr = c.spend && c.spend > 0 ? ` · ROAS ${(c.revenue / c.spend).toFixed(2)}×` : "";
         return `${i + 1}. ${c.name} — ${c.sales}v · R$ ${fmt(c.revenue)}${roasStr}`;
+      }));
+    }
+
+    if (curr.topCreatives.length > 0) {
+      lines.push(``, `🎨 *Top Criativos:*`);
+      lines.push(...curr.topCreatives.map((c, i) => {
+        const roasStr = c.roas > 0 ? ` · ROAS ${c.roas.toFixed(2)}×` : "";
+        const linkStr = c.link ? ` 🔗 ${c.link}` : "";
+        return `${i + 1}. ${c.name} — ${c.sales}v · R$ ${fmt(c.revenue)}${roasStr}${linkStr}`;
       }));
     }
 
@@ -426,7 +466,7 @@ export default function RelatoriosPage() {
               </div>
             </div>
 
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
               {/* Top Produtos */}
               <div className="bg-card border border-border rounded-xl p-5">
                 <span className="text-sm font-semibold text-text-primary block mb-3">Top Produtos</span>
@@ -458,7 +498,7 @@ export default function RelatoriosPage() {
                 ) : (
                   <div className="space-y-3">
                     {curr.topCampaigns.map((c, i) => {
-                      const maxRev = curr.topCampaigns[0].revenue;
+                      const maxRev   = curr.topCampaigns[0].revenue;
                       const campRoas = c.spend && c.spend > 0 ? c.revenue / c.spend : null;
                       return (
                         <div key={i}>
@@ -479,6 +519,49 @@ export default function RelatoriosPage() {
                           </div>
                           <div className="h-1 bg-border rounded-full overflow-hidden ml-6">
                             <div className="h-full rounded-full bg-blue/60" style={{ width: `${(c.revenue / maxRev) * 100}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Top Criativos */}
+              <div className="bg-card border border-border rounded-xl p-5">
+                <span className="text-sm font-semibold text-text-primary block mb-3">Top Criativos</span>
+                {curr.topCreatives.length === 0 ? (
+                  <p className="text-text-muted text-xs py-4 text-center">Sem dados no período.</p>
+                ) : (
+                  <div className="space-y-3">
+                    {curr.topCreatives.map((c, i) => {
+                      const maxRev = curr.topCreatives[0].revenue;
+                      return (
+                        <div key={i}>
+                          <div className="flex items-center justify-between gap-3 mb-1">
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="text-[10px] font-mono text-text-muted w-4">{i + 1}</span>
+                              <span className="text-xs text-text-primary truncate" title={c.name}>{c.name}</span>
+                            </div>
+                            <div className="flex items-center gap-3 flex-shrink-0">
+                              <span className="text-xs text-text-muted font-mono">{c.sales}v</span>
+                              {c.roas > 0 && (
+                                <span className={`text-xs font-mono ${c.roas >= 3 ? "text-accent" : c.roas >= 2 ? "text-gold" : "text-red"}`}>
+                                  {c.roas.toFixed(2)}×
+                                </span>
+                              )}
+                              <span className="text-xs text-accent font-mono font-semibold">R$ {fmt(c.revenue)}</span>
+                              {c.link && (
+                                <a href={c.link} target="_blank" rel="noopener noreferrer"
+                                  className="text-text-muted hover:text-accent transition-colors flex-shrink-0"
+                                  title="Ver criativo">
+                                  <svg width="11" height="11" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                          <div className="h-1 bg-border rounded-full overflow-hidden ml-6">
+                            <div className="h-full rounded-full bg-accent/50" style={{ width: `${(c.revenue / maxRev) * 100}%` }} />
                           </div>
                         </div>
                       );
