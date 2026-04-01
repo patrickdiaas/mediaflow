@@ -1,0 +1,17 @@
+name: Sync Meta Ads
+
+on:
+  schedule:
+    - cron: '0 6 * * *'   # 06:00 UTC = 03:00 horário de Brasília
+  workflow_dispatch:       # permite executar manualmente pelo GitHub (ótimo para testar)
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync Meta Ads (dia anterior)
+        run: |
+          curl -X POST \
+            "https://vendas.pdgrowth.com.br/api/sync/meta?secret=${{ secrets.META_SYNC_SECRET }}&days=1" \
+            --fail --silent --show-error \
+            --max-time 120

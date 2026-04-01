@@ -1,0 +1,17 @@
+name: Sync Google Ads
+
+on:
+  schedule:
+    - cron: '30 6 * * *'  # 06:30 UTC = 03:30 horário de Brasília
+  workflow_dispatch:       # permite executar manualmente pelo GitHub
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync Google Ads (dia anterior)
+        run: |
+          curl -X POST \
+            "https://vendas.pdgrowth.com.br/api/sync/google?secret=${{ secrets.GOOGLE_SYNC_SECRET }}&days=1" \
+            --fail --silent --show-error \
+            --max-time 120
