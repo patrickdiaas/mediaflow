@@ -247,28 +247,68 @@ export default function AnalisesPage() {
     setFollowUpLoading(false);
   }
 
-  function saveAnalysis() {
+  function saveAsPDF() {
     if (!analysis) return;
-    const periodLabel: Record<string, string> = {
+
+    const pLabel: Record<string, string> = {
       today: "Hoje", yesterday: "Ontem",
       "7d": "Últimos 7 dias", "30d": "Últimos 30 dias",
       "90d": "Últimos 90 dias", mtd: "Mês atual",
     };
-    const date = new Date().toLocaleDateString("pt-BR").replace(/\//g, "-");
-    const header = `# Análise de Performance — ${periodLabel[period] ?? period}\nGerado em ${new Date().toLocaleString("pt-BR")}\nCliente: ${client}\n\n---\n\n`;
-    const followUpText = followUps.length > 0
-      ? "\n\n---\n\n## Perguntas de Aprofundamento\n\n" +
-        followUps.map(f => `**Pergunta:** ${f.question}\n\n${f.answer}`).join("\n\n---\n\n")
-      : "";
-    const content = header + analysis + followUpText;
 
-    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
-    const url  = URL.createObjectURL(blob);
-    const a    = document.createElement("a");
-    a.href     = url;
-    a.download = `analise-${client}-${date}.md`;
-    a.click();
-    URL.revokeObjectURL(url);
+    function mdToHtml(text: string): string {
+      return text
+        .split("\n")
+        .map(line => {
+          if (!line.trim()) return "<br/>";
+          const headerMatch = line.trim().match(/^\*\*(\d+\.\s+.+?)\*\*$/);
+          if (headerMatch) return `<h2>${headerMatch[1]}</h2>`;
+          if (/^[-*]\s+/.test(line)) {
+            return `<li>${line.replace(/^[-*]\s+/, "").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")}</li>`;
+          }
+          return `<p>${line.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")}</p>`;
+        })
+        .join("\n");
+    }
+
+    const followUpHtml = followUps.length > 0
+      ? `<hr/><h1>Perguntas de Aprofundamento</h1>` +
+        followUps.map(f =>
+          `<div class="question"><strong>Pergunta:</strong> ${f.question}</div>${mdToHtml(f.answer)}`
+        ).join("<hr/>")
+      : "";
+
+    const html = `<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"/>
+  <title>Análise — ${client}</title>
+  <style>
+    body { font-family: system-ui, -apple-system, sans-serif; max-width: 820px; margin: 40px auto; color: #111; font-size: 13px; line-height: 1.65; }
+    h1 { font-size: 20px; margin: 0 0 4px; }
+    h2 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid #ddd; padding-bottom: 5px; margin: 28px 0 10px; color: #333; }
+    p { margin: 4px 0; }
+    li { margin: 3px 0 3px 18px; }
+    strong { font-weight: 600; }
+    .meta { color: #666; font-size: 11px; margin-bottom: 32px; }
+    .question { background: #f5f5f5; padding: 8px 12px; border-radius: 4px; margin: 20px 0 10px; font-size: 13px; }
+    hr { border: none; border-top: 1px solid #eee; margin: 32px 0; }
+    @media print { body { margin: 20mm; } }
+  </style>
+</head>
+<body>
+  <h1>Análise de Performance</h1>
+  <div class="meta">${pLabel[period] ?? period} · Cliente: ${client} · ${new Date().toLocaleString("pt-BR")}</div>
+  ${mdToHtml(analysis)}
+  ${followUpHtml}
+</body>
+</html>`;
+
+    const win = window.open("", "_blank");
+    if (!win) return;
+    win.document.write(html);
+    win.document.close();
+    setTimeout(() => win.print(), 400);
   }
 
   const periodLabel: Record<string, string> = {
@@ -280,9 +320,9 @@ export default function AnalisesPage() {
   const sections = analysis ? parseSections(analysis) : null;
 
   return (
-    <div className="flex min-h-screen bg-bg">
+    <div className="flex h-screen bg-bg">
       <Sidebar />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-6 overflow-y-auto">
         <Header title="Análises com IA" subtitle="Diagnóstico completo de campanhas, criativos e audiência" />
 
         {/* Trigger Card */}
@@ -314,7 +354,7 @@ export default function AnalisesPage() {
             <div className="flex items-center gap-2 flex-shrink-0">
               {analysis && (
                 <button
-                  onClick={saveAnalysis}
+                  onClick={saveAsPDF}
                   className="flex items-center gap-1.5 px-3 py-2.5 rounded-lg border border-border text-text-secondary text-sm hover:text-accent hover:border-accent/30 transition-colors"
                   title="Baixar análise como .md"
                 >

@@ -145,9 +145,9 @@ export default function AudienciaPage() {
   }
 
   return (
-    <div className="flex min-h-screen bg-bg">
+    <div className="flex h-screen bg-bg">
       <Sidebar />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-6 overflow-y-auto">
         <Header title="Audiência" subtitle="Análise de conversão por qualidade das respostas" />
 
         {products.length === 0 ? (
@@ -234,7 +234,6 @@ export default function AudienciaPage() {
 
 function QuestionCard({ stat }: { stat: QuestionStat }) {
   const maxLeads = Math.max(...stat.answers.map(a => a.leads), 1);
-  const top = stat.answers.slice(0, 8);
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden">
@@ -243,19 +242,20 @@ function QuestionCard({ stat }: { stat: QuestionStat }) {
         <p className="text-xs font-semibold text-text-primary leading-snug">
           {stat.question}
         </p>
+        <p className="text-[10px] text-text-muted mt-0.5">{stat.answers.length} respostas</p>
       </div>
 
       {/* Gráfico de barras horizontais + tabela integrada */}
-      <div className="divide-y divide-border">
+      <div className="divide-y divide-border max-h-[420px] overflow-y-auto">
         {/* Header */}
-        <div className="grid grid-cols-[1fr_48px_48px_52px] px-5 py-2">
+        <div className="grid grid-cols-[1fr_48px_48px_52px] px-5 py-2 sticky top-0 bg-card z-10">
           <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">Resposta</span>
           <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider text-right">Leads</span>
           <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider text-right">Vendas</span>
           <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider text-right">Conv.</span>
         </div>
 
-        {top.map((a, i) => (
+        {stat.answers.map((a, i) => (
           <div key={i} className="px-5 py-3 hover:bg-bg/40 transition-colors">
             {/* Texto da resposta */}
             <div className="flex items-start justify-between gap-3 mb-2">
