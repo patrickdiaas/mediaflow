@@ -94,7 +94,7 @@ function buildProductRows(tracked: TrackedProduct[], sales: any[]): ProductRow[]
     const ps       = sales.filter(s => s.product_id === tp.product_id);
     const approved = ps.filter(s => s.status === "approved");
     const refunded = ps.filter(s => s.status === "refunded" || s.status === "chargeback");
-    const revenue  = approved.reduce((sum: number, s: any) => sum + Number(s.amount), 0);
+    const revenue  = approved.reduce((sum: number, s: any) => sum + Number(s.amount_net ?? s.amount), 0);
     return {
       product_id:    tp.product_id,
       product_name:  tp.product_name ?? "Produto sem nome",
@@ -210,7 +210,7 @@ export default function OverviewPage() {
     // Vendas no período — janela BRT (UTC-3)
     const salesQ = supabase
       .from("sales")
-      .select("id, amount, status, sale_type, product_id, product_name, utm_source, payment_method, created_at")
+      .select("id, amount, amount_net, status, sale_type, product_id, product_name, utm_source, payment_method, created_at")
       .gte("created_at", salesSince)
       .lte("created_at", salesUntil);
     if (salesSlug) salesQ.eq("client_slug", salesSlug);
@@ -222,8 +222,10 @@ export default function OverviewPage() {
     const mainSales = approved.filter((s: any) => s.sale_type === "main");
     const obSales   = approved.filter((s: any) => s.sale_type === "order_bump");
     const refunded  = allSales.filter((s: any) => s.status === "refunded" || s.status === "chargeback");
-    const revenue   = mainSales.reduce((sum: number, s: any) => sum + Number(s.amount), 0);
-    const obRevenue = obSales.reduce((sum: number, s: any) => sum + Number(s.amount), 0);
+    // Usa amount_net (líquido após taxas gateway) quando disponível, senão amount bruto
+    const netVal    = (s: any) => Number(s.amount_net ?? s.amount);
+    const revenue   = mainSales.reduce((sum: number, s: any) => sum + netVal(s), 0);
+    const obRevenue = obSales.reduce((sum: number, s: any) => sum + netVal(s), 0);
     const refundAmt = refunded.reduce((sum: number, s: any) => sum + Number(s.amount), 0);
     const avgTicket = mainSales.length > 0 ? revenue / mainSales.length : 0;
 
@@ -238,7 +240,7 @@ export default function OverviewPage() {
     const revenueByDay = new Map<string, number>();
     for (const s of mainSales) {
       const day = String(s.created_at).slice(0, 10);
-      revenueByDay.set(day, (revenueByDay.get(day) ?? 0) + Number(s.amount));
+      revenueByDay.set(day, (revenueByDay.get(day) ?? 0) + Number(s.amount_net ?? s.amount));
     }
     const spendByDay = new Map<string, number>();
     for (const a of (adData ?? [])) {

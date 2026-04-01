@@ -84,7 +84,7 @@ async function fetchPeriodStats(salesSlug: string | null, metaSlug: string | nul
 
   const salesQ = supabase
     .from("sales")
-    .select("amount, status, sale_type, product_name, product_id, utm_medium, utm_content, created_at")
+    .select("amount, amount_net, status, sale_type, product_name, product_id, utm_medium, utm_content, created_at")
     .in("product_id", ids)
     .gte("created_at", from)
     .lte("created_at", to);
@@ -97,8 +97,10 @@ async function fetchPeriodStats(salesSlug: string | null, metaSlug: string | nul
   const obs      = approved.filter((s: any) => s.sale_type === "order_bump");
   const refunded = sales.filter((s: any) => s.status === "refunded" || s.status === "chargeback");
 
-  const revenue   = main.reduce((a: number, s: any) => a + Number(s.amount), 0);
-  const obRevenue = obs.reduce((a: number, s: any)  => a + Number(s.amount), 0);
+  const net = (s: any) => Number(s.amount_net ?? s.amount);
+
+  const revenue   = main.reduce((a: number, s: any) => a + net(s), 0);
+  const obRevenue = obs.reduce((a: number, s: any)  => a + net(s), 0);
   const refundAmt = refunded.reduce((a: number, s: any) => a + Number(s.amount), 0);
 
   const prodMap = new Map<string, { sales: number; revenue: number }>();
@@ -106,7 +108,7 @@ async function fetchPeriodStats(salesSlug: string | null, metaSlug: string | nul
     const name = s.product_name ?? "Desconhecido";
     const e = prodMap.get(name) ?? { sales: 0, revenue: 0 };
     e.sales++;
-    e.revenue += Number(s.amount);
+    e.revenue += net(s);
     prodMap.set(name, e);
   }
   const topProducts = Array.from(prodMap.entries())
@@ -119,12 +121,12 @@ async function fetchPeriodStats(salesSlug: string | null, metaSlug: string | nul
   for (const s of main) {
     const camp = s.utm_medium ?? "Direto";
     const ce = campMap.get(camp) ?? { sales: 0, revenue: 0 };
-    ce.sales++; ce.revenue += Number(s.amount);
+    ce.sales++; ce.revenue += net(s);
     campMap.set(camp, ce);
 
     if (s.utm_content) {
       const ae = adNameMap.get(s.utm_content) ?? { sales: 0, revenue: 0 };
-      ae.sales++; ae.revenue += Number(s.amount);
+      ae.sales++; ae.revenue += net(s);
       adNameMap.set(s.utm_content, ae);
     }
   }
@@ -176,7 +178,7 @@ async function fetchPeriodStats(salesSlug: string | null, metaSlug: string | nul
     const dow = new Date(s.created_at).getDay();
     const e = dayMap.get(dow)!;
     e.vendas++;
-    e.receita += Number(s.amount);
+    e.receita += net(s);
   }
   const byDay = Array.from(dayMap.entries()).map(([i, v]) => ({ label: DAY_LABELS[i], ...v }));
 

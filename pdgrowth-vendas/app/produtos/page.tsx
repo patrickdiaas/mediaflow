@@ -64,7 +64,7 @@ function buildProductRows(tracked: TrackedProduct[], sales: any[]): ProductRow[]
     const ps       = sales.filter(s => s.product_id === tp.product_id);
     const approved = ps.filter(s => s.status === "approved");
     const refunded = ps.filter(s => s.status === "refunded" || s.status === "chargeback");
-    const revenue  = approved.reduce((sum, s) => sum + Number(s.amount), 0);
+    const revenue  = approved.reduce((sum, s) => sum + Number(s.amount_net ?? s.amount), 0);
     return {
       product_id:    tp.product_id,
       product_name:  tp.product_name ?? "Produto sem nome",
@@ -88,7 +88,7 @@ function buildTrend(sales: any[]) {
     if (!day) continue;
     const e = map.get(day) ?? { vendas: 0, receita: 0 };
     e.vendas++;
-    e.receita += Number(s.amount);
+    e.receita += Number(s.amount_net ?? s.amount);
     map.set(day, e);
   }
   return Array.from(map.entries())
@@ -108,7 +108,7 @@ function buildTopUTMs(sales: any[], key: UTMKey) {
     const label = s[key] ?? (key === "utm_medium" ? "Direto" : "Orgânico");
     const e = map.get(label) ?? { vendas: 0, receita: 0 };
     e.vendas++;
-    e.receita += Number(s.amount);
+    e.receita += Number(s.amount_net ?? s.amount);
     map.set(label, e);
   }
   return Array.from(map.entries())
@@ -159,7 +159,7 @@ export default function ProdutosPage() {
 
     const salesQ = supabase
       .from("sales")
-      .select("id, created_at, gateway, sale_type, amount, status, product_name, product_id, utm_medium, utm_campaign, utm_content, utm_source")
+      .select("id, created_at, gateway, sale_type, amount, amount_net, status, product_name, product_id, utm_medium, utm_campaign, utm_content, utm_source")
       .in("product_id", ids)
       .gte("created_at", since)
       .lte("created_at", until)
@@ -185,8 +185,8 @@ export default function ProdutosPage() {
   const approved   = allSales.filter(s => s.status === "approved");
   const refunds    = allSales.filter(s => s.status === "refunded" || s.status === "chargeback");
   const orderBumps = approved.filter(s => s.sale_type === "order_bump");
-  const revenue    = approved.filter(s => s.sale_type === "main").reduce((s, v) => s + Number(v.amount), 0);
-  const obRevenue  = orderBumps.reduce((s, v) => s + Number(v.amount), 0);
+  const revenue    = approved.filter(s => s.sale_type === "main").reduce((s, v) => s + Number(v.amount_net ?? v.amount), 0);
+  const obRevenue  = orderBumps.reduce((s, v) => s + Number(v.amount_net ?? v.amount), 0);
   const refRevenue = refunds.reduce((s, v) => s + Number(v.amount), 0);
 
   const trendData = buildTrend(filteredSales);

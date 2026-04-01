@@ -107,7 +107,7 @@ export default function CriativosPage() {
 
     // Vendas por utm_content (nome do criativo) — janela BRT
     const baseSales = supabase.from("sales")
-      .select("amount, sale_type, utm_content")
+      .select("amount, amount_net, sale_type, utm_content")
       .eq("status", "approved")
       .gte("created_at", salesSince)
       .lte("created_at", salesUntil);
@@ -122,7 +122,7 @@ export default function CriativosPage() {
         if (!s.utm_content) continue;
         const e = byAdName.get(s.utm_content) ?? { sales: 0, revenue: 0 };
         e.sales++;
-        e.revenue += Number(s.amount);
+        e.revenue += Number(s.amount_net ?? s.amount);
         byAdName.set(s.utm_content, e);
       }
 

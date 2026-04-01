@@ -166,7 +166,7 @@ export default function CampanhasPage() {
 
     // Busca vendas aprovadas no período para cruzar via UTMs (janela BRT)
     const baseSales = supabase.from("sales")
-      .select("amount, status, sale_type, utm_medium, utm_campaign, utm_content, utm_term")
+      .select("amount, amount_net, status, sale_type, utm_medium, utm_campaign, utm_content, utm_term")
       .eq("status", "approved")
       .gte("created_at", salesSince)
       .lte("created_at", salesUntil);
@@ -208,7 +208,7 @@ export default function CampanhasPage() {
       const byAdName   = new Map<string, { sales: number; revenue: number }>();
 
       for (const s of mainSales) {
-        const amt = Number(s.amount);
+        const amt = Number(s.amount_net ?? s.amount);
         if (s.utm_medium) {
           const e = byCampaign.get(s.utm_medium) ?? { sales: 0, revenue: 0 };
           e.sales++; e.revenue += amt;

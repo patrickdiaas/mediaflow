@@ -36,6 +36,8 @@ export async function POST(req: NextRequest) {
     : "main";
 
   const amount      = Number(body?.payment?.total ?? body?.payment?.gross ?? 0);
+  const amountNet   = body?.payment?.net != null ? Number(body.payment.net) : null;
+  const gatewayFee  = body?.payment?.marketplace_value != null ? Number(body.payment.marketplace_value) : null;
   const rawStatus   = String(body?.status ?? "").toLowerCase();
   const mappedStatus = statusMap[rawStatus] ?? "pending";
   const productId   = String(body?.product?.id ?? body?.items?.[0]?.id ?? "");
@@ -69,6 +71,8 @@ export async function POST(req: NextRequest) {
     utm_campaign:     body?.source?.utm_campaign ?? null,
     utm_content:      body?.source?.utm_content ?? null,
     utm_term:         body?.source?.utm_term ?? null,
+    amount_net:       amountNet,
+    gateway_fee:      gatewayFee,
     approved_at:      body?.dates?.confirmed_at ?? null,
     raw_payload:      body,
   }, { onConflict: "gateway,gateway_order_id" });
