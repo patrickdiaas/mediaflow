@@ -3,18 +3,19 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useDashboard } from "@/lib/dashboard-context";
 import { mockClients } from "@/lib/mock-data";
-import { LayoutDashboard, Megaphone, Image, Package, Users, Settings, ChevronLeft, ChevronRight, FileBarChart2, Sparkles } from "lucide-react";
+import { LayoutDashboard, Megaphone, Image, Package, Users, Settings, ChevronLeft, ChevronRight, FileBarChart2, Sparkles, KeyRound } from "lucide-react";
 import { useState } from "react";
 
 const navItems = [
-  { href: "/",          label: "Overview",   icon: LayoutDashboard },
-  { href: "/campanhas", label: "Campanhas",  icon: Megaphone },
-  { href: "/criativos", label: "Criativos",  icon: Image },
-  { href: "/produtos",       label: "Produtos",       icon: Package },
-  { href: "/audiencia",     label: "Audiência",     icon: Users },
-  { href: "/relatorios",    label: "Relatórios",    icon: FileBarChart2 },
-  { href: "/analises",      label: "Análises IA",   icon: Sparkles },
-  { href: "/configuracoes", label: "Configurações", icon: Settings },
+  { href: "/",               label: "Overview",       icon: LayoutDashboard, platform: null   },
+  { href: "/campanhas",      label: "Campanhas",      icon: Megaphone,       platform: null   },
+  { href: "/criativos",      label: "Criativos",      icon: Image,           platform: null   },
+  { href: "/palavras-chave", label: "Palavras-chave", icon: KeyRound,        platform: "google" },
+  { href: "/produtos",       label: "Produtos",       icon: Package,         platform: null   },
+  { href: "/audiencia",      label: "Audiência",      icon: Users,           platform: null   },
+  { href: "/relatorios",     label: "Relatórios",     icon: FileBarChart2,   platform: null   },
+  { href: "/analises",       label: "Análises IA",    icon: Sparkles,        platform: null   },
+  { href: "/configuracoes",  label: "Configurações",  icon: Settings,        platform: null   },
 ];
 
 export default function Sidebar() {
@@ -71,6 +72,8 @@ export default function Sidebar() {
         {navItems.map(item => {
           const Icon = item.icon;
           const active = pathname === item.href;
+          // Itens de plataforma específica ficam mais apagados quando plataforma não corresponde
+          const platformMuted = item.platform === "google" && platform === "meta";
           return (
             <Link
               key={item.href}
@@ -79,11 +82,20 @@ export default function Sidebar() {
               className={`flex items-center gap-3 px-3 py-2.5 rounded-lg mb-0.5 text-sm transition-all ${
                 active
                   ? "bg-accent/10 text-accent border border-accent/20"
+                  : platformMuted
+                  ? "text-text-dark hover:text-text-muted hover:bg-card"
                   : "text-text-secondary hover:text-text-primary hover:bg-card"
               }`}
             >
               <Icon size={15} className="flex-shrink-0" />
-              {!collapsed && <span className="font-medium">{item.label}</span>}
+              {!collapsed && (
+                <span className="font-medium flex items-center gap-1.5">
+                  {item.label}
+                  {item.platform === "google" && !collapsed && (
+                    <span className="text-[9px] font-mono text-gold border border-gold/30 bg-gold/10 px-1 py-0.5 rounded">G</span>
+                  )}
+                </span>
+              )}
             </Link>
           );
         })}

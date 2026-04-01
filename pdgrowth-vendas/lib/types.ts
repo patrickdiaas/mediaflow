@@ -239,3 +239,32 @@ export interface DashboardFilters {
   period: string;
   campaign: string;
 }
+
+export interface KeywordRow {
+  keyword_id: string;
+  keyword_text: string;
+  match_type: string;
+  campaign_name: string;
+  ad_group_name: string;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  spend: number;
+  revenue: number;
+  sales: number;
+  roas: number;
+  cpa: number;
+  conversions: number;     // conversões rastreadas pelo Google Ads
+}
+
+export interface SearchTermRow {
+  search_term: string;
+  keyword_text: string;
+  campaign_name: string;
+  ad_group_name: string;
+  impressions: number;
+  clicks: number;
+  ctr: number;
+  spend: number;
+  conversions: number;
+}
