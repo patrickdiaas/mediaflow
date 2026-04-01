@@ -321,31 +321,52 @@ ${worstCreatives.length > 0 ? `\nCRIATIVOS — PIORES PERFORMERS (com gasto):\n$
     const fullContext = [salesContext, campaignContext, creativesContext, audienceContext].filter(Boolean).join("\n\n");
 
     // ── 7. Build Claude prompt ────────────────────────────────────────────────
-    const prompt = `Você é um especialista sênior em marketing digital e performance de anúncios (Meta Ads e Google Ads) para infoprodutos brasileiros. Analise os dados abaixo e forneça uma análise completa e acionável.
+    const systemPrompt = `Você é um estrategista sênior de performance digital especializado em infoprodutos brasileiros. Sua função é transformar dados brutos de campanhas e vendas em diagnósticos precisos e recomendações acionáveis — não em resumos descritivos.
 
+REGRAS OBRIGATÓRIAS:
+- NUNCA repita os números brutos que já estão nos dados. O gestor já os conhece.
+- SEMPRE interprete o que os números significam: o que está bom, o que está ruim, por quê.
+- SEMPRE termine cada seção com uma conclusão clara ou ação recomendada.
+- Use linguagem direta de gestor de tráfego, sem enrolação.
+- Se um dado estiver ausente, não mencione a ausência — trabalhe com o que existe.`;
+
+    const userPrompt = `Analise os dados de performance abaixo e gere um diagnóstico estratégico completo.
+
+DADOS DO PERÍODO:
 ${fullContext}
 
-Estruture sua resposta exatamente com estas seções (use os títulos em negrito):
+Responda EXATAMENTE neste formato (sem introdução, sem conclusão geral, só as 6 seções):
 
 **1. Resumo Executivo**
-(2-3 frases sobre o desempenho geral do período)
+Em 2-3 frases: qual foi o resultado real do período? O negócio está crescendo, estagnado ou em queda? Qual é a principal alavanca ou gargalo?
 
 **2. Diagnóstico de Campanhas**
-${hasAdData ? "Analise ROAS, CPA, CTR e gasto de cada campanha. Identifique quais escalar, pausar ou otimizar. Seja específico com os números." : "Dados de campanhas ainda não integrados. Comente o que as UTMs das vendas revelam sobre as origens."}
+${hasAdData
+  ? "Para cada campanha: veredicto (escalar / manter / pausar) + justificativa em 1 linha baseada no ROAS/CPA comparado ao ticket médio. Identifique qual campanha está puxando resultado e qual está drenando budget."
+  : "Com base nos utm_medium das vendas, identifique de quais campanhas vieram os compradores. Qual origem converte melhor? O que isso indica sobre onde concentrar o investimento?"}
 
 **3. Análise de Criativos**
-${topCreatives.length > 0 ? "Identifique padrões nos top performers (tipo, headline, abordagem). Aponte o que está drenando budget sem retorno." : "Dados de criativos ainda não integrados. Comente o que utm_content das vendas revela."}
+${topCreatives.length > 0
+  ? "Qual padrão une os criativos que vendem? (formato, abordagem, tema). Qual está desperdiçando verba sem retorno? Seja específico — cite nomes dos criativos."
+  : "Com base nos utm_content das vendas, identifique quais anúncios geraram compradores. O que os nomes/padrões revelam sobre o que está funcionando?"}
 
 **4. Sugestões de Novos Criativos**
-Baseado nos dados disponíveis, sugira 4 criativos concretos para testar. Para cada um especifique: tipo (vídeo/imagem/carrossel), headline, gancho principal, e por que deve performar bem. Seja específico ao nicho dos produtos.
+Sugira exatamente 4 criativos para testar na próxima semana. Para cada um:
+- Formato: [vídeo / imagem / carrossel]
+- Headline: [texto exato da headline]
+- Gancho: [primeira frase ou cena de abertura]
+- Hipótese: por que esse criativo deve converter com base nos dados
 
 **5. Perfil do Comprador Ideal**
-${audienceParts.length > 0 ? "Baseado nas respostas da audiência, descreva o perfil do comprador que mais converte. Identifique a dor principal e o motivador de compra." : "Sem dados de audiência disponíveis. Infira o perfil com base nos padrões de UTM e produtos."}
+${audienceParts.length > 0
+  ? "Quem é o comprador que mais converte? Descreva: situação atual, dor principal, motivação de compra, objeção mais comum. Use os dados da pesquisa para embasar cada ponto."
+  : "Com base nos produtos comprados, horários, métodos de pagamento e UTMs: quem é esse comprador? Qual é a dor que o produto resolve? Como ele chegou até a oferta?"}
 
-**6. Recomendações Prioritárias**
-Liste 4-5 ações específicas ordenadas por impacto esperado. Cada ação deve ter um próximo passo concreto.
-
-Seja direto, use linguagem de negócios, evite jargões desnecessários. Foque em insights que um gestor de tráfego possa executar amanhã.`;
+**6. Top 5 Ações para Esta Semana**
+Liste 5 ações ordenadas por impacto, cada uma com:
+- O que fazer (específico, não genérico)
+- Por quê (baseado nos dados)
+- Como medir o resultado`;
 
     // ── 8. Call Claude API ────────────────────────────────────────────────────
     const anthropicKey = process.env.ANTHROPIC_API_KEY;
@@ -361,9 +382,10 @@ Seja direto, use linguagem de negócios, evite jargões desnecessários. Foque e
         "content-type": "application/json",
       },
       body: JSON.stringify({
-        model: "claude-haiku-4-5-20251001",
-        max_tokens: 2000,
-        messages: [{ role: "user", content: prompt }],
+        model: "claude-sonnet-4-6",
+        max_tokens: 3000,
+        system: systemPrompt,
+        messages: [{ role: "user", content: userPrompt }],
       }),
     });
 
