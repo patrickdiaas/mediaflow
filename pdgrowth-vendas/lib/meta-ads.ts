@@ -227,7 +227,7 @@ async function fetchCampaignList(accountId: string, token: string): Promise<Meta
 
 async function fetchAdList(accountId: string, token: string): Promise<MetaAdInfo[]> {
   const url = buildUrl(`/${accountId}/ads`, {
-    fields: 'id,name,status,adset_id,campaign_id,creative{object_type,thumbnail_url,image_url,title,body,permalink_url}',
+    fields: 'id,name,status,adset_id,campaign_id,creative{object_type,thumbnail_url,image_url,title,body}',
     effective_status: '["ACTIVE","PAUSED"]',
     limit: '500',
   }, token)
@@ -334,7 +334,7 @@ export async function syncAccountData(
       video_url: null,
       headline: creative?.title ?? null,
       body: creative?.body ?? null,
-      permalink_url: creative?.permalink_url ?? null,
+      permalink_url: row.ad_id ? `https://www.facebook.com/ads/library/?id=${row.ad_id}` : null,
       date: row.date_start,
       impressions: parseNum(row.impressions),
       clicks: parseNum(row.clicks),
