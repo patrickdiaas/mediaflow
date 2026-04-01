@@ -14,23 +14,25 @@ function fmtInt(n: number) { return n.toLocaleString("pt-BR"); }
 
 // ─── Ranges ───────────────────────────────────────────────────────────────────
 
+// Fuso horário de Brasília = UTC-3
+// Início do dia BRT = 03:00 UTC | Fim do dia BRT = 02:59:59 UTC do dia seguinte
+
 function getWeekRange(offset = 0) {
   const now = new Date();
   const day = now.getDay();
   const monday = new Date(now);
   monday.setDate(now.getDate() - ((day + 6) % 7) + offset * 7);
-  monday.setHours(0, 0, 0, 0);
+  monday.setUTCHours(3, 0, 0, 0); // 03:00 UTC = 00:00 BRT
   const sunday = new Date(monday);
-  sunday.setDate(monday.getDate() + 6);
-  sunday.setHours(23, 59, 59, 999);
+  sunday.setDate(monday.getDate() + 7);
+  sunday.setUTCHours(2, 59, 59, 999); // 02:59 UTC = 23:59 BRT
   return { from: monday.toISOString(), to: sunday.toISOString(), start: monday, end: sunday };
 }
 
 function getMonthRange(offset = 0) {
   const now = new Date();
-  const first = new Date(now.getFullYear(), now.getMonth() + offset, 1);
-  const last  = new Date(now.getFullYear(), now.getMonth() + offset + 1, 0);
-  last.setHours(23, 59, 59, 999);
+  const first = new Date(Date.UTC(now.getFullYear(), now.getMonth() + offset, 1, 3, 0, 0, 0));
+  const last  = new Date(Date.UTC(now.getFullYear(), now.getMonth() + offset + 1, 1, 2, 59, 59, 999));
   return { from: first.toISOString(), to: last.toISOString(), start: first, end: last };
 }
 

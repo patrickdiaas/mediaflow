@@ -7,7 +7,7 @@ import { useDashboard } from "@/lib/dashboard-context";
 import { mockCreatives } from "@/lib/mock-data";
 import type { CreativeRow, Platform } from "@/lib/types";
 import { supabase } from "@/lib/supabase";
-import { getPeriodDates } from "@/lib/period";
+import { getPeriodDates, getSalesDates } from "@/lib/period";
 import { LayoutGrid, List, ArrowUpDown } from "lucide-react";
 import Image from "next/image";
 
@@ -91,6 +91,7 @@ export default function CriativosPage() {
 
   useEffect(() => {
     const { since, until } = getPeriodDates(period);
+    const { since: salesSince, until: salesUntil } = getSalesDates(period);
     setLoading(true);
 
     const metaSlug  = client !== "all" ? client : null;
@@ -104,12 +105,12 @@ export default function CriativosPage() {
     const q1    = platform !== "all" ? base.eq("platform", platform) : base;
     const qAds  = metaSlug ? q1.eq("client_slug", metaSlug) : q1;
 
-    // Vendas por utm_content (nome do criativo)
+    // Vendas por utm_content (nome do criativo) — janela BRT
     const baseSales = supabase.from("sales")
       .select("amount, sale_type, utm_content")
       .eq("status", "approved")
-      .gte("created_at", since)
-      .lte("created_at", until + "T23:59:59");
+      .gte("created_at", salesSince)
+      .lte("created_at", salesUntil);
     const qSales = salesSlug ? baseSales.eq("client_slug", salesSlug) : baseSales;
 
     Promise.all([qAds, qSales]).then(([{ data: rows, error }, { data: salesData }]) => {

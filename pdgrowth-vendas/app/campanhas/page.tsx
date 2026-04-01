@@ -7,7 +7,7 @@ import { useDashboard } from "@/lib/dashboard-context";
 import { mockCampaigns, mockAdSets, mockCreatives } from "@/lib/mock-data";
 import type { CampaignRow, AdSetRow, CreativeRow, Platform, FunnelStep } from "@/lib/types";
 import { supabase } from "@/lib/supabase";
-import { getPeriodDates } from "@/lib/period";
+import { getPeriodDates, getSalesDates } from "@/lib/period";
 import Funnel from "@/components/funnel";
 import Image from "next/image";
 
@@ -144,6 +144,7 @@ export default function CampanhasPage() {
 
   useEffect(() => {
     const { since, until } = getPeriodDates(period);
+    const { since: salesSince, until: salesUntil } = getSalesDates(period);
     setLoading(true);
 
     // Resolve slugs: metaSlug para campanhas, salesSlug para vendas
@@ -163,12 +164,12 @@ export default function CampanhasPage() {
     const qSets = metaSlug ? q1Sets.eq("client_slug", metaSlug) : q1Sets;
     const qAds  = metaSlug ? q1Ads.eq("client_slug", metaSlug)  : q1Ads;
 
-    // Busca vendas aprovadas no período para cruzar via UTMs
+    // Busca vendas aprovadas no período para cruzar via UTMs (janela BRT)
     const baseSales = supabase.from("sales")
       .select("amount, status, sale_type, utm_medium, utm_campaign, utm_content, utm_term")
       .eq("status", "approved")
-      .gte("created_at", since)
-      .lte("created_at", until + "T23:59:59");
+      .gte("created_at", salesSince)
+      .lte("created_at", salesUntil);
     const qSales = salesSlug ? baseSales.eq("client_slug", salesSlug) : baseSales;
 
     Promise.all([qCamp, qSets, qAds, qSales]).then(([campRes, setsRes, adsRes, salesRes]) => {

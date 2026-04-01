@@ -5,7 +5,7 @@ import Header from "@/components/header";
 import DataTable, { Column } from "@/components/data-table";
 import { useDashboard } from "@/lib/dashboard-context";
 import { supabase } from "@/lib/supabase";
-import { getPeriodDates } from "@/lib/period";
+import { getSalesDates } from "@/lib/period";
 import { RefreshCw } from "lucide-react";
 import type { SaleRow } from "@/lib/types";
 
@@ -128,7 +128,7 @@ export default function VendasPage() {
   }, []);
 
   useEffect(() => {
-    const { since, until } = getPeriodDates(period);
+    const { since, until } = getSalesDates(period);
     const salesSlug = client === "all" ? null : (clients.find(c => c.slug === client)?.sales_slug ?? client);
 
     setLoading(true);
@@ -136,7 +136,7 @@ export default function VendasPage() {
       .from("sales")
       .select("id, created_at, gateway, sale_type, amount, status, product_name, utm_source, utm_medium, utm_campaign, utm_content, utm_term, payment_method")
       .gte("created_at", since)
-      .lte("created_at", until + "T23:59:59")
+      .lte("created_at", until)
       .order("created_at", { ascending: false });
 
     (salesSlug ? q.eq("client_slug", salesSlug) : q).then(({ data }) => {

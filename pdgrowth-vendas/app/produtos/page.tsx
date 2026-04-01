@@ -5,7 +5,7 @@ import Header from "@/components/header";
 import DataTable, { Column } from "@/components/data-table";
 import { supabase } from "@/lib/supabase";
 import { useDashboard } from "@/lib/dashboard-context";
-import { getPeriodDates } from "@/lib/period";
+import { getSalesDates } from "@/lib/period";
 import type { ProductRow, Gateway } from "@/lib/types";
 import { RefreshCw, Package } from "lucide-react";
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell } from "recharts";
@@ -146,7 +146,7 @@ export default function ProdutosPage() {
     setError(null);
     setNoTracked(false);
 
-    const { since, until } = getPeriodDates(period);
+    const { since, until } = getSalesDates(period);
     const salesSlug = getSalesSlug();
 
     const trackedQ = supabase.from("tracked_products").select("product_id, product_name, gateway").eq("active", true);
@@ -162,7 +162,7 @@ export default function ProdutosPage() {
       .select("id, created_at, gateway, sale_type, amount, status, product_name, product_id, utm_medium, utm_campaign, utm_content, utm_source")
       .in("product_id", ids)
       .gte("created_at", since)
-      .lte("created_at", until + "T23:59:59")
+      .lte("created_at", until)
       .order("created_at", { ascending: true });
     if (salesSlug) salesQ.eq("client_slug", salesSlug);
 

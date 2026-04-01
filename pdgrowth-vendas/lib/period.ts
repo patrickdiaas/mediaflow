@@ -1,3 +1,20 @@
+// Retorna o intervalo de datas ajustado para o fuso horário de Brasília (UTC-3).
+// Usado nas queries de sales (created_at) para não perder vendas entre 21h-23h59 BRT.
+// Ex: venda às 23h30 BRT aparece no Supabase como 02h30 UTC do dia seguinte.
+export function getSalesDates(period: string): { since: string; until: string } {
+  const { since, until } = getPeriodDates(period);
+
+  // Próximo dia após until (para cobrir até 02:59:59 UTC = 23:59:59 BRT)
+  const untilDate = new Date(until + "T00:00:00Z");
+  untilDate.setUTCDate(untilDate.getUTCDate() + 1);
+  const untilNext = untilDate.toISOString().split("T")[0];
+
+  return {
+    since: `${since}T03:00:00`,      // 03:00 UTC = 00:00 BRT
+    until: `${untilNext}T02:59:59`,  // 02:59 UTC próximo dia = 23:59 BRT
+  };
+}
+
 export function getPeriodDates(period: string): { since: string; until: string } {
   const fmt   = (d: Date) => d.toISOString().split("T")[0];
   const today = new Date();

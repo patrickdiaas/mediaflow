@@ -5,9 +5,9 @@ import Header from "@/components/header";
 import DataTable, { Column } from "@/components/data-table";
 import { useDashboard } from "@/lib/dashboard-context";
 import { supabase } from "@/lib/supabase";
-import { getPeriodDates } from "@/lib/period";
+import { getPeriodDates, getSalesDates } from "@/lib/period";
 import type { KeywordRow, SearchTermRow } from "@/lib/types";
-import { AlertCircle, TrendingUp, Search, Tag } from "lucide-react";
+import { AlertCircle, Search, Tag } from "lucide-react";
 
 // ─── Badge de match type ───────────────────────────────────────────────────────
 
@@ -129,6 +129,7 @@ export default function PalavrasChavePage() {
     if (platform === "meta") return; // nada a buscar para Meta
 
     const { since, until } = getPeriodDates(period);
+    const { since: salesSince, until: salesUntil } = getSalesDates(period);
     setLoading(true);
 
     const metaSlug  = client !== "all" ? client : null;
@@ -151,14 +152,14 @@ export default function PalavrasChavePage() {
       .eq("platform", "google");
     const stQuery = metaSlug ? stBase.eq("client_slug", metaSlug) : stBase;
 
-    // ── Vendas aprovadas com utm_term (para crossref de revenue por keyword) ──
+    // ── Vendas aprovadas com utm_term (para crossref de revenue por keyword) — janela BRT ──
     const salesBase = supabase
       .from("sales")
       .select("amount, utm_term, utm_source")
       .eq("status", "approved")
       .eq("sale_type", "main")
-      .gte("created_at", since)
-      .lte("created_at", until + "T23:59:59")
+      .gte("created_at", salesSince)
+      .lte("created_at", salesUntil)
       .ilike("utm_source", "%google%");
     const salesQuery = salesSlug ? salesBase.eq("client_slug", salesSlug) : salesBase;
 

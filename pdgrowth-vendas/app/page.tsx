@@ -8,7 +8,7 @@ import HorizontalBar from "@/components/horizontal-bar";
 import DataTable, { Column } from "@/components/data-table";
 import { useDashboard } from "@/lib/dashboard-context";
 import { supabase } from "@/lib/supabase";
-import { getPeriodDates } from "@/lib/period";
+import { getPeriodDates, getSalesDates } from "@/lib/period";
 import type { ProductRow, Platform, KPIData, DonutSlice, HorizontalBarItem, TrendPoint } from "@/lib/types";
 import { RefreshCw, Calendar, Building2 } from "lucide-react";
 
@@ -198,6 +198,7 @@ export default function OverviewPage() {
   async function fetchData() {
     setLoading(true);
     const { since, until } = getPeriodDates(period);
+    const { since: salesSince, until: salesUntil } = getSalesDates(period);
     const salesSlug = getSalesSlug();
     const metaSlug  = client === "all" ? null : client;
 
@@ -206,12 +207,12 @@ export default function OverviewPage() {
     const { data: tracked } = await (salesSlug ? trackedQ.eq("client_slug", salesSlug) : trackedQ);
     const ids = tracked?.map((p: any) => p.product_id) ?? [];
 
-    // Vendas no período
+    // Vendas no período — janela BRT (UTC-3)
     const salesQ = supabase
       .from("sales")
       .select("id, amount, status, sale_type, product_id, product_name, utm_source, payment_method, created_at")
-      .gte("created_at", since)
-      .lte("created_at", until + "T23:59:59");
+      .gte("created_at", salesSince)
+      .lte("created_at", salesUntil);
     if (salesSlug) salesQ.eq("client_slug", salesSlug);
     if (ids.length > 0) salesQ.in("product_id", ids);
     const { data: sales } = ids.length > 0 ? await salesQ : { data: [] };
