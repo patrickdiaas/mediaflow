@@ -35,6 +35,10 @@ async function upsertBatched<T extends object>(
   return null
 }
 
+export async function GET(request: Request) {
+  return POST(request)
+}
+
 export async function POST(request: Request) {
   const { searchParams } = new URL(request.url)
   const secret = searchParams.get('secret')
