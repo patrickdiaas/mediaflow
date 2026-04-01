@@ -27,13 +27,14 @@ interface MetaAdInfo {
   status: string
   adset_id: string
   campaign_id: string
+  effective_object_story_id?: string  // formato: pageId_postId
   creative?: {
     object_type?: string
     thumbnail_url?: string
     image_url?: string
     title?: string
     body?: string
-    permalink_url?: string
+    instagram_permalink_url?: string  // link direto para o post no Instagram
   }
 }
 
@@ -227,7 +228,7 @@ async function fetchCampaignList(accountId: string, token: string): Promise<Meta
 
 async function fetchAdList(accountId: string, token: string): Promise<MetaAdInfo[]> {
   const url = buildUrl(`/${accountId}/ads`, {
-    fields: 'id,name,status,adset_id,campaign_id,creative{object_type,thumbnail_url,image_url,title,body}',
+    fields: 'id,name,status,adset_id,campaign_id,effective_object_story_id,creative{object_type,thumbnail_url,image_url,title,body,instagram_permalink_url}',
     effective_status: '["ACTIVE","PAUSED"]',
     limit: '500',
   }, token)
@@ -334,7 +335,16 @@ export async function syncAccountData(
       video_url: null,
       headline: creative?.title ?? null,
       body: creative?.body ?? null,
-      permalink_url: row.ad_id ? `https://www.facebook.com/ads/library/?id=${row.ad_id}` : null,
+      permalink_url: (() => {
+        // 1. Link direto do Instagram (melhor opção)
+        if (creative?.instagram_permalink_url) return creative.instagram_permalink_url
+        // 2. Link do post no Facebook via effective_object_story_id (pageId_postId)
+        if (adInfo?.effective_object_story_id) {
+          const [pageId, postId] = adInfo.effective_object_story_id.split('_')
+          if (pageId && postId) return `https://www.facebook.com/permalink.php?story_fbid=${postId}&id=${pageId}`
+        }
+        return null
+      })(),
       date: row.date_start,
       impressions: parseNum(row.impressions),
       clicks: parseNum(row.clicks),
