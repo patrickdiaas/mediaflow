@@ -8,7 +8,7 @@ function fmt(n: number) {
 
 // ─── Fetch audience data from Google Sheets ───────────────────────────────────
 async function fetchAudienceInsights(
-  client: string,
+  _client: string,
   productId: string,
   sheetId: string,
   salesEmails: Set<string>
@@ -85,15 +85,24 @@ export async function POST(req: NextRequest) {
 
     const supabase = createServiceClient();
 
+    // Resolve sales_slug — tracked_products e sales usam o slug do webhook (?client=)
+    // que pode ser diferente do slug principal do cliente
+    const { data: clientRow } = await supabase
+      .from("clients")
+      .select("sales_slug")
+      .eq("slug", client)
+      .single();
+    const salesSlug = clientRow?.sales_slug ?? client;
+
     // ── 1. Tracked products ──────────────────────────────────────────────────
     const { data: tracked } = await supabase
       .from("tracked_products")
       .select("product_id, product_name, gateway, sheet_id")
-      .eq("client_slug", client)
+      .eq("client_slug", salesSlug)
       .eq("active", true);
 
     if (!tracked?.length) {
-      return NextResponse.json({ error: "Nenhum produto rastreado." }, { status: 400 });
+      return NextResponse.json({ error: "Nenhum produto rastreado. Ative os produtos em Configurações." }, { status: 400 });
     }
 
     const productIds = tracked.map((p: any) => p.product_id);
@@ -102,7 +111,7 @@ export async function POST(req: NextRequest) {
     const { data: salesRaw } = await supabase
       .from("sales")
       .select("id, created_at, sale_type, amount, status, product_name, product_id, utm_source, utm_medium, utm_campaign, utm_content, utm_term, payment_method, buyer_email")
-      .eq("client_slug", client)
+      .eq("client_slug", salesSlug)
       .in("product_id", productIds)
       .gte("created_at", period_from)
       .lte("created_at", period_to);
