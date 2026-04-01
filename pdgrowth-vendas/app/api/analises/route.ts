@@ -77,7 +77,54 @@ async function fetchAudienceInsights(
 // ─── Main handler ─────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
-    const { client, period_from, period_to } = await req.json();
+    const { client, period_from, period_to, followUp, previousAnalysis, context: previousContext, conversationHistory } = await req.json();
+
+    const anthropicKey = process.env.ANTHROPIC_API_KEY;
+    if (!anthropicKey) {
+      return NextResponse.json({ error: "ANTHROPIC_API_KEY não configurada no servidor." }, { status: 500 });
+    }
+
+    // ── Follow-up mode: skip data fetching, continue conversa ────────────────
+    if (followUp && previousAnalysis && previousContext) {
+      const systemPrompt = `Você é um estrategista sênior de performance digital especializado em infoprodutos brasileiros. Você acabou de gerar uma análise completa com base em dados reais. Agora o gestor está fazendo uma pergunta de aprofundamento.
+
+REGRAS:
+- Responda diretamente à pergunta, sem repetir a análise anterior
+- Use os dados do contexto para embasar sua resposta
+- Seja específico e acionável
+- Se o gestor fornecer contexto novo (ex: "nosso público é X"), incorpore na resposta`;
+
+      const messages: { role: "user" | "assistant"; content: string }[] = [
+        { role: "user", content: `DADOS DO PERÍODO:\n${previousContext}\n\nGere a análise completa.` },
+        { role: "assistant", content: previousAnalysis },
+        ...(conversationHistory ?? []),
+        { role: "user", content: followUp },
+      ];
+
+      const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
+        method: "POST",
+        headers: {
+          "x-api-key": anthropicKey,
+          "anthropic-version": "2023-06-01",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          model: "claude-sonnet-4-6",
+          max_tokens: 2000,
+          system: systemPrompt,
+          messages,
+        }),
+      });
+
+      if (!claudeRes.ok) {
+        const err = await claudeRes.text();
+        return NextResponse.json({ error: `Erro na API Claude: ${err}` }, { status: 500 });
+      }
+
+      const claudeData = await claudeRes.json();
+      const reply = claudeData.content?.[0]?.text ?? "Sem resposta.";
+      return NextResponse.json({ reply });
+    }
 
     if (!client || !period_from || !period_to) {
       return NextResponse.json({ error: "Parâmetros inválidos." }, { status: 400 });
@@ -369,11 +416,6 @@ Liste 5 ações ordenadas por impacto, cada uma com:
 - Como medir o resultado`;
 
     // ── 8. Call Claude API ────────────────────────────────────────────────────
-    const anthropicKey = process.env.ANTHROPIC_API_KEY;
-    if (!anthropicKey) {
-      return NextResponse.json({ error: "ANTHROPIC_API_KEY não configurada no servidor." }, { status: 500 });
-    }
-
     const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: {

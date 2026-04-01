@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import Sidebar from "@/components/sidebar";
 import Header from "@/components/header";
 import { useDashboard } from "@/lib/dashboard-context";
@@ -7,6 +7,7 @@ import { getPeriodDates } from "@/lib/period";
 import {
   Sparkles, RefreshCw, AlertCircle, ChevronDown, ChevronUp,
   TrendingUp, Megaphone, Image, Users, ShoppingBag, CheckCircle2, XCircle,
+  Download, Send, MessageSquare,
 } from "lucide-react";
 
 // ─── Data source indicator ─────────────────────────────────────────────────────
@@ -37,7 +38,6 @@ function renderMarkdown(text: string): React.ReactNode[] {
       continue;
     }
 
-    // Section headers: **1. Title** or **Title**
     const headerMatch = line.trim().match(/^\*\*(\d+\.\s+.+?|\w[^*]+)\*\*$/);
     if (headerMatch) {
       result.push(
@@ -48,7 +48,6 @@ function renderMarkdown(text: string): React.ReactNode[] {
       continue;
     }
 
-    // Numbered items inside sections: 1. **Bold** text
     const numberedBold = line.match(/^(\d+)\.\s+\*\*(.+?)\*\*\s*(.*)$/);
     if (numberedBold) {
       result.push(
@@ -65,7 +64,6 @@ function renderMarkdown(text: string): React.ReactNode[] {
       continue;
     }
 
-    // Bullet points: - or *
     if (/^[-*]\s+/.test(line)) {
       const content = line.replace(/^[-*]\s+/, "");
       const parts = content.split(/\*\*(.+?)\*\*/g);
@@ -84,7 +82,6 @@ function renderMarkdown(text: string): React.ReactNode[] {
       continue;
     }
 
-    // Regular line — handle inline bold
     const parts = line.split(/\*\*(.+?)\*\*/g);
     result.push(
       <p key={key++} className="text-sm text-text-secondary leading-relaxed">
@@ -127,8 +124,7 @@ function parseSections(text: string) {
   for (const part of parts) {
     const titleMatch = part.match(/^\*\*(\d+)\.\s+(.+?)\*\*/);
     if (titleMatch) {
-      const num = titleMatch[1];
-      sections[num] = part;
+      sections[titleMatch[1]] = part;
     } else {
       sections["0"] = part;
     }
@@ -137,24 +133,42 @@ function parseSections(text: string) {
 }
 
 const SECTION_CONFIG: Record<string, { icon: React.ElementType; color: string; title: string }> = {
-  "1": { icon: TrendingUp,   color: "bg-accent/5 text-accent",  title: "Resumo Executivo" },
-  "2": { icon: Megaphone,    color: "bg-blue/5 text-blue",      title: "Diagnóstico de Campanhas" },
-  "3": { icon: Image,        color: "bg-gold/5 text-gold",      title: "Análise de Criativos" },
-  "4": { icon: Sparkles,     color: "bg-accent/5 text-accent",  title: "Sugestões de Criativos" },
-  "5": { icon: Users,        color: "bg-gold/5 text-gold",      title: "Perfil do Comprador" },
-  "6": { icon: ShoppingBag,  color: "bg-blue/5 text-blue",      title: "Recomendações Prioritárias" },
+  "1": { icon: TrendingUp,  color: "bg-accent/5 text-accent", title: "Resumo Executivo" },
+  "2": { icon: Megaphone,   color: "bg-blue/5 text-blue",     title: "Diagnóstico de Campanhas" },
+  "3": { icon: Image,       color: "bg-gold/5 text-gold",     title: "Análise de Criativos" },
+  "4": { icon: Sparkles,    color: "bg-accent/5 text-accent", title: "Sugestões de Criativos" },
+  "5": { icon: Users,       color: "bg-gold/5 text-gold",     title: "Perfil do Comprador" },
+  "6": { icon: ShoppingBag, color: "bg-blue/5 text-blue",     title: "Recomendações Prioritárias" },
 };
+
+interface FollowUpMessage {
+  question: string;
+  answer: string;
+}
 
 // ─── Page ──────────────────────────────────────────────────────────────────────
 export default function AnalisesPage() {
   const { client, period } = useDashboard();
-  const [analysis, setAnalysis] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [showContext, setShowContext] = useState(false);
-  const [rawContext, setRawContext] = useState<string>("");
-  const [lastRun, setLastRun] = useState<string | null>(null);
+  const [analysis, setAnalysis]       = useState<string | null>(null);
+  const [loading, setLoading]         = useState(false);
+  const [error, setError]             = useState<string | null>(null);
+  const [showContext, setShowContext]  = useState(false);
+  const [rawContext, setRawContext]    = useState<string>("");
+  const [lastRun, setLastRun]         = useState<string | null>(null);
   const [dataSources, setDataSources] = useState<Record<string, boolean> | null>(null);
+
+  // Follow-up chat
+  const [followUpInput, setFollowUpInput]       = useState("");
+  const [followUps, setFollowUps]               = useState<FollowUpMessage[]>([]);
+  const [followUpLoading, setFollowUpLoading]   = useState(false);
+  const [followUpError, setFollowUpError]       = useState<string | null>(null);
+  const followUpRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (followUps.length > 0) {
+      followUpRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }, [followUps]);
 
   async function runAnalysis() {
     setLoading(true);
@@ -162,6 +176,8 @@ export default function AnalisesPage() {
     setAnalysis(null);
     setRawContext("");
     setDataSources(null);
+    setFollowUps([]);
+    setFollowUpInput("");
 
     const { since, until } = getPeriodDates(period);
 
@@ -187,6 +203,72 @@ export default function AnalisesPage() {
     }
 
     setLoading(false);
+  }
+
+  async function sendFollowUp() {
+    if (!followUpInput.trim() || !analysis || !rawContext) return;
+    const question = followUpInput.trim();
+    setFollowUpInput("");
+    setFollowUpLoading(true);
+    setFollowUpError(null);
+
+    // Build conversation history from previous follow-ups
+    const conversationHistory = followUps.flatMap(f => [
+      { role: "user" as const,      content: f.question },
+      { role: "assistant" as const, content: f.answer },
+    ]);
+
+    try {
+      const res = await fetch("/api/analises", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          client,
+          period_from: "",
+          period_to: "",
+          followUp: question,
+          previousAnalysis: analysis,
+          context: rawContext,
+          conversationHistory,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (!res.ok) {
+        setFollowUpError(data.error ?? "Erro desconhecido.");
+      } else {
+        setFollowUps(prev => [...prev, { question, answer: data.reply }]);
+      }
+    } catch (e: any) {
+      setFollowUpError(e.message ?? "Falha na requisição.");
+    }
+
+    setFollowUpLoading(false);
+  }
+
+  function saveAnalysis() {
+    if (!analysis) return;
+    const periodLabel: Record<string, string> = {
+      today: "Hoje", yesterday: "Ontem",
+      "7d": "Últimos 7 dias", "30d": "Últimos 30 dias",
+      "90d": "Últimos 90 dias", mtd: "Mês atual",
+    };
+    const date = new Date().toLocaleDateString("pt-BR").replace(/\//g, "-");
+    const header = `# Análise de Performance — ${periodLabel[period] ?? period}\nGerado em ${new Date().toLocaleString("pt-BR")}\nCliente: ${client}\n\n---\n\n`;
+    const followUpText = followUps.length > 0
+      ? "\n\n---\n\n## Perguntas de Aprofundamento\n\n" +
+        followUps.map(f => `**Pergunta:** ${f.question}\n\n${f.answer}`).join("\n\n---\n\n")
+      : "";
+    const content = header + analysis + followUpText;
+
+    const blob = new Blob([content], { type: "text/markdown;charset=utf-8" });
+    const url  = URL.createObjectURL(blob);
+    const a    = document.createElement("a");
+    a.href     = url;
+    a.download = `analise-${client}-${date}.md`;
+    a.click();
+    URL.revokeObjectURL(url);
   }
 
   const periodLabel: Record<string, string> = {
@@ -217,29 +299,41 @@ export default function AnalisesPage() {
               <div className="flex flex-wrap gap-1.5">
                 {dataSources ? (
                   <>
-                    <DataBadge label="Vendas" active={dataSources.hasSales} />
+                    <DataBadge label="Vendas"    active={dataSources.hasSales} />
                     <DataBadge label="Campanhas" active={dataSources.hasCampaigns} />
                     <DataBadge label="Criativos" active={dataSources.hasCreatives} />
                     <DataBadge label="Audiência" active={dataSources.hasAudience} />
                   </>
                 ) : (
                   <span className="text-[11px] text-text-dark font-mono">
-                    {lastRun ? `Última análise às ${lastRun}` : "Custo estimado: ~R$ 0,01 por análise"}
+                    {lastRun ? `Última análise às ${lastRun}` : "Custo estimado: ~R$ 0,05–0,15 por análise"}
                   </span>
                 )}
               </div>
             </div>
-            <button
-              onClick={runAnalysis}
-              disabled={loading}
-              className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-accent/10 border border-accent/30 text-accent text-sm font-semibold hover:bg-accent/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex-shrink-0"
-            >
-              {loading ? (
-                <><RefreshCw size={14} className="animate-spin" /> Analisando...</>
-              ) : (
-                <><Sparkles size={14} /> Gerar análise</>
+            <div className="flex items-center gap-2 flex-shrink-0">
+              {analysis && (
+                <button
+                  onClick={saveAnalysis}
+                  className="flex items-center gap-1.5 px-3 py-2.5 rounded-lg border border-border text-text-secondary text-sm hover:text-accent hover:border-accent/30 transition-colors"
+                  title="Baixar análise como .md"
+                >
+                  <Download size={14} />
+                  Salvar
+                </button>
               )}
-            </button>
+              <button
+                onClick={runAnalysis}
+                disabled={loading}
+                className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-accent/10 border border-accent/30 text-accent text-sm font-semibold hover:bg-accent/20 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {loading ? (
+                  <><RefreshCw size={14} className="animate-spin" /> Analisando...</>
+                ) : (
+                  <><Sparkles size={14} /> {analysis ? "Reanalisar" : "Gerar análise"}</>
+                )}
+              </button>
+            </div>
           </div>
         </div>
 
@@ -280,6 +374,71 @@ export default function AnalisesPage() {
               })}
             </div>
 
+            {/* Follow-up chat */}
+            <div ref={followUpRef} className="bg-card border border-border rounded-xl overflow-hidden">
+              <div className="flex items-center gap-2 px-5 py-3 border-b border-border bg-accent/5 text-accent">
+                <MessageSquare size={14} />
+                <span className="text-xs font-semibold uppercase tracking-wider">Aprofundar análise</span>
+              </div>
+
+              {/* Previous follow-ups */}
+              {followUps.length > 0 && (
+                <div className="divide-y divide-border">
+                  {followUps.map((f, i) => (
+                    <div key={i} className="px-5 py-4 space-y-3">
+                      <div className="flex gap-2.5">
+                        <span className="w-5 h-5 rounded-full bg-border flex items-center justify-center flex-shrink-0 mt-0.5">
+                          <span className="text-[9px] font-bold text-text-muted">EU</span>
+                        </span>
+                        <p className="text-sm text-text-primary">{f.question}</p>
+                      </div>
+                      <div className="flex gap-2.5">
+                        <span className="w-5 h-5 rounded-full bg-accent/10 border border-accent/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                          <Sparkles size={9} className="text-accent" />
+                        </span>
+                        <div className="flex-1">{renderMarkdown(f.answer)}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Follow-up error */}
+              {followUpError && (
+                <div className="px-5 py-3 text-red text-xs border-t border-border">
+                  {followUpError}
+                </div>
+              )}
+
+              {/* Input */}
+              <div className="px-5 py-4 border-t border-border">
+                <p className="text-xs text-text-muted mb-3">
+                  Peça mais detalhes, forneça contexto ou explore um ponto específico da análise.
+                </p>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={followUpInput}
+                    onChange={e => setFollowUpInput(e.target.value)}
+                    onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendFollowUp(); } }}
+                    placeholder='Ex: "Aprofunde as sugestões de criativos" ou "Nosso público é formado por..."'
+                    disabled={followUpLoading}
+                    className="flex-1 bg-bg border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-dark focus:outline-none focus:border-accent/40 disabled:opacity-50"
+                  />
+                  <button
+                    onClick={sendFollowUp}
+                    disabled={followUpLoading || !followUpInput.trim()}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent/10 border border-accent/30 text-accent text-sm font-medium hover:bg-accent/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    {followUpLoading
+                      ? <RefreshCw size={13} className="animate-spin" />
+                      : <Send size={13} />
+                    }
+                  </button>
+                </div>
+              </div>
+            </div>
+
             {/* Raw context toggle */}
             {rawContext && (
               <div className="bg-card border border-border rounded-xl overflow-hidden">
@@ -311,7 +470,7 @@ export default function AnalisesPage() {
               Diagnóstico de campanhas, padrões em criativos, perfil do comprador e recomendações acionáveis. Selecione o período e clique em "Gerar análise".
             </p>
             <div className="flex flex-wrap gap-1.5 justify-center mt-1">
-              <DataBadge label="Vendas" active={true} />
+              <DataBadge label="Vendas"    active={true} />
               <DataBadge label="Campanhas" active={false} />
               <DataBadge label="Criativos" active={false} />
               <DataBadge label="Audiência" active={false} />
