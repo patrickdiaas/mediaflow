@@ -227,7 +227,7 @@ async function fetchCampaignList(accountId: string, token: string): Promise<Meta
 
 async function fetchAdList(accountId: string, token: string): Promise<MetaAdInfo[]> {
   const url = buildUrl(`/${accountId}/ads`, {
-    fields: 'id,name,status,adset_id,campaign_id,creative{object_type,thumbnail_url,image_url,title,body}',
+    fields: 'id,name,status,adset_id,campaign_id,creative{object_type,thumbnail_url,image_url,title,body,permalink_url}',
     effective_status: '["ACTIVE","PAUSED"]',
     limit: '500',
   }, token)
