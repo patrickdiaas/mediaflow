@@ -136,6 +136,8 @@ export default function CampanhasPage() {
   const [clients,   setClients]   = useState<{ slug: string; sales_slug: string | null }[]>([]);
   const [funnelSteps,   setFunnelSteps]   = useState<FunnelStep[]>([]);
   const [funnelMetrics, setFunnelMetrics] = useState<{ cpm: number; ctr: number; convRate: number } | null>(null);
+  const [allCampRowsRef,  setAllCampRowsRef]  = useState<any[]>([]);
+  const [allMainSalesRef, setAllMainSalesRef] = useState<any[]>([]);
 
   useEffect(() => {
     supabase.from("clients").select("slug, sales_slug").eq("active", true)
@@ -152,7 +154,7 @@ export default function CampanhasPage() {
     const found     = clients.find(c => c.slug === client);
     const salesSlug = client !== "all" ? (found?.sales_slug ?? client) : null;
 
-    const baseCamp = supabase.from("ad_campaigns").select("campaign_id,campaign_name,platform,impressions,clicks,spend").gte("date", since).lte("date", until);
+    const baseCamp = supabase.from("ad_campaigns").select("campaign_id,campaign_name,platform,impressions,clicks,spend,landing_page_views,initiate_checkouts").gte("date", since).lte("date", until);
     const baseSets = supabase.from("ad_sets").select("ad_set_id,ad_set_name,campaign_name,platform,impressions,clicks,spend").gte("date", since).lte("date", until);
     const baseAds  = supabase.from("ad_creatives").select("ad_id,ad_name,campaign_name,platform,creative_type,thumbnail_url,video_url,permalink_url,headline,impressions,clicks,spend,frequency").gte("date", since).lte("date", until);
 
@@ -176,28 +178,9 @@ export default function CampanhasPage() {
       const salesData = salesRes.data ?? [];
       const mainSales = salesData.filter((s: any) => s.sale_type === "main");
 
-      // Funil: impressões → cliques → vendas (agregado ou por campanha)
-      const allCampRows = campRes.data ?? [];
-      const totalImpressions = allCampRows.reduce((s: number, r: any) => s + (r.impressions ?? 0), 0);
-      const totalClicks      = allCampRows.reduce((s: number, r: any) => s + (r.clicks ?? 0), 0);
-      const totalSpendAll    = allCampRows.reduce((s: number, r: any) => s + (r.spend ?? 0), 0);
-      const totalSalesAll    = mainSales.length;
-      if (totalImpressions > 0 || totalClicks > 0 || totalSalesAll > 0) {
-        const steps: FunnelStep[] = [
-          { label: "Impressões", value: totalImpressions },
-          { label: "Cliques", value: totalClicks, rate: totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0 },
-          { label: "Vendas", value: totalSalesAll, rate: totalClicks > 0 ? (totalSalesAll / totalClicks) * 100 : 0 },
-        ];
-        setFunnelSteps(steps);
-        setFunnelMetrics({
-          cpm:      totalImpressions > 0 ? (totalSpendAll / totalImpressions) * 1000 : 0,
-          ctr:      totalImpressions > 0 ? (totalClicks / totalImpressions) * 100 : 0,
-          convRate: totalClicks > 0 ? (totalSalesAll / totalClicks) * 100 : 0,
-        });
-      } else {
-        setFunnelSteps([]);
-        setFunnelMetrics(null);
-      }
+      // Armazena dados brutos — o useEffect de selectedCampaign calcula o funil
+      setAllCampRowsRef(campRes.data ?? []);
+      setAllMainSalesRef(mainSales);
 
       // Mapas de vendas por UTM
       // utm_medium = nome da campanha
@@ -321,6 +304,40 @@ export default function CampanhasPage() {
       }
     });
   }, [platform, period, client, clients]);
+
+  // Recalcula funil quando campanha selecionada muda
+  useEffect(() => {
+    if (allCampRowsRef.length === 0) return;
+
+    function buildFunnelLocal(campRows: any[], salesRows: any[]) {
+      const imp = campRows.reduce((s: number, r: any) => s + (r.impressions ?? 0), 0);
+      const clk = campRows.reduce((s: number, r: any) => s + (r.clicks ?? 0), 0);
+      const lpv = campRows.reduce((s: number, r: any) => s + (r.landing_page_views ?? 0), 0);
+      const chk = campRows.reduce((s: number, r: any) => s + (r.initiate_checkouts ?? 0), 0);
+      const spd = campRows.reduce((s: number, r: any) => s + (r.spend ?? 0), 0);
+      const sal = salesRows.length;
+      if (imp === 0 && clk === 0 && sal === 0) return { steps: [] as FunnelStep[], metrics: null };
+      const steps: FunnelStep[] = [
+        { label: "Impressões",    value: imp },
+        { label: "Cliques",       value: clk, rate: imp > 0 ? (clk / imp) * 100 : 0 },
+        ...(lpv > 0 ? [{ label: "View de página", value: lpv, rate: clk > 0 ? (lpv / clk) * 100 : 0 }] : []),
+        ...(chk > 0 ? [{ label: "Checkout",       value: chk, rate: (lpv > 0 ? lpv : clk) > 0 ? (chk / (lpv > 0 ? lpv : clk)) * 100 : 0 }] : []),
+        { label: "Vendas", value: sal, rate: (chk > 0 ? chk : lpv > 0 ? lpv : clk) > 0 ? (sal / (chk > 0 ? chk : lpv > 0 ? lpv : clk)) * 100 : 0 },
+      ];
+      return { steps, metrics: { cpm: imp > 0 ? (spd / imp) * 1000 : 0, ctr: imp > 0 ? (clk / imp) * 100 : 0, convRate: (chk > 0 ? chk : clk) > 0 ? (sal / (chk > 0 ? chk : clk)) * 100 : 0 } };
+    }
+
+    const filteredRows  = selectedCampaign === "all"
+      ? allCampRowsRef
+      : allCampRowsRef.filter((r: any) => r.campaign_name === selectedCampaign);
+    const filteredSales = selectedCampaign === "all"
+      ? allMainSalesRef
+      : allMainSalesRef.filter((s: any) => s.utm_medium === selectedCampaign);
+
+    const { steps, metrics } = buildFunnelLocal(filteredRows, filteredSales);
+    setFunnelSteps(steps);
+    setFunnelMetrics(metrics);
+  }, [selectedCampaign, allCampRowsRef, allMainSalesRef]);
 
   const byPlatform = <T extends { platform: Platform }>(arr: T[]) =>
     platform === "all" ? arr : arr.filter(c => c.platform === platform);

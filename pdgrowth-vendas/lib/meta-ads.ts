@@ -51,6 +51,7 @@ interface MetaInsightRow {
   reach: string
   frequency?: string
   date_start: string
+  actions?: { action_type: string; value: string }[]
   video_3_sec_watched_actions?: { action_type: string; value: string }[]
   video_thruplay_watched_actions?: { action_type: string; value: string }[]
 }
@@ -75,6 +76,8 @@ export interface MappedCampaignDay {
   clicks: number
   spend: number
   reach: number
+  landing_page_views: number
+  initiate_checkouts: number
 }
 
 export interface MappedAdSetDay {
@@ -246,6 +249,7 @@ async function fetchInsights(
     ...(level === 'adset' || level === 'ad' ? ['adset_id', 'adset_name'] : []),
     ...(level === 'ad' ? ['ad_id', 'ad_name'] : []),
     'impressions', 'clicks', 'spend', 'reach', 'frequency', 'date_start',
+    ...(level === 'campaign' ? ['actions'] : []),
   ]
   const url = buildUrl(`/${accountId}/insights`, {
     level,
@@ -286,19 +290,26 @@ export async function syncAccountData(
   const adMap = new Map(adList.map(ad => [ad.id, ad]))
 
   const campaigns: MappedCampaignDay[] = campaignInsights.map(row => {
-    const info = campaignMap.get(row.campaign_id ?? '')
+    const info    = campaignMap.get(row.campaign_id ?? '')
+    const actions = row.actions ?? []
+    const findAction = (type: string) => {
+      const found = actions.find(a => a.action_type === type)
+      return found ? parseInt(found.value, 10) : 0
+    }
     return {
-      client_slug: clientSlug,
-      platform: 'meta',
-      campaign_id: row.campaign_id ?? '',
-      campaign_name: row.campaign_name ?? '',
-      status: info?.status ?? '',
-      objective: info?.objective ?? '',
-      date: row.date_start,
-      impressions: parseNum(row.impressions),
-      clicks: parseNum(row.clicks),
-      spend: parseFloat2(row.spend),
-      reach: parseNum(row.reach),
+      client_slug:        clientSlug,
+      platform:           'meta',
+      campaign_id:        row.campaign_id ?? '',
+      campaign_name:      row.campaign_name ?? '',
+      status:             info?.status ?? '',
+      objective:          info?.objective ?? '',
+      date:               row.date_start,
+      impressions:        parseNum(row.impressions),
+      clicks:             parseNum(row.clicks),
+      spend:              parseFloat2(row.spend),
+      reach:              parseNum(row.reach),
+      landing_page_views: findAction('landing_page_view'),
+      initiate_checkouts: findAction('initiate_checkout'),
     }
   })
 
