@@ -153,9 +153,9 @@ export default function VendasPage() {
   const totalOB    = orderBumps.reduce((s, v) => s + Number(v.amount), 0);
 
   return (
-    <div className="flex min-h-screen bg-bg">
+    <div className="flex h-screen bg-bg">
       <Sidebar />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 md:p-6 overflow-y-auto">
         <Header title="Vendas" subtitle="Histórico de transações com rastreamento UTM" />
 
         <div className="flex flex-wrap gap-4 mb-5 p-3 bg-card border border-border rounded-xl text-sm">

@@ -57,9 +57,9 @@ export default function ConjuntosPage() {
     : mockAdSets.filter(s => s.platform === platform);
 
   return (
-    <div className="flex min-h-screen bg-bg">
+    <div className="flex h-screen bg-bg">
       <Sidebar />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 md:p-6 overflow-y-auto">
         <Header title="Conjuntos de Anúncios" subtitle="Performance por conjunto (ad set)" />
         <DataTable<AdSetRow> columns={columns} data={filtered} rowKey="ad_set_id" />
       </main>

@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useDashboard } from "@/lib/dashboard-context";
-import { LayoutDashboard, Megaphone, Image, Package, Users, Settings, ChevronLeft, ChevronRight, FileBarChart2, Sparkles, KeyRound } from "lucide-react";
+import { LayoutDashboard, Megaphone, Image, Package, Users, Settings, ChevronLeft, ChevronRight, FileBarChart2, Sparkles, KeyRound, X } from "lucide-react";
 import { useState } from "react";
 
 function MetaIcon({ size = 14, active = false }: { size?: number; active?: boolean }) {
@@ -37,15 +37,22 @@ const navItems = [
   { href: "/configuracoes",  label: "Configurações",  icon: Settings,        platform: null   },
 ];
 
-export default function Sidebar() {
+function SidebarContent({
+  collapsed,
+  setCollapsed,
+  onNavClick,
+}: {
+  collapsed: boolean;
+  setCollapsed: (v: boolean) => void;
+  onNavClick?: () => void;
+}) {
   const { platform, setPlatform } = useDashboard();
   const pathname = usePathname();
-  const [collapsed, setCollapsed] = useState(false);
 
   return (
     <aside
-      className="relative flex flex-col border-r border-border bg-surface transition-all duration-300"
-      style={{ width: collapsed ? 60 : 220, minHeight: "100vh", flexShrink: 0 }}
+      className="relative flex flex-col h-full border-r border-border bg-surface transition-all duration-300"
+      style={{ width: collapsed ? 60 : 220, flexShrink: 0 }}
     >
       {/* Logo */}
       <div className="flex items-center gap-2.5 px-4 py-5 border-b border-border" style={{ minHeight: 64 }}>
@@ -85,16 +92,16 @@ export default function Sidebar() {
         </div>
       )}
 
-      <nav className="flex-1 px-2 pt-2">
+      <nav className="flex-1 px-2 pt-2 overflow-y-auto">
         {navItems.map(item => {
           const Icon = item.icon;
           const active = pathname === item.href;
-          // Itens de plataforma específica ficam mais apagados quando plataforma não corresponde
           const platformMuted = item.platform === "google" && platform === "meta";
           return (
             <Link
               key={item.href}
               href={item.href}
+              onClick={onNavClick}
               title={collapsed ? item.label : undefined}
               className={`flex items-center gap-3 px-3 py-2.5 rounded-lg mb-0.5 text-sm transition-all ${
                 active
@@ -108,7 +115,7 @@ export default function Sidebar() {
               {!collapsed && (
                 <span className="font-medium flex items-center gap-1.5">
                   {item.label}
-                  {item.platform === "google" && !collapsed && (
+                  {item.platform === "google" && (
                     <span className="text-[9px] font-mono text-gold border border-gold/30 bg-gold/10 px-1 py-0.5 rounded">G</span>
                   )}
                 </span>
@@ -118,19 +125,60 @@ export default function Sidebar() {
         })}
       </nav>
 
-      {/* Version tag */}
       {!collapsed && (
         <div className="px-4 py-3 border-t border-border">
           <span className="font-mono text-[10px] text-text-dark tracking-widest">v1.0 · pdgrowth.com.br</span>
         </div>
       )}
 
+      {/* Collapse toggle — desktop only */}
       <button
         onClick={() => setCollapsed(!collapsed)}
-        className="absolute -right-3 top-16 w-6 h-6 rounded-full bg-surface border border-border flex items-center justify-center text-text-muted hover:text-accent transition-colors z-10"
+        className="hidden md:flex absolute -right-3 top-16 w-6 h-6 rounded-full bg-surface border border-border items-center justify-center text-text-muted hover:text-accent transition-colors z-10"
       >
         {collapsed ? <ChevronRight size={12} /> : <ChevronLeft size={12} />}
       </button>
     </aside>
+  );
+}
+
+export default function Sidebar() {
+  const { mobileSidebarOpen, setMobileSidebarOpen } = useDashboard();
+  const [collapsed, setCollapsed] = useState(false);
+
+  return (
+    <>
+      {/* Desktop sidebar */}
+      <div className="hidden md:flex h-screen sticky top-0">
+        <SidebarContent collapsed={collapsed} setCollapsed={setCollapsed} />
+      </div>
+
+      {/* Mobile overlay */}
+      {mobileSidebarOpen && (
+        <div
+          className="md:hidden fixed inset-0 z-40 bg-black/60"
+          onClick={() => setMobileSidebarOpen(false)}
+        />
+      )}
+
+      {/* Mobile drawer */}
+      <div className={`md:hidden fixed inset-y-0 left-0 z-50 transition-transform duration-300 ${
+        mobileSidebarOpen ? "translate-x-0" : "-translate-x-full"
+      }`}>
+        <div className="relative h-full">
+          <SidebarContent
+            collapsed={false}
+            setCollapsed={() => {}}
+            onNavClick={() => setMobileSidebarOpen(false)}
+          />
+          <button
+            onClick={() => setMobileSidebarOpen(false)}
+            className="absolute top-4 right-3 w-7 h-7 rounded-full bg-card border border-border flex items-center justify-center text-text-muted hover:text-accent transition-colors"
+          >
+            <X size={13} />
+          </button>
+        </div>
+      </div>
+    </>
   );
 }

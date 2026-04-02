@@ -277,9 +277,9 @@ export default function PalavrasChavePage() {
   // Página não disponível para Meta
   if (platform === "meta") {
     return (
-      <div className="flex min-h-screen bg-bg">
+      <div className="flex h-screen bg-bg">
         <Sidebar />
-        <main className="flex-1 p-6 overflow-auto">
+        <main className="flex-1 p-4 md:p-6 overflow-y-auto">
           <Header title="Palavras-chave" subtitle="Termos e performance do Google Search" />
           <div className="flex items-center gap-2 text-text-secondary text-sm mt-4">
             <AlertCircle size={16} />
@@ -296,9 +296,9 @@ export default function PalavrasChavePage() {
   const avgRoas      = totalSpend > 0 ? totalRevenue / totalSpend : 0;
 
   return (
-    <div className="flex min-h-screen bg-bg">
+    <div className="flex h-screen bg-bg">
       <Sidebar />
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-4 md:p-6 overflow-y-auto">
         <Header title="Palavras-chave" subtitle="Performance por keyword e termos de pesquisa do Google Search" />
 
         {/* KPIs resumo */}

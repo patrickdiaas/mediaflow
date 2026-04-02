@@ -11,15 +11,18 @@ interface DashboardState {
   setPeriod: (v: string) => void;
   campaign: string;
   setCampaign: (v: string) => void;
+  mobileSidebarOpen: boolean;
+  setMobileSidebarOpen: (v: boolean) => void;
 }
 
 const DashboardContext = createContext<DashboardState | null>(null);
 
 export function DashboardProvider({ children }: { children: ReactNode }) {
-  const [client,   setClient]   = useState("all");
-  const [platform, setPlatform] = useState<Platform | "all">("all");
-  const [period,   setPeriod]   = useState("last30");
-  const [campaign, setCampaign] = useState("all");
+  const [client,             setClient]             = useState("all");
+  const [platform,           setPlatform]           = useState<Platform | "all">("all");
+  const [period,             setPeriod]             = useState("last30");
+  const [campaign,           setCampaign]           = useState("all");
+  const [mobileSidebarOpen,  setMobileSidebarOpen]  = useState(false);
 
   return (
     <DashboardContext.Provider value={{
@@ -27,6 +30,7 @@ export function DashboardProvider({ children }: { children: ReactNode }) {
       platform, setPlatform,
       period, setPeriod,
       campaign, setCampaign,
+      mobileSidebarOpen, setMobileSidebarOpen,
     }}>
       {children}
     </DashboardContext.Provider>
