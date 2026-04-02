@@ -178,7 +178,7 @@ export default function CriativosPage() {
   return (
     <div className="flex h-screen bg-bg">
       <Sidebar />
-      <main className="flex-1 p-4 md:p-6 overflow-y-auto">
+      <main className="flex-1 min-h-0 p-4 md:p-6 overflow-y-auto">
         <div className="flex items-start justify-between mb-6">
           <div>
             <h1 className="text-lg font-semibold text-text-primary">Criativos</h1>

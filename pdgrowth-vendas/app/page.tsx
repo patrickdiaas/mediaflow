@@ -10,7 +10,7 @@ import { useDashboard } from "@/lib/dashboard-context";
 import { supabase } from "@/lib/supabase";
 import { getPeriodDates, getSalesDates } from "@/lib/period";
 import type { ProductRow, Platform, KPIData, DonutSlice, HorizontalBarItem, TrendPoint } from "@/lib/types";
-import { RefreshCw, Calendar, Building2 } from "lucide-react";
+import { RefreshCw, Calendar, Building2, Menu } from "lucide-react";
 
 const periods = [
   { value: "today",     label: "Hoje" },
@@ -172,7 +172,7 @@ function buildProductDonut(tracked: TrackedProduct[], sales: any[]): DonutSlice[
 
 // ─── Página ───────────────────────────────────────────────────────────────────
 export default function OverviewPage() {
-  const { client, setClient, platform, setPlatform, period, setPeriod } = useDashboard();
+  const { client, setClient, platform, setPlatform, period, setPeriod, setMobileSidebarOpen } = useDashboard();
 
   const [clients,       setClients]       = useState<{ slug: string; name: string; display_name: string | null; sales_slug: string | null }[]>([]);
   const [stats,         setStats]         = useState<SalesStats>({ revenue: 0, sales: 0, avgTicket: 0, refunds: 0, refundAmt: 0, orderBumps: 0, obRevenue: 0, spend: 0 });
@@ -271,18 +271,26 @@ export default function OverviewPage() {
   return (
     <div className="flex h-screen bg-bg">
       <Sidebar />
-      <main className="flex-1 overflow-auto">
+      <main className="flex-1 min-h-0 overflow-y-auto">
 
         {/* Top bar */}
-        <div className="flex items-center justify-between px-6 py-4 border-b border-border sticky top-0 bg-bg/95 backdrop-blur-sm z-10">
-          <div className="flex items-center gap-3">
+        <div className="sticky top-0 z-10 bg-bg/95 backdrop-blur-sm border-b border-border px-4 md:px-6 py-3">
+          {/* Linha 1: hamburger + filtros principais */}
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setMobileSidebarOpen(true)}
+              className="md:hidden flex-shrink-0 w-8 h-8 rounded-lg border border-border bg-card flex items-center justify-center text-text-secondary hover:text-accent transition-colors"
+            >
+              <Menu size={16} />
+            </button>
+
             {clients.length > 0 && (
-              <div className="flex items-center gap-2 bg-card border border-border rounded-lg px-3 py-1.5">
-                <Building2 size={13} className="text-text-muted" />
+              <div className="flex items-center gap-2 bg-card border border-border rounded-lg px-3 py-1.5 flex-1 md:flex-none">
+                <Building2 size={13} className="text-text-muted flex-shrink-0" />
                 <select
                   value={client}
                   onChange={e => setClient(e.target.value)}
-                  className="bg-transparent text-xs text-text-primary focus:outline-none cursor-pointer max-w-[180px]"
+                  className="bg-transparent text-xs text-text-primary focus:outline-none cursor-pointer w-full md:max-w-[160px]"
                 >
                   <option value="all">Todas as contas</option>
                   {clients.map(c => (
@@ -292,6 +300,44 @@ export default function OverviewPage() {
               </div>
             )}
 
+            <div className="hidden sm:flex items-center bg-card border border-border rounded-lg overflow-hidden text-xs font-medium">
+              {(["all", "meta", "google"] as const).map(p => (
+                <button
+                  key={p}
+                  onClick={() => setPlatform(p as Platform | "all")}
+                  className={`px-3 py-1.5 transition-colors ${
+                    platform === p ? "bg-accent/10 text-accent" : "text-text-secondary hover:text-text-primary"
+                  }`}
+                >
+                  {p === "all" ? "Todos" : p === "meta" ? "Meta" : "Google"}
+                </button>
+              ))}
+            </div>
+
+            <div className="flex items-center gap-2 bg-card border border-border rounded-lg px-3 py-1.5 ml-auto">
+              <Calendar size={13} className="text-text-muted flex-shrink-0" />
+              <select
+                value={period}
+                onChange={e => setPeriod(e.target.value)}
+                className="bg-transparent text-xs text-text-primary focus:outline-none cursor-pointer"
+              >
+                {periods.map(p => (
+                  <option key={p.value} value={p.value}>{p.label}</option>
+                ))}
+              </select>
+            </div>
+
+            <button
+              onClick={fetchData}
+              className="flex-shrink-0 flex items-center gap-1.5 bg-accent text-bg text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-accent/90 transition-colors"
+            >
+              <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
+              <span className="hidden sm:inline">Atualizar</span>
+            </button>
+          </div>
+
+          {/* Linha 2: plataforma (mobile only) + updated */}
+          <div className="flex items-center justify-between mt-2 sm:mt-0 sm:hidden">
             <div className="flex items-center bg-card border border-border rounded-lg overflow-hidden text-xs font-medium">
               {(["all", "meta", "google"] as const).map(p => (
                 <button
@@ -305,37 +351,16 @@ export default function OverviewPage() {
                 </button>
               ))}
             </div>
+            {updatedAt && <span className="text-[10px] text-text-muted font-mono">{updatedAt}</span>}
           </div>
-
-          <div className="flex items-center gap-3">
-            <div className="flex items-center gap-2 bg-card border border-border rounded-lg px-3 py-1.5">
-              <Calendar size={13} className="text-text-muted" />
-              <select
-                value={period}
-                onChange={e => setPeriod(e.target.value)}
-                className="bg-transparent text-xs text-text-primary focus:outline-none cursor-pointer"
-              >
-                {periods.map(p => (
-                  <option key={p.value} value={p.value}>{p.label}</option>
-                ))}
-              </select>
+          {updatedAt && (
+            <div className="hidden sm:block mt-0.5 text-[10px] text-text-muted text-right">
+              Atualizado: <span className="font-mono">{updatedAt}</span>
             </div>
-            {updatedAt && (
-              <div className="text-xs text-text-muted">
-                Atualizado: <span className="font-mono">{updatedAt}</span>
-              </div>
-            )}
-            <button
-              onClick={fetchData}
-              className="flex items-center gap-1.5 bg-accent text-bg text-xs font-bold px-3 py-1.5 rounded-lg hover:bg-accent/90 transition-colors"
-            >
-              <RefreshCw size={12} className={loading ? "animate-spin" : ""} />
-              Atualizar
-            </button>
-          </div>
+          )}
         </div>
 
-        <div className="p-6 space-y-5">
+        <div className="p-4 md:p-6 space-y-5">
           {/* KPI Grid */}
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             {kpis.slice(0, 5).map(kpi => <KPICard key={kpi.label} {...kpi} />)}

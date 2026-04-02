@@ -279,7 +279,7 @@ export default function PalavrasChavePage() {
     return (
       <div className="flex h-screen bg-bg">
         <Sidebar />
-        <main className="flex-1 p-4 md:p-6 overflow-y-auto">
+        <main className="flex-1 min-h-0 p-4 md:p-6 overflow-y-auto">
           <Header title="Palavras-chave" subtitle="Termos e performance do Google Search" />
           <div className="flex items-center gap-2 text-text-secondary text-sm mt-4">
             <AlertCircle size={16} />
@@ -298,7 +298,7 @@ export default function PalavrasChavePage() {
   return (
     <div className="flex h-screen bg-bg">
       <Sidebar />
-      <main className="flex-1 p-4 md:p-6 overflow-y-auto">
+      <main className="flex-1 min-h-0 p-4 md:p-6 overflow-y-auto">
         <Header title="Palavras-chave" subtitle="Performance por keyword e termos de pesquisa do Google Search" />
 
         {/* KPIs resumo */}

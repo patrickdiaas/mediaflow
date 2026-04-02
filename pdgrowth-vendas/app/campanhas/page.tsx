@@ -367,7 +367,7 @@ export default function CampanhasPage() {
   return (
     <div className="flex h-screen bg-bg">
       <Sidebar />
-      <main className="flex-1 p-4 md:p-6 overflow-y-auto">
+      <main className="flex-1 min-h-0 p-4 md:p-6 overflow-y-auto">
         <Header title="Campanhas" subtitle="Performance por campanha, conjunto e anúncio" />
 
         <div className="flex items-center gap-3 mb-4 flex-wrap">

@@ -105,7 +105,7 @@ export default function ConfiguracoesPage() {
   return (
     <div className="flex h-screen bg-bg">
       <Sidebar />
-      <main className="flex-1 p-4 md:p-6 overflow-y-auto">
+      <main className="flex-1 min-h-0 p-4 md:p-6 overflow-y-auto">
         <Header title="Configurações" subtitle="Gerencie quais produtos aparecem no dashboard" />
 
         <div className="flex items-center justify-between mb-5">

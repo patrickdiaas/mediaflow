@@ -322,7 +322,7 @@ export default function AnalisesPage() {
   return (
     <div className="flex h-screen bg-bg">
       <Sidebar />
-      <main className="flex-1 p-4 md:p-6 overflow-y-auto">
+      <main className="flex-1 min-h-0 p-4 md:p-6 overflow-y-auto">
         <Header title="Análises com IA" subtitle="Diagnóstico completo de campanhas, criativos e audiência" />
 
         {/* Trigger Card */}

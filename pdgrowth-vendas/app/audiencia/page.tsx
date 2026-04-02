@@ -147,7 +147,7 @@ export default function AudienciaPage() {
   return (
     <div className="flex h-screen bg-bg">
       <Sidebar />
-      <main className="flex-1 p-4 md:p-6 overflow-y-auto">
+      <main className="flex-1 min-h-0 p-4 md:p-6 overflow-y-auto">
         <Header title="Audiência" subtitle="Análise de conversão por qualidade das respostas" />
 
         {products.length === 0 ? (
