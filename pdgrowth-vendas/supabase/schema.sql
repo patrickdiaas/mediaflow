@@ -54,11 +54,13 @@ create table if not exists ad_campaigns (
   status          text,
   objective       text,
   date            date not null,
-  impressions     bigint default 0,
-  clicks          bigint default 0,
-  spend           numeric(10,2) default 0,
-  reach           bigint default 0,
-  created_at      timestamptz default now(),
+  impressions          bigint default 0,
+  clicks               bigint default 0,
+  spend                numeric(10,2) default 0,
+  reach                bigint default 0,
+  landing_page_views   bigint default 0,
+  initiate_checkouts   bigint default 0,
+  created_at           timestamptz default now(),
   unique (platform, campaign_id, date)
 );
 
