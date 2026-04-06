@@ -135,7 +135,7 @@ export default function CampanhasPage() {
   const [loading,   setLoading]   = useState(false);
   const [clients,   setClients]   = useState<{ slug: string; sales_slug: string | null }[]>([]);
   const [funnelSteps,   setFunnelSteps]   = useState<FunnelStep[]>([]);
-  const [funnelMetrics, setFunnelMetrics] = useState<{ cpm: number; ctr: number; convRate: number } | null>(null);
+  const [funnelMetrics, setFunnelMetrics] = useState<{ cpm: number; ctr: number; pageConvRate: number | null; checkoutConvRate: number | null; overallConvRate: number } | null>(null);
   const [allCampRowsRef,  setAllCampRowsRef]  = useState<any[]>([]);
   const [allMainSalesRef, setAllMainSalesRef] = useState<any[]>([]);
 
@@ -324,7 +324,12 @@ export default function CampanhasPage() {
         ...(chk > 0 ? [{ label: "Checkout",       value: chk, rate: (lpv > 0 ? lpv : clk) > 0 ? (chk / (lpv > 0 ? lpv : clk)) * 100 : 0 }] : []),
         { label: "Vendas", value: sal, rate: (chk > 0 ? chk : lpv > 0 ? lpv : clk) > 0 ? (sal / (chk > 0 ? chk : lpv > 0 ? lpv : clk)) * 100 : 0 },
       ];
-      return { steps, metrics: { cpm: imp > 0 ? (spd / imp) * 1000 : 0, ctr: imp > 0 ? (clk / imp) * 100 : 0, convRate: (chk > 0 ? chk : clk) > 0 ? (sal / (chk > 0 ? chk : clk)) * 100 : 0 } };
+      const cpm = imp > 0 ? (spd / imp) * 1000 : 0;
+      const ctr = imp > 0 ? (clk / imp) * 100 : 0;
+      const pageConvRate     = lpv > 0 ? (sal / lpv) * 100 : null;
+      const checkoutConvRate = chk > 0 ? (sal / chk) * 100 : null;
+      const overallConvRate  = clk > 0 ? (sal / clk) * 100 : 0;
+      return { steps, metrics: { cpm, ctr, pageConvRate, checkoutConvRate, overallConvRate } };
     }
 
     const filteredRows  = selectedCampaign === "all"
