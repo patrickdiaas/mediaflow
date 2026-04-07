@@ -105,11 +105,18 @@ export default function CampanhasPage() {
     const qSets = metaSlug ? (platform !== "all" ? baseSets.eq("platform", platform) : baseSets).eq("client_slug", metaSlug) : (platform !== "all" ? baseSets.eq("platform", platform) : baseSets);
     const qAds  = metaSlug ? (platform !== "all" ? baseAds.eq("platform", platform) : baseAds).eq("client_slug", metaSlug) : (platform !== "all" ? baseAds.eq("platform", platform) : baseAds);
 
-    const baseLeads = supabase.from("leads").select("id, utm_medium, utm_campaign, utm_content, utm_term").not("utm_medium", "is", null).gte("converted_at", leadSince).lte("converted_at", leadUntil);
+    const baseLeads = supabase.from("leads").select("id, utm_source, utm_medium, utm_campaign, utm_content, utm_term").not("utm_medium", "is", null).gte("converted_at", leadSince).lte("converted_at", leadUntil);
     const qLeads = metaSlug ? baseLeads.eq("client_slug", metaSlug) : baseLeads;
 
     Promise.all([qCamp, qSets, qAds, qLeads]).then(([campRes, setsRes, adsRes, leadsRes]) => {
-      const leadsData = leadsRes.data ?? [];
+      const allLeadsData = leadsRes.data ?? [];
+      // Filtra leads pela plataforma selecionada
+      const leadsData = platform === "all" ? allLeadsData : allLeadsData.filter((l: any) => {
+        const src = (l.utm_source ?? "").toLowerCase();
+        if (platform === "meta") return src === "facebook" || src === "fb" || src === "instagram" || src === "ig";
+        if (platform === "google") return src === "google";
+        return true;
+      });
       setAllCampRowsRef(campRes.data ?? []);
       setAllLeadsRef(leadsData);
 

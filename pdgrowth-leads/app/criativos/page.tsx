@@ -79,17 +79,25 @@ export default function CriativosPage() {
     const qAds = metaSlug ? q1.eq("client_slug", metaSlug) : q1;
 
     const baseLeads = supabase.from("leads")
-      .select("utm_content")
+      .select("utm_source, utm_content")
       .not("utm_medium", "is", null)
       .gte("converted_at", leadSince)
       .lte("converted_at", leadUntil);
     const qLeads = metaSlug ? baseLeads.eq("client_slug", metaSlug) : baseLeads;
 
-    Promise.all([qAds, qLeads]).then(([{ data: rows }, { data: leadsData }]) => {
+    Promise.all([qAds, qLeads]).then(([{ data: rows }, { data: rawLeads }]) => {
       setLoading(false);
 
+      // Filtra leads pela plataforma selecionada
+      const leadsData = platform === "all" ? (rawLeads ?? []) : (rawLeads ?? []).filter((l: any) => {
+        const src = (l.utm_source ?? "").toLowerCase();
+        if (platform === "meta") return src === "facebook" || src === "fb" || src === "instagram" || src === "ig";
+        if (platform === "google") return src === "google";
+        return true;
+      });
+
       const byAdName = new Map<string, number>();
-      for (const l of (leadsData ?? [])) {
+      for (const l of leadsData) {
         if (!l.utm_content) continue;
         byAdName.set(l.utm_content, (byAdName.get(l.utm_content) ?? 0) + 1);
       }

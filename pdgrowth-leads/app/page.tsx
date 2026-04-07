@@ -102,7 +102,14 @@ export default function OverviewPage() {
       .lte("converted_at", leadUntil);
     if (metaSlug) leadsQ.eq("client_slug", metaSlug);
     const { data: leadsData } = await leadsQ;
-    const leads = leadsData ?? [];
+    // Filtra leads por plataforma: facebook/instagram = meta, google = google
+    const allLeads = leadsData ?? [];
+    const leads = platform === "all" ? allLeads : allLeads.filter((l: any) => {
+      const src = (l.utm_source ?? "").toLowerCase();
+      if (platform === "meta") return src === "facebook" || src === "fb" || src === "instagram" || src === "ig";
+      if (platform === "google") return src === "google";
+      return true;
+    });
 
     // Campanhas (spend, impressions, clicks, reach)
     const adQ = supabase.from("ad_campaigns")
