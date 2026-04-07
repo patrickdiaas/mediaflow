@@ -1,80 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
 function fmt(n: number) {
   return n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
-// ─── Fetch audience data from Google Sheets ───────────────────────────────────
-async function fetchAudienceInsights(
-  _client: string,
-  productId: string,
-  sheetId: string,
-  salesEmails: Set<string>
-): Promise<string> {
-  const apiKey = process.env.GOOGLE_SHEETS_API_KEY;
-  if (!apiKey) return "";
-
-  try {
-    const url = `https://sheets.googleapis.com/v4/spreadsheets/${sheetId}/values/A1:Z1000?key=${apiKey}`;
-    const res = await fetch(url);
-    if (!res.ok) return "";
-    const { values } = await res.json() as { values?: string[][] };
-    if (!values || values.length < 2) return "";
-
-    const headers = values[0];
-    const rows = values.slice(1).map(row =>
-      Object.fromEntries(headers.map((h, i) => [h, row[i] ?? ""]))
-    );
-
-    const emailHeader = headers.find(h =>
-      h.toLowerCase().includes("email") || h.toLowerCase().includes("e-mail")
-    );
-    if (!emailHeader) return "";
-
-    const questionCols = headers.filter(h => {
-      const l = h.toLowerCase();
-      return !l.includes("email") && !l.includes("e-mail") &&
-             !l.includes("timestamp") && !l.includes("carimbo") &&
-             !l.includes("whatsapp") && !l.includes("telefone") &&
-             !l.includes("celular") && !l.includes("phone");
-    });
-
-    const insights: string[] = [`Audiência (${rows.length} respostas, ${productId}):`];
-
-    for (const col of questionCols) {
-      const answerMap = new Map<string, { leads: number; vendas: number }>();
-      for (const row of rows) {
-        const answer = String(row[col] ?? "").trim();
-        if (!answer) continue;
-        const email = String(row[emailHeader] ?? "").toLowerCase().trim();
-        const e = answerMap.get(answer) ?? { leads: 0, vendas: 0 };
-        e.leads++;
-        if (email && salesEmails.has(email)) e.vendas++;
-        answerMap.set(answer, e);
-      }
-
-      const sorted = Array.from(answerMap.entries())
-        .map(([ans, s]) => ({ ans, ...s, rate: s.leads > 0 ? (s.vendas / s.leads) * 100 : 0 }))
-        .sort((a, b) => b.rate - a.rate)
-        .slice(0, 5);
-
-      if (sorted.length === 0) continue;
-
-      insights.push(`  Pergunta: "${col}"`);
-      for (const a of sorted) {
-        insights.push(`    • "${a.ans}": ${a.leads} leads, ${a.vendas} vendas, ${a.rate.toFixed(1)}% conv.`);
-      }
-    }
-
-    return insights.join("\n");
-  } catch {
-    return "";
-  }
-}
-
-// ─── Main handler ─────────────────────────────────────────────────────────────
 export async function POST(req: NextRequest) {
   try {
     const { client, period_from, period_to, followUp, previousAnalysis, context: previousContext, conversationHistory } = await req.json();
@@ -84,15 +14,15 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "ANTHROPIC_API_KEY não configurada no servidor." }, { status: 500 });
     }
 
-    // ── Follow-up mode: skip data fetching, continue conversa ────────────────
+    // ── Follow-up mode ──────────────────────────────────────────────────────
     if (followUp && previousAnalysis && previousContext) {
-      const systemPrompt = `Você é um estrategista sênior de performance digital especializado em infoprodutos brasileiros. Você acabou de gerar uma análise completa com base em dados reais. Agora o gestor está fazendo uma pergunta de aprofundamento.
+      const systemPrompt = `Você é um estrategista sênior de geração de leads (Meta Ads e Google Ads). Você acabou de gerar uma análise completa. O gestor está pedindo aprofundamento.
 
 REGRAS:
 - Responda diretamente à pergunta, sem repetir a análise anterior
 - Use os dados do contexto para embasar sua resposta
 - Seja específico e acionável
-- Se o gestor fornecer contexto novo (ex: "nosso público é X"), incorpore na resposta`;
+- Se o gestor fornecer contexto novo, incorpore na resposta`;
 
       const messages: { role: "user" | "assistant"; content: string }[] = [
         { role: "user", content: `DADOS DO PERÍODO:\n${previousContext}\n\nGere a análise completa.` },
@@ -103,17 +33,8 @@ REGRAS:
 
       const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
-        headers: {
-          "x-api-key": anthropicKey,
-          "anthropic-version": "2023-06-01",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-6",
-          max_tokens: 2000,
-          system: systemPrompt,
-          messages,
-        }),
+        headers: { "x-api-key": anthropicKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+        body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 2000, system: systemPrompt, messages }),
       });
 
       if (!claudeRes.ok) {
@@ -122,8 +43,7 @@ REGRAS:
       }
 
       const claudeData = await claudeRes.json();
-      const reply = claudeData.content?.[0]?.text ?? "Sem resposta.";
-      return NextResponse.json({ reply });
+      return NextResponse.json({ reply: claudeData.content?.[0]?.text ?? "Sem resposta." });
     }
 
     if (!client || !period_from || !period_to) {
@@ -132,91 +52,57 @@ REGRAS:
 
     const supabase = createServiceClient();
 
-    // Resolve sales_slug — tracked_products e sales usam o slug do webhook (?client=)
-    // que pode ser diferente do slug principal do cliente
-    const { data: clientRow } = await supabase
-      .from("clients")
-      .select("sales_slug")
-      .eq("slug", client)
-      .single();
-    const salesSlug = clientRow?.sales_slug ?? client;
+    // ── 1. Leads no período ──────────────────────────────────────────────────
+    const { data: leadsRaw } = await supabase
+      .from("leads")
+      .select("id, converted_at, source, lead_email, lead_name, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, utm_term")
+      .eq("client_slug", client)
+      .gte("converted_at", period_from)
+      .lte("converted_at", period_to);
 
-    // ── 1. Tracked products ──────────────────────────────────────────────────
-    const { data: tracked } = await supabase
-      .from("tracked_products")
-      .select("product_id, product_name, gateway, sheet_id")
-      .eq("client_slug", salesSlug)
-      .eq("active", true);
+    const leads = leadsRaw ?? [];
 
-    if (!tracked?.length) {
-      return NextResponse.json({ error: "Nenhum produto rastreado. Ative os produtos em Configurações." }, { status: 400 });
+    if (leads.length === 0) {
+      return NextResponse.json({ error: "Nenhum lead encontrado no período selecionado." }, { status: 400 });
     }
 
-    const productIds = tracked.map((p: any) => p.product_id);
-
-    // ── 2. Sales data ────────────────────────────────────────────────────────
-    const { data: salesRaw } = await supabase
-      .from("sales")
-      .select("id, created_at, sale_type, amount, status, product_name, product_id, utm_source, utm_medium, utm_campaign, utm_content, utm_term, payment_method, buyer_email")
-      .eq("client_slug", salesSlug)
-      .in("product_id", productIds)
-      .gte("created_at", period_from)
-      .lte("created_at", period_to);
-
-    const sales = salesRaw ?? [];
-    const approved = sales.filter((s: any) => s.status === "approved");
-    const refunded = sales.filter((s: any) => s.status === "refunded" || s.status === "chargeback");
-    const mainSales = approved.filter((s: any) => s.sale_type === "main");
-    const obSales = approved.filter((s: any) => s.sale_type === "order_bump");
-
-    const revenue = mainSales.reduce((sum: number, s: any) => sum + Number(s.amount), 0);
-    const obRevenue = obSales.reduce((sum: number, s: any) => sum + Number(s.amount), 0);
-    const refundAmt = refunded.reduce((sum: number, s: any) => sum + Number(s.amount), 0);
-    const avgTicket = mainSales.length > 0 ? revenue / mainSales.length : 0;
-    const refundRate = (mainSales.length + refunded.length) > 0
-      ? (refunded.length / (mainSales.length + refunded.length)) * 100 : 0;
-
-    const buyerEmails = new Set<string>(
-      mainSales.map((s: any) => s.buyer_email?.toLowerCase()).filter(Boolean)
-    );
-
-    // Top products
-    const prodMap = new Map<string, { name: string; sales: number; revenue: number }>();
-    for (const s of mainSales) {
-      const key = s.product_id ?? "unknown";
-      const name = s.product_name ?? tracked.find((t: any) => t.product_id === key)?.product_name ?? key;
-      const e = prodMap.get(key) ?? { name, sales: 0, revenue: 0 };
-      e.sales++;
-      e.revenue += Number(s.amount);
-      prodMap.set(key, e);
+    // Leads por formulário
+    const formMap = new Map<string, number>();
+    for (const l of leads) {
+      const key = l.conversion_event ?? "desconhecido";
+      formMap.set(key, (formMap.get(key) ?? 0) + 1);
     }
-    const topProducts = Array.from(prodMap.values()).sort((a, b) => b.revenue - a.revenue).slice(0, 5);
+    const topForms = Array.from(formMap.entries()).sort((a, b) => b[1] - a[1]).slice(0, 5);
 
-    // Payment methods
-    const pmMap = new Map<string, number>();
-    for (const s of mainSales) {
-      const pm = s.payment_method ?? "desconhecido";
-      pmMap.set(pm, (pmMap.get(pm) ?? 0) + 1);
+    // Leads por UTM source
+    const srcMap = new Map<string, number>();
+    for (const l of leads) {
+      const key = l.utm_source ?? "direto";
+      srcMap.set(key, (srcMap.get(key) ?? 0) + 1);
     }
 
-    // ── 3. Ad Campaigns ──────────────────────────────────────────────────────
+    // Leads por UTM medium (campanha)
+    const campLeads = new Map<string, number>();
+    for (const l of leads) {
+      if (l.utm_medium) campLeads.set(l.utm_medium, (campLeads.get(l.utm_medium) ?? 0) + 1);
+    }
+
+    // ── 2. Ad Campaigns ──────────────────────────────────────────────────────
     const { data: adCampaigns } = await supabase
       .from("ad_campaigns")
-      .select("campaign_id, campaign_name, platform, status, impressions, clicks, spend, reach")
+      .select("campaign_id, campaign_name, platform, impressions, clicks, spend, reach")
       .eq("client_slug", client)
       .gte("date", period_from.slice(0, 10))
       .lte("date", period_to.slice(0, 10));
 
-    // Aggregate campaign metrics + correlate sales by utm_medium
     const campAgg = new Map<string, {
       name: string; platform: string; spend: number;
-      impressions: number; clicks: number; reach: number;
-      salesCount: number; salesRevenue: number;
+      impressions: number; clicks: number; reach: number; leads: number;
     }>();
 
     for (const c of (adCampaigns ?? [])) {
       const key = c.campaign_name;
-      const e = campAgg.get(key) ?? { name: c.campaign_name, platform: c.platform, spend: 0, impressions: 0, clicks: 0, reach: 0, salesCount: 0, salesRevenue: 0 };
+      const e = campAgg.get(key) ?? { name: c.campaign_name, platform: c.platform, spend: 0, impressions: 0, clicks: 0, reach: 0, leads: 0 };
       e.spend += Number(c.spend);
       e.impressions += Number(c.impressions);
       e.clicks += Number(c.clicks);
@@ -224,15 +110,10 @@ REGRAS:
       campAgg.set(key, e);
     }
 
-    // Match sales to campaigns via utm_medium
-    for (const s of mainSales) {
-      const campName = s.utm_medium;
-      if (!campName) continue;
-      // Try exact match or partial match
+    for (const [campName, count] of Array.from(campLeads.entries())) {
       for (const [key, e] of Array.from(campAgg.entries())) {
         if (key === campName || key.includes(campName) || campName.includes(key)) {
-          e.salesCount++;
-          e.salesRevenue += Number(s.amount);
+          e.leads += count;
           break;
         }
       }
@@ -242,28 +123,27 @@ REGRAS:
       .map(c => ({
         ...c,
         ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0,
-        cpa: c.salesCount > 0 ? c.spend / c.salesCount : null,
-        roas: c.spend > 0 ? c.salesRevenue / c.spend : null,
+        cpl: c.leads > 0 ? c.spend / c.leads : null,
         cpc: c.clicks > 0 ? c.spend / c.clicks : null,
       }))
-      .sort((a, b) => (b.roas ?? 0) - (a.roas ?? 0));
+      .sort((a, b) => (a.cpl ?? 9999) - (b.cpl ?? 9999));
 
     const hasAdData = campaignRows.length > 0;
+    const totalSpend = campaignRows.reduce((s, c) => s + c.spend, 0);
+    const overallCpl = leads.length > 0 && totalSpend > 0 ? totalSpend / leads.length : 0;
 
-    // ── 4. Ad Creatives ──────────────────────────────────────────────────────
+    // ── 3. Ad Creatives ──────────────────────────────────────────────────────
     const { data: adCreatives } = await supabase
       .from("ad_creatives")
-      .select("ad_id, ad_name, campaign_name, platform, creative_type, headline, body, impressions, clicks, spend, reach")
+      .select("ad_id, ad_name, campaign_name, platform, creative_type, headline, body, impressions, clicks, spend")
       .eq("client_slug", client)
       .gte("date", period_from.slice(0, 10))
       .lte("date", period_to.slice(0, 10));
 
-    // Aggregate creative metrics
     const creativeAgg = new Map<string, {
       name: string; campaign: string; platform: string; type: string | null;
       headline: string | null; body: string | null;
-      spend: number; impressions: number; clicks: number;
-      salesCount: number; salesRevenue: number;
+      spend: number; impressions: number; clicks: number; leads: number;
     }>();
 
     for (const c of (adCreatives ?? [])) {
@@ -271,7 +151,7 @@ REGRAS:
       const e = creativeAgg.get(key) ?? {
         name: c.ad_name, campaign: c.campaign_name ?? "", platform: c.platform,
         type: c.creative_type, headline: c.headline, body: c.body,
-        spend: 0, impressions: 0, clicks: 0, salesCount: 0, salesRevenue: 0,
+        spend: 0, impressions: 0, clicks: 0, leads: 0,
       };
       e.spend += Number(c.spend);
       e.impressions += Number(c.impressions);
@@ -279,19 +159,12 @@ REGRAS:
       creativeAgg.set(key, e);
     }
 
-    // Match sales to creatives via utm_content (ad name) or utm_term (ad id)
-    for (const s of mainSales) {
-      const adName = s.utm_content;
-      const adId = s.utm_term;
-      if (adId && creativeAgg.has(adId)) {
-        const e = creativeAgg.get(adId)!;
-        e.salesCount++;
-        e.salesRevenue += Number(s.amount);
-      } else if (adName) {
+    for (const l of leads) {
+      const adName = l.utm_content;
+      if (adName) {
         for (const [, e] of Array.from(creativeAgg.entries())) {
           if (e.name === adName || e.name.includes(adName) || adName.includes(e.name)) {
-            e.salesCount++;
-            e.salesRevenue += Number(s.amount);
+            e.leads++;
             break;
           }
         }
@@ -302,34 +175,23 @@ REGRAS:
       .map(c => ({
         ...c,
         ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0,
-        cpa: c.salesCount > 0 ? c.spend / c.salesCount : null,
-        roas: c.spend > 0 ? c.salesRevenue / c.spend : null,
+        cpl: c.leads > 0 ? c.spend / c.leads : null,
       }))
-      .sort((a, b) => (b.roas ?? b.ctr) - (a.roas ?? a.ctr));
+      .sort((a, b) => (a.cpl ?? 9999) - (b.cpl ?? 9999));
 
     const topCreatives = creativeRows.slice(0, 8);
-    const worstCreatives = creativeRows.filter(c => c.spend > 0).slice(-3);
+    const worstCreatives = creativeRows.filter(c => c.spend > 0 && c.leads === 0).slice(-3);
 
-    // ── 5. Audience data from Google Sheets ──────────────────────────────────
-    const productsWithSheets = tracked.filter((p: any) => p.sheet_id);
-    const audienceParts: string[] = [];
-
-    for (const p of productsWithSheets) {
-      const part = await fetchAudienceInsights(client, p.product_id, p.sheet_id, buyerEmails);
-      if (part) audienceParts.push(part);
-    }
-
-    // ── 6. Build Claude context ───────────────────────────────────────────────
+    // ── 4. Build Claude context ──────────────────────────────────────────────
     const periodLabel = `${new Date(period_from).toLocaleDateString("pt-BR")} a ${new Date(period_to).toLocaleDateString("pt-BR")}`;
 
-    const salesContext = `
-VENDAS — ${periodLabel}
-- Faturamento principal: R$ ${fmt(revenue)} (${mainSales.length} vendas)
-- Order Bumps: ${obSales.length} vendas · R$ ${fmt(obRevenue)} (taxa: ${mainSales.length > 0 ? ((obSales.length / mainSales.length) * 100).toFixed(1) : 0}% dos compradores)
-- Reembolsos: ${refunded.length} · R$ ${fmt(refundAmt)} · taxa ${refundRate.toFixed(2)}%
-- Ticket médio: R$ ${fmt(avgTicket)}
-- Top produtos: ${topProducts.map(p => `${p.name} (${p.sales}v · R$${fmt(p.revenue)})`).join(", ")}
-- Métodos de pagamento: ${Array.from(pmMap.entries()).sort((a, b) => b[1] - a[1]).map(([m, n]) => `${m}: ${n}`).join(", ")}
+    const leadsContext = `
+LEADS — ${periodLabel}
+- Total de leads: ${leads.length}
+- CPL geral: ${overallCpl > 0 ? `R$ ${fmt(overallCpl)}` : "sem dados de gasto"}
+- Investimento total: ${totalSpend > 0 ? `R$ ${fmt(totalSpend)}` : "sem dados"}
+- Formulários/eventos: ${topForms.map(([f, n]) => `${f} (${n})`).join(", ")}
+- Origens (utm_source): ${Array.from(srcMap.entries()).sort((a, b) => b[1] - a[1]).map(([s, n]) => `${s}: ${n}`).join(", ")}
 `.trim();
 
     const campaignContext = hasAdData ? `
@@ -337,14 +199,13 @@ CAMPANHAS DE ANÚNCIOS:
 ${campaignRows.map(c => {
   const parts = [
     `  • [${c.platform.toUpperCase()}] ${c.name}`,
-    `    Gasto: R$${fmt(c.spend)}`,
-    `    Impressões: ${c.impressions.toLocaleString("pt-BR")} · Cliques: ${c.clicks.toLocaleString("pt-BR")} · CTR: ${c.ctr.toFixed(2)}%`,
+    `    Gasto: R$${fmt(c.spend)} · Impressões: ${c.impressions.toLocaleString("pt-BR")} · Cliques: ${c.clicks.toLocaleString("pt-BR")} · CTR: ${c.ctr.toFixed(2)}%`,
     c.cpc ? `    CPC: R$${fmt(c.cpc)}` : "",
-    c.salesCount > 0 ? `    Vendas atribuídas: ${c.salesCount} · Receita: R$${fmt(c.salesRevenue)} · ROAS: ${c.roas?.toFixed(2)}x · CPA: R$${fmt(c.cpa!)}` : "    Vendas atribuídas: 0 (sem UTM correspondente)",
+    c.leads > 0 ? `    Leads atribuídos: ${c.leads} · CPL: R$${fmt(c.cpl!)}` : "    Leads: 0 (sem UTM correspondente)",
   ].filter(Boolean);
   return parts.join("\n");
 }).join("\n")}
-`.trim() : "CAMPANHAS DE ANÚNCIOS: dados ainda não integrados (Meta/Google API pendente)";
+`.trim() : "CAMPANHAS: dados ainda não integrados (Meta/Google API pendente)";
 
     const creativesContext = topCreatives.length > 0 ? `
 CRIATIVOS — TOP PERFORMERS:
@@ -352,32 +213,27 @@ ${topCreatives.map((c, i) => {
   const parts = [
     `  ${i + 1}. [${c.type ?? "criativo"}] ${c.name} (${c.campaign})`,
     c.headline ? `     Headline: "${c.headline}"` : "",
-    c.body ? `     Texto: "${c.body.slice(0, 120)}${c.body.length > 120 ? "..." : ""}"` : "",
     `     CTR: ${c.ctr.toFixed(2)}% · Gasto: R$${fmt(c.spend)}`,
-    c.salesCount > 0 ? `     Vendas: ${c.salesCount} · ROAS: ${c.roas?.toFixed(2)}x · CPA: R$${fmt(c.cpa!)}` : "     Sem vendas atribuídas",
+    c.leads > 0 ? `     Leads: ${c.leads} · CPL: R$${fmt(c.cpl!)}` : "     Sem leads atribuídos",
   ].filter(Boolean);
   return parts.join("\n");
 }).join("\n")}
-${worstCreatives.length > 0 ? `\nCRIATIVOS — PIORES PERFORMERS (com gasto):\n${worstCreatives.map(c => `  • ${c.name}: CTR ${c.ctr.toFixed(2)}%, ROAS ${c.roas?.toFixed(2) ?? "—"}x, Gasto R$${fmt(c.spend)}`).join("\n")}` : ""}
-`.trim() : "CRIATIVOS: dados ainda não integrados (Meta/Google API pendente)";
+${worstCreatives.length > 0 ? `\nCRIATIVOS SEM LEADS (com gasto):\n${worstCreatives.map(c => `  • ${c.name}: CTR ${c.ctr.toFixed(2)}%, Gasto R$${fmt(c.spend)}, 0 leads`).join("\n")}` : ""}
+`.trim() : "CRIATIVOS: dados ainda não integrados";
 
-    const audienceContext = audienceParts.length > 0
-      ? `\nAUDIÊNCIA — PERFIL DO COMPRADOR (Google Sheets):\n${audienceParts.join("\n\n")}`
-      : "";
+    const fullContext = [leadsContext, campaignContext, creativesContext].filter(Boolean).join("\n\n");
 
-    const fullContext = [salesContext, campaignContext, creativesContext, audienceContext].filter(Boolean).join("\n\n");
-
-    // ── 7. Build Claude prompt ────────────────────────────────────────────────
-    const systemPrompt = `Você é um estrategista sênior de performance digital especializado em infoprodutos brasileiros. Sua função é transformar dados brutos de campanhas e vendas em diagnósticos precisos e recomendações acionáveis — não em resumos descritivos.
+    // ── 5. Build Claude prompt ───────────────────────────────────────────────
+    const systemPrompt = `Você é um estrategista sênior de geração de leads via mídia paga (Meta Ads e Google Ads). Sua função é transformar dados brutos em diagnósticos precisos e recomendações acionáveis — não em resumos descritivos.
 
 REGRAS OBRIGATÓRIAS:
 - NUNCA repita os números brutos que já estão nos dados. O gestor já os conhece.
 - SEMPRE interprete o que os números significam: o que está bom, o que está ruim, por quê.
 - SEMPRE termine cada seção com uma conclusão clara ou ação recomendada.
 - Use linguagem direta de gestor de tráfego, sem enrolação.
-- Se um dado estiver ausente, não mencione a ausência — trabalhe com o que existe.`;
+- Foco em CPL, volume de leads, taxa de conversão — NÃO existe venda neste contexto.`;
 
-    const userPrompt = `Analise os dados de performance abaixo e gere um diagnóstico estratégico completo.
+    const userPrompt = `Analise os dados de performance de geração de leads abaixo e gere um diagnóstico estratégico completo.
 
 DADOS DO PERÍODO:
 ${fullContext}
@@ -385,29 +241,27 @@ ${fullContext}
 Responda EXATAMENTE neste formato (sem introdução, sem conclusão geral, só as 6 seções):
 
 **1. Resumo Executivo**
-Em 2-3 frases: qual foi o resultado real do período? O negócio está crescendo, estagnado ou em queda? Qual é a principal alavanca ou gargalo?
+Em 2-3 frases: qual foi o resultado do período em geração de leads? O CPL está saudável? O volume está escalando?
 
 **2. Diagnóstico de Campanhas**
 ${hasAdData
-  ? "Para cada campanha: veredicto (escalar / manter / pausar) + justificativa em 1 linha baseada no ROAS/CPA comparado ao ticket médio. Identifique qual campanha está puxando resultado e qual está drenando budget."
-  : "Com base nos utm_medium das vendas, identifique de quais campanhas vieram os compradores. Qual origem converte melhor? O que isso indica sobre onde concentrar o investimento?"}
+  ? "Para cada campanha: veredicto (escalar / manter / pausar) + justificativa em 1 linha baseada no CPL e volume de leads. Qual campanha está puxando leads baratos e qual está drenando budget?"
+  : "Com base nos UTMs dos leads, identifique de quais campanhas vieram os leads. Qual origem converte melhor?"}
 
 **3. Análise de Criativos**
 ${topCreatives.length > 0
-  ? "Qual padrão une os criativos que vendem? (formato, abordagem, tema). Qual está desperdiçando verba sem retorno? Seja específico — cite nomes dos criativos."
-  : "Com base nos utm_content das vendas, identifique quais anúncios geraram compradores. O que os nomes/padrões revelam sobre o que está funcionando?"}
+  ? "Qual padrão une os criativos que geram leads? (formato, abordagem, tema). Qual está gastando sem gerar leads? Cite nomes."
+  : "Com base nos utm_content, identifique quais anúncios geraram leads e o que isso revela."}
 
 **4. Sugestões de Novos Criativos**
 Sugira exatamente 4 criativos para testar na próxima semana. Para cada um:
 - Formato: [vídeo / imagem / carrossel]
 - Headline: [texto exato da headline]
 - Gancho: [primeira frase ou cena de abertura]
-- Hipótese: por que esse criativo deve converter com base nos dados
+- Hipótese: por que esse criativo deve gerar leads com base nos dados
 
-**5. Perfil do Comprador Ideal**
-${audienceParts.length > 0
-  ? "Quem é o comprador que mais converte? Descreva: situação atual, dor principal, motivação de compra, objeção mais comum. Use os dados da pesquisa para embasar cada ponto."
-  : "Com base nos produtos comprados, horários, métodos de pagamento e UTMs: quem é esse comprador? Qual é a dor que o produto resolve? Como ele chegou até a oferta?"}
+**5. Perfil do Lead Ideal**
+Com base nos formulários, origens, UTMs e horários: quem é esse lead? Qual é a dor que o serviço/produto resolve? Como ele chegou até o formulário?
 
 **6. Top 5 Ações para Esta Semana**
 Liste 5 ações ordenadas por impacto, cada uma com:
@@ -415,20 +269,11 @@ Liste 5 ações ordenadas por impacto, cada uma com:
 - Por quê (baseado nos dados)
 - Como medir o resultado`;
 
-    // ── 8. Call Claude API ────────────────────────────────────────────────────
+    // ── 6. Call Claude API ───────────────────────────────────────────────────
     const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
-      headers: {
-        "x-api-key": anthropicKey,
-        "anthropic-version": "2023-06-01",
-        "content-type": "application/json",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-4-6",
-        max_tokens: 3000,
-        system: systemPrompt,
-        messages: [{ role: "user", content: userPrompt }],
-      }),
+      headers: { "x-api-key": anthropicKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
+      body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 3000, system: systemPrompt, messages: [{ role: "user", content: userPrompt }] }),
     });
 
     if (!claudeRes.ok) {
@@ -439,14 +284,16 @@ Liste 5 ações ordenadas por impacto, cada uma com:
     const claudeData = await claudeRes.json();
     const analysis = claudeData.content?.[0]?.text ?? "Sem resposta.";
 
-    const dataSources = {
-      hasSales: mainSales.length > 0,
-      hasCampaigns: hasAdData,
-      hasCreatives: topCreatives.length > 0,
-      hasAudience: audienceParts.length > 0,
-    };
-
-    return NextResponse.json({ analysis, context: fullContext, dataSources });
+    return NextResponse.json({
+      analysis,
+      context: fullContext,
+      dataSources: {
+        hasLeads: leads.length > 0,
+        hasCampaigns: hasAdData,
+        hasCreatives: topCreatives.length > 0,
+        hasAudience: false,
+      },
+    });
 
   } catch (err: any) {
     return NextResponse.json({ error: err.message ?? "Erro interno." }, { status: 500 });

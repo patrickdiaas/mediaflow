@@ -24,7 +24,7 @@ export default function Funnel({ steps, metrics }: { steps: FunnelStep[]; metric
       ? [{ label: "Conv. Página",     value: `${metrics.pageConvRate.toFixed(2)}%`,     color: "text-gold" }]
       : []),
     ...(metrics.checkoutConvRate != null
-      ? [{ label: "Conv. Checkout",   value: `${metrics.checkoutConvRate.toFixed(2)}%`, color: "text-accent" }]
+      ? [{ label: "Conv. Form.",      value: `${metrics.checkoutConvRate.toFixed(2)}%`, color: "text-accent" }]
       : []),
     ...(metrics.pageConvRate == null && metrics.checkoutConvRate == null
       ? [{ label: "Tx. Conv.",        value: `${metrics.overallConvRate.toFixed(2)}%`,  color: "text-accent" }]

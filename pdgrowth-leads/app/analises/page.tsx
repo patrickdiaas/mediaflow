@@ -339,10 +339,9 @@ export default function AnalisesPage() {
               <div className="flex flex-wrap gap-1.5">
                 {dataSources ? (
                   <>
-                    <DataBadge label="Vendas"    active={dataSources.hasSales} />
+                    <DataBadge label="Leads"     active={dataSources.hasLeads} />
                     <DataBadge label="Campanhas" active={dataSources.hasCampaigns} />
                     <DataBadge label="Criativos" active={dataSources.hasCreatives} />
-                    <DataBadge label="Audiência" active={dataSources.hasAudience} />
                   </>
                 ) : (
                   <span className="text-[11px] text-text-dark font-mono">
@@ -510,7 +509,7 @@ export default function AnalisesPage() {
               Diagnóstico de campanhas, padrões em criativos, perfil do comprador e recomendações acionáveis. Selecione o período e clique em "Gerar análise".
             </p>
             <div className="flex flex-wrap gap-1.5 justify-center mt-1">
-              <DataBadge label="Vendas"    active={true} />
+              <DataBadge label="Leads"     active={true} />
               <DataBadge label="Campanhas" active={false} />
               <DataBadge label="Criativos" active={false} />
               <DataBadge label="Audiência" active={false} />

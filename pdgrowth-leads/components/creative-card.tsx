@@ -25,29 +25,30 @@ type Decision = "escalar" | "otimizar" | "pausar" | "aguardar";
 
 function getDecision(c: CreativeRow): Decision {
   if (c.spend < 200) return "aguardar";
-  if (c.roas >= 4)   return "escalar";
-  if (c.roas >= 2)   return "otimizar";
-  return "pausar";
+  if (c.cpl > 0 && c.cpl <= 15) return "escalar";
+  if (c.cpl > 0 && c.cpl <= 30) return "otimizar";
+  if (c.leads === 0 && c.spend >= 200) return "pausar";
+  return "aguardar";
 }
 
 const decisionConfig: Record<Decision, { label: string; icon: React.ElementType; color: string; bg: string }> = {
-  escalar:  { label: "Escalar",  icon: TrendingUp,    color: "text-accent", bg: "bg-accent/10 border-accent/30" },
-  otimizar: { label: "Otimizar", icon: FlaskConical,  color: "text-gold",   bg: "bg-gold/10 border-gold/30"   },
-  pausar:   { label: "Pausar",   icon: AlertTriangle, color: "text-red",    bg: "bg-red/10 border-red/30"      },
-  aguardar: { label: "Aguardar", icon: Clock,         color: "text-text-muted", bg: "bg-card border-border"   },
+  escalar:  { label: "Escalar",  icon: TrendingUp,    color: "text-accent",     bg: "bg-accent/10 border-accent/30" },
+  otimizar: { label: "Otimizar", icon: FlaskConical,  color: "text-gold",       bg: "bg-gold/10 border-gold/30"   },
+  pausar:   { label: "Pausar",   icon: AlertTriangle, color: "text-red",        bg: "bg-red/10 border-red/30"      },
+  aguardar: { label: "Aguardar", icon: Clock,         color: "text-text-muted", bg: "bg-card border-border"       },
 };
 
 export default function CreativeCard({ creative: c }: { creative: CreativeRow }) {
   const TypeIcon = c.creative_type ? typeIcon[c.creative_type] : ImageIcon;
-  const roasColor = c.roas >= 4.5 ? "text-accent" : c.roas >= 3 ? "text-gold" : "text-red";
-  const decision  = getDecision(c);
-  const dCfg      = decisionConfig[decision];
-  const DIcon     = dCfg.icon;
-  const linkUrl   = c.permalink_url ?? c.video_url;
+  const cplCol   = c.cpl > 0 && c.cpl <= 15 ? "text-accent" : c.cpl <= 30 ? "text-gold" : "text-red";
+  const decision = getDecision(c);
+  const dCfg     = decisionConfig[decision];
+  const DIcon    = dCfg.icon;
+  const linkUrl  = c.permalink_url ?? c.video_url;
 
   return (
     <div className="bg-card border border-border rounded-xl overflow-hidden hover:border-border-light transition-colors flex flex-col">
-      {/* Thumbnail — altura fixa menor */}
+      {/* Thumbnail */}
       <div className="relative w-full bg-bg flex-shrink-0 overflow-hidden" style={{ height: 140 }}>
         {c.thumbnail_url ? (
           <Image src={c.thumbnail_url} alt={c.ad_name} fill className="object-cover" sizes="320px" unoptimized />
@@ -58,7 +59,6 @@ export default function CreativeCard({ creative: c }: { creative: CreativeRow })
           </div>
         )}
 
-        {/* Badges */}
         <div className="absolute top-2 left-2">
           <span className={`flex items-center gap-1 text-[10px] font-medium px-1.5 py-0.5 rounded-md border backdrop-blur-sm ${c.platform === "meta" ? "text-blue border-blue/30 bg-blue/10" : "text-gold border-gold/30 bg-gold/10"}`}>
             <TypeIcon size={9} />{c.creative_type ? typeLabel[c.creative_type] : "—"}
@@ -70,7 +70,6 @@ export default function CreativeCard({ creative: c }: { creative: CreativeRow })
           </span>
         </div>
 
-        {/* Play overlay */}
         {c.creative_type === "video" && c.thumbnail_url && (
           <div className="absolute inset-0 flex items-center justify-center">
             <div className="w-8 h-8 rounded-full bg-black/60 border border-white/20 flex items-center justify-center">
@@ -79,15 +78,9 @@ export default function CreativeCard({ creative: c }: { creative: CreativeRow })
           </div>
         )}
 
-        {/* Link direto — overlay no canto inferior direito */}
         {linkUrl && (
-          <a
-            href={linkUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            title="Ver criativo no Meta"
-            className="absolute bottom-2 right-2 flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md bg-black/70 text-white border border-white/20 hover:bg-black/90 transition-colors"
-          >
+          <a href={linkUrl} target="_blank" rel="noopener noreferrer" title="Ver anúncio"
+            className="absolute bottom-2 right-2 flex items-center gap-1 text-[10px] font-medium px-2 py-1 rounded-md bg-black/70 text-white border border-white/20 hover:bg-black/90 transition-colors">
             <ExternalLink size={9} /> Ver anúncio
           </a>
         )}
@@ -95,41 +88,37 @@ export default function CreativeCard({ creative: c }: { creative: CreativeRow })
 
       {/* Info */}
       <div className="p-2.5 flex flex-col gap-2 flex-1">
-        {/* Nome + campanha + link */}
         <div className="flex items-start gap-2">
           <div className="flex-1 min-w-0">
             <p className="text-xs font-medium text-text-primary truncate leading-snug" title={c.ad_name}>{c.ad_name}</p>
             {c.headline && (
               <p className="text-[10px] text-text-secondary truncate italic mt-0.5" title={c.headline}>"{c.headline}"</p>
             )}
-            <p className="text-[10px] text-text-muted truncate mt-0.5">{c.campaign_name || "—"}</p>
+            <p className="text-[10px] text-text-muted truncate mt-0.5">
+              {c.campaign_name || "—"}
+              {c.placement ? ` · ${c.placement}` : ""}
+            </p>
           </div>
           {linkUrl && (
-            <a
-              href={linkUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              title="Ver criativo no Meta"
-              className="flex-shrink-0 p-1.5 rounded-lg border border-border text-text-secondary hover:text-accent hover:border-accent/40 transition-colors"
-            >
+            <a href={linkUrl} target="_blank" rel="noopener noreferrer" title="Ver anúncio"
+              className="flex-shrink-0 p-1.5 rounded-lg border border-border text-text-secondary hover:text-accent hover:border-accent/40 transition-colors">
               <ExternalLink size={12} />
             </a>
           )}
         </div>
 
-        {/* Métricas principais */}
+        {/* Métricas */}
         <div className="grid grid-cols-3 gap-1">
-          <Metric label="Invest."  value={fmtMoney(c.spend)}         color="text-blue"   />
-          <Metric label="Receita"  value={fmtMoney(c.revenue)}       color="text-accent" />
-          <Metric label="ROAS"     value={`${c.roas.toFixed(2)}×`}   color={roasColor}   />
+          <Metric label="Invest."  value={fmtMoney(c.spend)} color="text-blue" />
+          <Metric label="Leads"    value={String(c.leads)}    color="text-accent" />
+          <Metric label="CPL"      value={c.cpl > 0 ? `R$${c.cpl.toFixed(0)}` : "—"} color={c.cpl > 0 ? cplCol : "text-text-muted"} />
         </div>
         <div className="grid grid-cols-3 gap-1">
-          <Metric label="CPA"  value={c.cpa > 0 ? `R$${c.cpa.toFixed(0)}` : "—"} color="text-gold" />
           <Metric label="CTR"  value={`${c.ctr.toFixed(1)}%`}                      color="text-text-secondary" />
           <Metric label="CPM"  value={c.cpm > 0 ? `R$${c.cpm.toFixed(0)}` : "—"} color="text-text-secondary" />
+          <Metric label="Freq." value={c.frequency != null ? `${c.frequency.toFixed(1)}×` : "—"} color={c.frequency != null && c.frequency >= 3.5 ? "text-gold" : "text-text-secondary"} />
         </div>
 
-        {/* Frequência se relevante */}
         {c.frequency !== null && c.frequency >= 3.5 && (
           <div className="pt-1 border-t border-border">
             <span className={`text-[10px] font-mono ${c.frequency >= 4.5 ? "text-red" : "text-gold"}`}>
