@@ -8,8 +8,8 @@ import HorizontalBar from "@/components/horizontal-bar";
 import DataTable, { Column } from "@/components/data-table";
 import { useDashboard } from "@/lib/dashboard-context";
 import { supabase } from "@/lib/supabase";
-import { getPeriodDates, getSalesDates } from "@/lib/period";
-import type { ProductRow, Platform, KPIData, DonutSlice, HorizontalBarItem, TrendPoint } from "@/lib/types";
+import { getPeriodDates, getLeadDates } from "@/lib/period";
+import type { Platform, KPIData, DonutSlice, HorizontalBarItem, TrendPoint, RegionRow } from "@/lib/types";
 import { RefreshCw, Calendar, Building2, Menu } from "lucide-react";
 
 const periods = [
@@ -21,252 +21,192 @@ const periods = [
   { value: "lastMonth", label: "Mês passado" },
 ];
 
-const roasColor = (v: number) =>
-  v >= 4.5 ? "text-accent" : v >= 3 ? "text-gold" : "text-red";
-
-const PlatformBadge = ({ p }: { p: Platform }) => (
-  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded border ${
-    p === "meta" ? "text-blue border-blue/30 bg-blue/10" : "text-gold border-gold/30 bg-gold/10"
-  }`}>
-    {p === "meta" ? "Meta" : "Google"}
-  </span>
-);
-
-
-const productColumns: Column<ProductRow>[] = [
-  { key: "product_name", label: "Produto",
-    render: v => <span className="text-text-primary text-xs">{String(v)}</span> },
-  { key: "sales",      label: "Vendas",  align: "right",
-    render: v => <span className="text-green font-semibold text-xs">{String(v)}</span> },
-  { key: "revenue",    label: "Receita", align: "right",
-    render: v => <span className="text-accent text-xs">R$ {Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</span> },
-  { key: "avg_ticket", label: "Ticket",  align: "right",
-    render: v => <span className="text-gold text-xs">R$ {Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</span> },
-  { key: "refund_rate", label: "Reemb.", align: "right",
-    render: v => {
-      const n = Number(v);
-      return <span className={`text-xs ${n > 5 ? "text-red" : n > 3 ? "text-gold" : "text-accent"}`}>{n.toFixed(1)}%</span>;
-    }},
-];
-
-// ─── Cores para os gráficos ───────────────────────────────────────────────────
 const CHART_COLORS = ["#CAFF04", "#60A5FA", "#F59E0B", "#EF4444", "#A78BFA", "#34D399"];
 
-const PAYMENT_COLORS: Record<string, string> = {
-  pix:         "#CAFF04",
-  credit_card: "#60A5FA",
-  boleto:      "#F59E0B",
-  debit_card:  "#34D399",
-};
-
 // ─── Helpers ──────────────────────────────────────────────────────────────────
-interface SalesStats {
-  revenue: number; sales: number; avgTicket: number;
-  refunds: number; refundAmt: number; orderBumps: number; obRevenue: number;
+interface LeadStats {
+  leads: number;
   spend: number;
+  impressions: number;
+  clicks: number;
+  reach: number;
+  landingPageViews: number;
+  leadFormSubmissions: number;
 }
 
-function buildKPIs(stats: SalesStats, loading: boolean): KPIData[] {
+function buildKPIs(stats: LeadStats, loading: boolean): KPIData[] {
   const f = (n: number) => n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-  const totalRevenue = stats.revenue + stats.obRevenue;
-  const roas  = stats.spend > 0 ? totalRevenue / stats.spend : 0;
-  const roi   = stats.spend > 0 ? ((totalRevenue - stats.spend) / stats.spend) * 100 : 0;
-  const cpa   = stats.sales > 0 && stats.spend > 0 ? stats.spend / stats.sales : 0;
-  const roasC = roas >= 4.5 ? "accent" : roas >= 3 ? "gold" : roas > 0 ? "red" : "gold";
+  const cpl = stats.leads > 0 && stats.spend > 0 ? stats.spend / stats.leads : 0;
+  const ctr = stats.impressions > 0 ? (stats.clicks / stats.impressions) * 100 : 0;
+  const cpc = stats.clicks > 0 ? stats.spend / stats.clicks : 0;
+  const cpm = stats.impressions > 0 ? (stats.spend / stats.impressions) * 1000 : 0;
+  const convRate = stats.clicks > 0 ? (stats.leads / stats.clicks) * 100 : 0;
   return [
-    { label: "Faturamento",     value: loading ? "…" : `R$ ${f(totalRevenue)}`,                                             color: "accent"  },
-    { label: "Gastos Anúncios", value: loading ? "…" : stats.spend > 0 ? `R$ ${f(stats.spend)}` : "—",                     color: "blue"    },
-    { label: "ROAS",            value: loading ? "…" : roas > 0 ? `${roas.toFixed(2)}×` : "—",                             color: roasC     },
-    { label: "Lucro",           value: loading ? "…" : stats.spend > 0 ? `R$ ${f(totalRevenue - stats.spend)}` : `R$ ${f(totalRevenue)}`, color: "accent" },
-    { label: "ROI",             value: loading ? "…" : roi !== 0 ? `${roi.toFixed(1)}%` : "—",                             color: roi >= 0 ? "accent" : "red" },
-    { label: "Vendas",          value: loading ? "…" : String(stats.sales),                                                color: "accent"  },
-    { label: "CPA",             value: loading ? "…" : cpa > 0 ? `R$ ${f(cpa)}` : "—",                                    color: "gold"    },
-    { label: "Ticket Médio",    value: loading ? "…" : `R$ ${f(stats.avgTicket)}`,                                         color: "gold"    },
-    { label: "Reembolsos",      value: loading ? "…" : `R$ ${f(stats.refundAmt)}`,                                         color: "red"     },
-    { label: "Order Bumps",     value: loading ? "…" : `${stats.orderBumps} · R$ ${f(stats.obRevenue)}`,                   color: "gold"    },
+    { label: "Leads",           value: loading ? "…" : String(stats.leads),                               color: "accent" },
+    { label: "CPL",             value: loading ? "…" : cpl > 0 ? `R$ ${f(cpl)}` : "—",                   color: "gold"   },
+    { label: "Investimento",    value: loading ? "…" : stats.spend > 0 ? `R$ ${f(stats.spend)}` : "—",   color: "blue"   },
+    { label: "Impressões",      value: loading ? "…" : stats.impressions.toLocaleString("pt-BR"),         color: "blue"   },
+    { label: "Cliques",         value: loading ? "…" : stats.clicks.toLocaleString("pt-BR"),              color: "blue"   },
+    { label: "CTR",             value: loading ? "…" : `${ctr.toFixed(2)}%`,                              color: "blue"   },
+    { label: "CPC",             value: loading ? "…" : cpc > 0 ? `R$ ${f(cpc)}` : "—",                   color: "gold"   },
+    { label: "CPM",             value: loading ? "…" : cpm > 0 ? `R$ ${f(cpm)}` : "—",                   color: "gold"   },
+    { label: "Tx. Conversão",   value: loading ? "…" : `${convRate.toFixed(2)}%`,                         color: "accent" },
+    { label: "Alcance",         value: loading ? "…" : stats.reach.toLocaleString("pt-BR"),               color: "purple" },
   ];
 }
 
-interface TrackedProduct { product_id: string; product_name: string | null; gateway: string; }
-
-function buildProductRows(tracked: TrackedProduct[], sales: any[]): ProductRow[] {
-  return tracked.map(tp => {
-    const ps       = sales.filter(s => s.product_id === tp.product_id);
-    const approved = ps.filter(s => s.status === "approved");
-    const refunded = ps.filter(s => s.status === "refunded" || s.status === "chargeback");
-    const revenue  = approved.reduce((sum: number, s: any) => sum + Number(s.amount_net ?? s.amount), 0);
-    return {
-      product_id:    tp.product_id,
-      product_name:  tp.product_name ?? "Produto sem nome",
-      gateway:       tp.gateway as any,
-      sales:         approved.length,
-      revenue,
-      avg_ticket:    approved.length > 0 ? revenue / approved.length : 0,
-      refunds:       refunded.length,
-      refund_rate:   (approved.length + refunded.length) > 0
-        ? (refunded.length / (approved.length + refunded.length)) * 100 : 0,
-      is_order_bump: ps.length > 0 && ps.every((s: any) => s.sale_type === "order_bump"),
-    };
-  });
-}
-
-function buildUTMSources(sales: any[]): HorizontalBarItem[] {
-  const approved = sales.filter(s => s.status === "approved");
-  const total = approved.length;
-  if (total === 0) return [];
-  const counts: Record<string, number> = {};
-  for (const s of approved) {
-    const key = s.utm_source || "Direto";
-    counts[key] = (counts[key] ?? 0) + 1;
-  }
-  return Object.entries(counts)
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 6)
-    .map(([label, value], i) => ({
-      label,
-      value,
-      rate: (value / total) * 100,
-      color: CHART_COLORS[i % CHART_COLORS.length],
-    }));
-}
-
-function buildPaymentDonut(sales: any[]): DonutSlice[] {
-  const approved = sales.filter(s => s.status === "approved");
-  if (approved.length === 0) return [];
-  const counts: Record<string, number> = {};
-  for (const s of approved) {
-    const key = s.payment_method || "outros";
-    counts[key] = (counts[key] ?? 0) + 1;
-  }
-  const labels: Record<string, string> = {
-    pix: "Pix", credit_card: "Cartão", boleto: "Boleto", debit_card: "Débito",
-  };
-  return Object.entries(counts)
-    .sort((a, b) => b[1] - a[1])
-    .map(([key, value], i) => ({
-      label: labels[key] ?? key,
-      value,
-      color: PAYMENT_COLORS[key] ?? CHART_COLORS[i % CHART_COLORS.length],
-    }));
-}
-
-function buildProductDonut(tracked: TrackedProduct[], sales: any[]): DonutSlice[] {
-  const approved = sales.filter(s => s.status === "approved" && s.sale_type === "main");
-  if (approved.length === 0) return [];
-  const counts: Record<string, { name: string; count: number }> = {};
-  for (const s of approved) {
-    const id = s.product_id;
-    const name = tracked.find(t => t.product_id === id)?.product_name ?? s.product_name ?? id;
-    if (!counts[id]) counts[id] = { name, count: 0 };
-    counts[id].count++;
-  }
-  return Object.values(counts)
-    .sort((a, b) => b.count - a.count)
-    .slice(0, 5)
-    .map((item, i) => ({
-      label: item.name,
-      value: item.count,
-      color: CHART_COLORS[i % CHART_COLORS.length],
-    }));
-}
+const regionColumns: Column<RegionRow>[] = [
+  { key: "region",      label: "Região",
+    render: v => <span className="text-text-primary text-xs">{String(v)}</span> },
+  { key: "impressions", label: "Impressões", align: "right",
+    render: v => <span className="text-text-secondary text-xs">{Number(v).toLocaleString("pt-BR")}</span> },
+  { key: "clicks",      label: "Cliques",    align: "right",
+    render: v => <span className="text-blue text-xs">{Number(v).toLocaleString("pt-BR")}</span> },
+  { key: "ctr",         label: "CTR",        align: "right",
+    render: v => <span className="text-accent text-xs">{Number(v).toFixed(2)}%</span> },
+  { key: "spend",       label: "Investido",  align: "right",
+    render: v => <span className="text-gold text-xs">R$ {Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</span> },
+];
 
 // ─── Página ───────────────────────────────────────────────────────────────────
 export default function OverviewPage() {
   const { client, setClient, platform, setPlatform, period, setPeriod, setMobileSidebarOpen } = useDashboard();
 
-  const [clients,       setClients]       = useState<{ slug: string; name: string; display_name: string | null; sales_slug: string | null }[]>([]);
-  const [stats,         setStats]         = useState<SalesStats>({ revenue: 0, sales: 0, avgTicket: 0, refunds: 0, refundAmt: 0, orderBumps: 0, obRevenue: 0, spend: 0 });
-  const [products,      setProducts]      = useState<ProductRow[]>([]);
-  const [utmSources,    setUtmSources]    = useState<HorizontalBarItem[]>([]);
-  const [paymentDonut,  setPaymentDonut]  = useState<DonutSlice[]>([]);
-  const [productDonut,  setProductDonut]  = useState<DonutSlice[]>([]);
+  const [clients,       setClients]       = useState<{ slug: string; name: string; display_name: string | null }[]>([]);
+  const [stats,         setStats]         = useState<LeadStats>({ leads: 0, spend: 0, impressions: 0, clicks: 0, reach: 0, landingPageViews: 0, leadFormSubmissions: 0 });
+  const [sourceChart,   setSourceChart]   = useState<DonutSlice[]>([]);
+  const [utmOrigins,    setUtmOrigins]    = useState<HorizontalBarItem[]>([]);
+  const [formDonut,     setFormDonut]     = useState<DonutSlice[]>([]);
   const [trendData,     setTrendData]     = useState<TrendPoint[]>([]);
+  const [regions,       setRegions]       = useState<RegionRow[]>([]);
   const [loading,       setLoading]       = useState(true);
   const [updatedAt,     setUpdatedAt]     = useState("");
 
   useEffect(() => {
-    supabase.from("clients").select("slug, name, display_name, sales_slug").eq("active", true).order("name")
-      .then(({ data }) => { if (data) setClients(data as { slug: string; name: string; display_name: string | null; sales_slug: string | null }[]); });
+    supabase.from("clients").select("slug, name, display_name").eq("active", true).order("name")
+      .then(({ data }) => { if (data) setClients(data); });
   }, []);
-
-  function getSalesSlug(): string | null {
-    if (client === "all") return null;
-    const found = clients.find(c => c.slug === client);
-    return found?.sales_slug ?? client;
-  }
 
   async function fetchData() {
     setLoading(true);
     const { since, until } = getPeriodDates(period);
-    const { since: salesSince, until: salesUntil } = getSalesDates(period);
-    const salesSlug = getSalesSlug();
-    const metaSlug  = client === "all" ? null : client;
+    const { since: leadSince, until: leadUntil } = getLeadDates(period);
+    const metaSlug = client === "all" ? null : client;
 
-    // Produtos rastreados
-    const trackedQ = supabase.from("tracked_products").select("product_id, product_name, gateway").eq("active", true);
-    const { data: tracked } = await (salesSlug ? trackedQ.eq("client_slug", salesSlug) : trackedQ);
-    const ids = tracked?.map((p: any) => p.product_id) ?? [];
+    // Leads no período (BRT)
+    const leadsQ = supabase
+      .from("leads")
+      .select("id, lead_email, lead_name, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, converted_at, source")
+      .gte("converted_at", leadSince)
+      .lte("converted_at", leadUntil);
+    if (metaSlug) leadsQ.eq("client_slug", metaSlug);
+    const { data: leadsData } = await leadsQ;
+    const leads = leadsData ?? [];
 
-    // Vendas no período — janela BRT (UTC-3)
-    const salesQ = supabase
-      .from("sales")
-      .select("id, amount, amount_net, status, sale_type, product_id, product_name, utm_source, payment_method, created_at")
-      .gte("created_at", salesSince)
-      .lte("created_at", salesUntil);
-    if (salesSlug) salesQ.eq("client_slug", salesSlug);
-    if (ids.length > 0) salesQ.in("product_id", ids);
-    const { data: sales } = ids.length > 0 ? await salesQ : { data: [] };
-
-    const allSales  = sales ?? [];
-    const approved  = allSales.filter((s: any) => s.status === "approved");
-    const mainSales = approved.filter((s: any) => s.sale_type === "main");
-    const obSales   = approved.filter((s: any) => s.sale_type === "order_bump");
-    const refunded  = allSales.filter((s: any) => s.status === "refunded" || s.status === "chargeback");
-    // Usa amount_net (líquido após taxas gateway) quando disponível, senão amount bruto
-    const netVal    = (s: any) => Number(s.amount_net ?? s.amount);
-    const revenue   = mainSales.reduce((sum: number, s: any) => sum + netVal(s), 0);
-    const obRevenue = obSales.reduce((sum: number, s: any) => sum + netVal(s), 0);
-    const refundAmt = refunded.reduce((sum: number, s: any) => sum + Number(s.amount), 0);
-    const avgTicket = mainSales.length > 0 ? revenue / mainSales.length : 0;
-
-    // Dados de campanhas Meta por dia (spend + impressions + clicks)
-    const adQ = supabase.from("ad_campaigns").select("date, spend")
+    // Campanhas (spend, impressions, clicks, reach)
+    const adQ = supabase.from("ad_campaigns")
+      .select("date, spend, impressions, clicks, reach, landing_page_views, lead_form_submissions, platform")
       .gte("date", since).lte("date", until);
-    const { data: adData } = await (metaSlug ? adQ.eq("client_slug", metaSlug) : adQ);
+    if (metaSlug) adQ.eq("client_slug", metaSlug);
+    const { data: adData } = await adQ;
+    const ads = (adData ?? []).filter((a: any) => platform === "all" || a.platform === platform);
 
-    const spend = (adData ?? []).reduce((sum: number, r: any) => sum + Number(r.spend), 0);
+    const totalSpend = ads.reduce((s: number, r: any) => s + Number(r.spend), 0);
+    const totalImp   = ads.reduce((s: number, r: any) => s + Number(r.impressions), 0);
+    const totalClk   = ads.reduce((s: number, r: any) => s + Number(r.clicks), 0);
+    const totalReach = ads.reduce((s: number, r: any) => s + Number(r.reach), 0);
+    const totalLpv   = ads.reduce((s: number, r: any) => s + Number(r.landing_page_views ?? 0), 0);
+    const totalLfs   = ads.reduce((s: number, r: any) => s + Number(r.lead_form_submissions ?? 0), 0);
 
-    // Trend: receita e investimento por dia
-    const revenueByDay = new Map<string, number>();
-    for (const s of mainSales) {
-      const day = String(s.created_at).slice(0, 10);
-      revenueByDay.set(day, (revenueByDay.get(day) ?? 0) + Number(s.amount_net ?? s.amount));
+    // Regiões
+    const regQ = supabase.from("ad_regions")
+      .select("region, impressions, clicks, spend")
+      .gte("date", since).lte("date", until);
+    if (metaSlug) regQ.eq("client_slug", metaSlug);
+    const { data: regData } = await regQ;
+    const regMap = new Map<string, { impressions: number; clicks: number; spend: number }>();
+    for (const r of (regData ?? [])) {
+      const e = regMap.get(r.region) ?? { impressions: 0, clicks: 0, spend: 0 };
+      e.impressions += Number(r.impressions);
+      e.clicks      += Number(r.clicks);
+      e.spend       += Number(r.spend);
+      regMap.set(r.region, e);
+    }
+    const regionRows: RegionRow[] = Array.from(regMap.entries())
+      .map(([region, v]) => ({ region, ...v, ctr: v.impressions > 0 ? (v.clicks / v.impressions) * 100 : 0 }))
+      .sort((a, b) => b.impressions - a.impressions)
+      .slice(0, 10);
+
+    // Trend: leads x investimento por dia
+    const leadsByDay = new Map<string, number>();
+    for (const l of leads) {
+      const day = String(l.converted_at).slice(0, 10);
+      leadsByDay.set(day, (leadsByDay.get(day) ?? 0) + 1);
     }
     const spendByDay = new Map<string, number>();
-    for (const a of (adData ?? [])) {
+    for (const a of ads) {
       spendByDay.set(a.date, (spendByDay.get(a.date) ?? 0) + Number(a.spend));
     }
-    const allDays = Array.from(new Set([...Array.from(revenueByDay.keys()), ...Array.from(spendByDay.keys())])).sort();
+    const allDays = Array.from(new Set([...Array.from(leadsByDay.keys()), ...Array.from(spendByDay.keys())])).sort();
     const trend: TrendPoint[] = allDays.map(day => {
-      const rev = revenueByDay.get(day) ?? 0;
-      const sp  = spendByDay.get(day) ?? 0;
-      return { date: day.slice(5), revenue: rev, spend: sp, sales: 0, roas: sp > 0 ? rev / sp : 0 };
+      const ld = leadsByDay.get(day) ?? 0;
+      const sp = spendByDay.get(day) ?? 0;
+      return { date: day.slice(5), leads: ld, spend: sp, cpl: ld > 0 ? sp / ld : 0 };
     });
 
-    setStats({ revenue, sales: mainSales.length, avgTicket, refunds: refunded.length, refundAmt, orderBumps: obSales.length, obRevenue, spend });
-    setProducts(buildProductRows(tracked ?? [], allSales));
-    setUtmSources(buildUTMSources(allSales));
-    setPaymentDonut(buildPaymentDonut(allSales));
-    setProductDonut(buildProductDonut(tracked ?? [], allSales));
+    // Donut: leads por fonte (RD Station vs Meta Lead Form)
+    const srcCounts: Record<string, number> = {};
+    for (const l of leads) {
+      const key = l.source ?? "rdstation";
+      srcCounts[key] = (srcCounts[key] ?? 0) + 1;
+    }
+    const srcLabels: Record<string, string> = { rdstation: "RD Station", meta_leadform: "Meta Lead Form", manual: "Manual" };
+    const srcColors: Record<string, string> = { rdstation: "#CAFF04", meta_leadform: "#60A5FA", manual: "#F59E0B" };
+    const srcDonut = Object.entries(srcCounts)
+      .sort((a, b) => b[1] - a[1])
+      .map(([key, value]) => ({ label: srcLabels[key] ?? key, value, color: srcColors[key] ?? "#A78BFA" }));
+
+    // Donut: leads por formulário
+    const formCounts: Record<string, number> = {};
+    for (const l of leads) {
+      const key = l.conversion_event ?? "desconhecido";
+      formCounts[key] = (formCounts[key] ?? 0) + 1;
+    }
+    const fDonut = Object.entries(formCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(([label, value], i) => ({ label, value, color: CHART_COLORS[i % CHART_COLORS.length] }));
+
+    // Bar: leads por UTM source (origem do tráfego)
+    const utmCounts: Record<string, number> = {};
+    for (const l of leads) {
+      const key = l.utm_source || "Direto";
+      utmCounts[key] = (utmCounts[key] ?? 0) + 1;
+    }
+    const totalLeads = leads.length;
+    const utmBars = Object.entries(utmCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 6)
+      .map(([label, value], i) => ({
+        label,
+        value,
+        rate: totalLeads > 0 ? (value / totalLeads) * 100 : 0,
+        color: CHART_COLORS[i % CHART_COLORS.length],
+      }));
+
+    setStats({ leads: leads.length, spend: totalSpend, impressions: totalImp, clicks: totalClk, reach: totalReach, landingPageViews: totalLpv, leadFormSubmissions: totalLfs });
+    setSourceChart(srcDonut);
+    setFormDonut(fDonut);
+    setUtmOrigins(utmBars);
     setTrendData(trend);
+    setRegions(regionRows);
     setUpdatedAt(new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
     setLoading(false);
   }
 
-  useEffect(() => { fetchData(); }, [client, period]);
+  useEffect(() => { fetchData(); }, [client, period, platform]);
 
   const kpis = buildKPIs(stats, loading);
-
 
   return (
     <div className="flex h-screen bg-bg">
@@ -275,7 +215,6 @@ export default function OverviewPage() {
 
         {/* Top bar */}
         <div className="sticky top-0 z-10 bg-bg/95 backdrop-blur-sm border-b border-border px-4 md:px-6 py-3">
-          {/* Linha 1: hamburger + filtros principais */}
           <div className="flex items-center gap-2">
             <button
               onClick={() => setMobileSidebarOpen(true)}
@@ -336,7 +275,6 @@ export default function OverviewPage() {
             </button>
           </div>
 
-          {/* Linha 2: plataforma (mobile only) + updated */}
           <div className="flex items-center justify-between mt-2 sm:mt-0 sm:hidden">
             <div className="flex items-center bg-card border border-border rounded-lg overflow-hidden text-xs font-medium">
               {(["all", "meta", "google"] as const).map(p => (
@@ -369,30 +307,23 @@ export default function OverviewPage() {
             {kpis.slice(5).map(kpi => <KPICard key={kpi.label} {...kpi} />)}
           </div>
 
-          {/* Gráfico */}
+          {/* Gráfico de tendência */}
           {trendData.length > 0 && <DualAxisChart data={trendData} />}
 
-          {/* Mid row — 3 gráficos em colunas iguais */}
+          {/* Gráficos médios */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            <DonutChart title="Vendas por Produto"      data={productDonut} centerLabel="total" />
-            <HorizontalBar title="Conversão por Origem" data={utmSources}   valueLabel="vendas por fonte" />
-            <DonutChart title="Método de Pagamento"     data={paymentDonut} centerLabel="vendas" />
+            <DonutChart title="Leads por Fonte"       data={sourceChart} centerLabel="total" />
+            <HorizontalBar title="Leads por Origem"   data={utmOrigins}  valueLabel="leads por UTM source" />
+            <DonutChart title="Leads por Formulário"   data={formDonut}   centerLabel="leads" />
           </div>
 
-          {/* Produtos */}
-          <div className="bg-card border border-border rounded-xl p-5">
-            <span className="text-sm font-semibold text-text-primary block mb-1">Produtos</span>
-            {loading ? (
-              <div className="flex items-center gap-2 py-8 text-text-muted text-xs">
-                <RefreshCw size={13} className="animate-spin" /> Carregando...
-              </div>
-            ) : products.length === 0 ? (
-              <p className="text-text-muted text-xs py-8">Nenhum produto rastreado. Ative em Configurações.</p>
-            ) : (
-              <DataTable<ProductRow> columns={productColumns} data={products} rowKey="product_id" />
-            )}
-          </div>
-
+          {/* Top Regiões */}
+          {regions.length > 0 && (
+            <div className="bg-card border border-border rounded-xl p-5">
+              <span className="text-sm font-semibold text-text-primary block mb-3">Top Regiões por Impressões</span>
+              <DataTable<RegionRow> columns={regionColumns} data={regions} rowKey="region" />
+            </div>
+          )}
         </div>
       </main>
     </div>

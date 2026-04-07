@@ -1,7 +1,7 @@
 "use client";
 import {
   ResponsiveContainer, ComposedChart, Bar, Line,
-  XAxis, YAxis, CartesianGrid, Tooltip, Legend,
+  XAxis, YAxis, CartesianGrid, Tooltip,
 } from "recharts";
 import type { TrendPoint } from "@/lib/types";
 
@@ -15,7 +15,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
           <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: p.color }} />
           <span className="text-text-secondary">{p.name}:</span>
           <span className="text-text-primary font-mono font-semibold">
-            R$ {Number(p.value).toLocaleString("pt-BR")}
+            {p.dataKey === "leads" ? p.value : `R$ ${Number(p.value).toLocaleString("pt-BR")}`}
           </span>
         </div>
       ))}
@@ -27,10 +27,10 @@ export default function DualAxisChart({ data }: { data: TrendPoint[] }) {
   return (
     <div className="bg-card border border-border rounded-xl p-5">
       <div className="flex items-center justify-between mb-5">
-        <span className="text-sm font-semibold text-text-primary">Faturamento e Investimento por Dia</span>
+        <span className="text-sm font-semibold text-text-primary">Leads e Investimento por Dia</span>
         <div className="flex items-center gap-4 text-xs text-text-secondary">
           <span className="flex items-center gap-1.5">
-            <span className="w-3 h-3 rounded-sm bg-blue/70 inline-block" /> Faturamento
+            <span className="w-3 h-3 rounded-sm bg-accent/70 inline-block" /> Leads
           </span>
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-0.5 bg-red inline-block" /> Investimento
@@ -51,7 +51,7 @@ export default function DualAxisChart({ data }: { data: TrendPoint[] }) {
             tick={{ fill: "#6A6A7A", fontSize: 11 }}
             axisLine={false}
             tickLine={false}
-            tickFormatter={v => `R$${(v / 1000).toFixed(0)}k`}
+            allowDecimals={false}
           />
           <YAxis
             yAxisId="right"
@@ -64,9 +64,9 @@ export default function DualAxisChart({ data }: { data: TrendPoint[] }) {
           <Tooltip content={<CustomTooltip />} cursor={{ fill: "#24242C", opacity: 0.8 }} />
           <Bar
             yAxisId="left"
-            dataKey="revenue"
-            name="Faturamento"
-            fill="#3B82C4"
+            dataKey="leads"
+            name="Leads"
+            fill="#CAFF04"
             fillOpacity={0.7}
             radius={[3, 3, 0, 0]}
             maxBarSize={32}

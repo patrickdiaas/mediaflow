@@ -4,76 +4,63 @@ import Sidebar from "@/components/sidebar";
 import Header from "@/components/header";
 import { supabase } from "@/lib/supabase";
 import { useDashboard } from "@/lib/dashboard-context";
-import { RefreshCw, Package, FileSpreadsheet, Check } from "lucide-react";
+import { RefreshCw, FileText, FileSpreadsheet, Check } from "lucide-react";
 
-interface TrackedProduct {
+interface TrackedForm {
   id: string;
   client_slug: string;
-  gateway: string;
-  product_id: string;
-  product_name: string | null;
+  source: string;
+  conversion_event: string;
+  display_name: string | null;
   active: boolean;
   sheet_id: string | null;
   first_seen: string;
 }
 
-const gatewayColor: Record<string, string> = {
-  dmguru:  "text-green border-green/30 bg-green/10",
-  hotmart: "text-gold border-gold/30 bg-gold/10",
-  eduzz:   "text-blue border-blue/30 bg-blue/10",
+const sourceColor: Record<string, string> = {
+  rdstation:      "text-accent border-accent/30 bg-accent/10",
+  meta_leadform:  "text-blue border-blue/30 bg-blue/10",
+  manual:         "text-gold border-gold/30 bg-gold/10",
 };
 
-const gatewayLabel: Record<string, string> = {
-  dmguru: "DMGuru", hotmart: "Hotmart", eduzz: "Eduzz",
+const sourceLabel: Record<string, string> = {
+  rdstation: "RD Station", meta_leadform: "Meta Lead Form", manual: "Manual",
 };
 
 export default function ConfiguracoesPage() {
   const { client } = useDashboard();
-  const [clients, setClients] = useState<{ slug: string; sales_slug: string | null }[]>([]);
-  const [products, setProducts]   = useState<TrackedProduct[]>([]);
-  const [loading, setLoading]     = useState(true);
-  const [toggling, setToggling]   = useState<string | null>(null);
+  const [forms, setForms]           = useState<TrackedForm[]>([]);
+  const [loading, setLoading]       = useState(true);
+  const [toggling, setToggling]     = useState<string | null>(null);
   const [savingSheet, setSavingSheet] = useState<string | null>(null);
-  const [error, setError]         = useState<string | null>(null);
+  const [error, setError]           = useState<string | null>(null);
 
-  useEffect(() => {
-    supabase.from("clients").select("slug, sales_slug").eq("active", true)
-      .then(({ data }) => { if (data) setClients(data); });
-  }, []);
-
-  function getSalesSlug(): string | null {
-    if (client === "all") return null;
-    const found = clients.find(c => c.slug === client);
-    return found?.sales_slug ?? client;
-  }
-
-  async function fetchProducts() {
+  async function fetchForms() {
     setLoading(true);
     setError(null);
-    const salesSlug = getSalesSlug();
-    const q = supabase.from("tracked_products").select("*").order("first_seen", { ascending: false });
-    const { data, error } = await (salesSlug ? q.eq("client_slug", salesSlug) : q);
+    const q = supabase.from("tracked_forms").select("*").order("first_seen", { ascending: false });
+    const { data, error } = await (client !== "all" ? q.eq("client_slug", client) : q);
 
     if (error) {
-      setError("Erro ao carregar produtos: " + error.message);
+      setError("Erro ao carregar formulários: " + error.message);
     } else {
-      setProducts(data ?? []);
+      setForms(data ?? []);
     }
     setLoading(false);
   }
 
-  useEffect(() => { fetchProducts(); }, [client, clients]);
+  useEffect(() => { fetchForms(); }, [client]);
 
-  async function saveSheetId(product: TrackedProduct, sheetId: string) {
-    setSavingSheet(product.id);
-    const res = await fetch(`/api/products/${product.id}`, {
+  async function saveSheetId(form: TrackedForm, sheetId: string) {
+    setSavingSheet(form.id);
+    const res = await fetch(`/api/forms/${form.id}`, {
       method:  "PATCH",
       headers: { "Content-Type": "application/json" },
       body:    JSON.stringify({ sheet_id: sheetId.trim() || null }),
     });
     if (res.ok) {
-      setProducts(prev =>
-        prev.map(p => p.id === product.id ? { ...p, sheet_id: sheetId.trim() || null } : p)
+      setForms(prev =>
+        prev.map(f => f.id === form.id ? { ...f, sheet_id: sheetId.trim() || null } : f)
       );
     } else {
       setError("Erro ao salvar planilha.");
@@ -81,32 +68,32 @@ export default function ConfiguracoesPage() {
     setSavingSheet(null);
   }
 
-  async function toggleProduct(product: TrackedProduct) {
-    setToggling(product.id);
-    const res = await fetch(`/api/products/${product.id}`, {
+  async function toggleForm(form: TrackedForm) {
+    setToggling(form.id);
+    const res = await fetch(`/api/forms/${form.id}`, {
       method:  "PATCH",
       headers: { "Content-Type": "application/json" },
-      body:    JSON.stringify({ active: !product.active }),
+      body:    JSON.stringify({ active: !form.active }),
     });
 
     if (res.ok) {
-      setProducts(prev =>
-        prev.map(p => p.id === product.id ? { ...p, active: !p.active } : p)
+      setForms(prev =>
+        prev.map(f => f.id === form.id ? { ...f, active: !f.active } : f)
       );
     } else {
-      setError("Erro ao atualizar produto.");
+      setError("Erro ao atualizar formulário.");
     }
     setToggling(null);
   }
 
-  const active   = products.filter(p => p.active);
-  const inactive = products.filter(p => !p.active);
+  const active   = forms.filter(f => f.active);
+  const inactive = forms.filter(f => !f.active);
 
   return (
     <div className="flex h-screen bg-bg">
       <Sidebar />
       <main className="flex-1 min-h-0 p-4 md:p-6 overflow-y-auto">
-        <Header title="Configurações" subtitle="Gerencie quais produtos aparecem no dashboard" />
+        <Header title="Configurações" subtitle="Gerencie quais formulários aparecem no dashboard" />
 
         <div className="flex items-center justify-between mb-5">
           <div className="flex gap-4 text-sm">
@@ -118,7 +105,7 @@ export default function ConfiguracoesPage() {
             </span>
           </div>
           <button
-            onClick={fetchProducts}
+            onClick={fetchForms}
             className="flex items-center gap-1.5 text-xs text-text-secondary hover:text-text-primary transition-colors"
           >
             <RefreshCw size={13} className={loading ? "animate-spin" : ""} />
@@ -134,56 +121,54 @@ export default function ConfiguracoesPage() {
 
         {loading ? (
           <div className="flex items-center justify-center py-20 text-text-muted text-sm">
-            <RefreshCw size={16} className="animate-spin mr-2" /> Carregando produtos...
+            <RefreshCw size={16} className="animate-spin mr-2" /> Carregando formulários...
           </div>
-        ) : products.length === 0 ? (
+        ) : forms.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-20 text-center gap-3">
-            <Package size={32} className="text-text-dark" />
-            <p className="text-text-secondary text-sm">Nenhum produto encontrado ainda.</p>
+            <FileText size={32} className="text-text-dark" />
+            <p className="text-text-secondary text-sm">Nenhum formulário encontrado ainda.</p>
             <p className="text-text-muted text-xs max-w-xs">
-              Os produtos aparecerão aqui automaticamente após a primeira venda ser recebida pelo webhook.
+              Os formulários aparecerão aqui automaticamente após o primeiro lead ser recebido pelo webhook do RD Station.
             </p>
           </div>
         ) : (
           <div className="space-y-6">
-            {/* Produtos rastreados */}
             {active.length > 0 && (
               <section>
                 <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-widest mb-3">
                   Rastreados no dashboard
                 </h2>
                 <div className="bg-card border border-border rounded-xl overflow-hidden">
-                  {active.map((p, i) => (
-                    <ProductRow
-                      key={p.id}
-                      product={p}
+                  {active.map((f, i) => (
+                    <FormRow
+                      key={f.id}
+                      form={f}
                       last={i === active.length - 1}
-                      toggling={toggling === p.id}
-                      savingSheet={savingSheet === p.id}
-                      onToggle={() => toggleProduct(p)}
-                      onSaveSheet={(id) => saveSheetId(p, id)}
+                      toggling={toggling === f.id}
+                      savingSheet={savingSheet === f.id}
+                      onToggle={() => toggleForm(f)}
+                      onSaveSheet={(id) => saveSheetId(f, id)}
                     />
                   ))}
                 </div>
               </section>
             )}
 
-            {/* Produtos inativos */}
             {inactive.length > 0 && (
               <section>
                 <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-widest mb-3">
                   Não rastreados
                 </h2>
                 <div className="bg-card border border-border rounded-xl overflow-hidden">
-                  {inactive.map((p, i) => (
-                    <ProductRow
-                      key={p.id}
-                      product={p}
+                  {inactive.map((f, i) => (
+                    <FormRow
+                      key={f.id}
+                      form={f}
                       last={i === inactive.length - 1}
-                      toggling={toggling === p.id}
-                      savingSheet={savingSheet === p.id}
-                      onToggle={() => toggleProduct(p)}
-                      onSaveSheet={(id) => saveSheetId(p, id)}
+                      toggling={toggling === f.id}
+                      savingSheet={savingSheet === f.id}
+                      onToggle={() => toggleForm(f)}
+                      onSaveSheet={(id) => saveSheetId(f, id)}
                     />
                   ))}
                 </div>
@@ -196,18 +181,18 @@ export default function ConfiguracoesPage() {
   );
 }
 
-function ProductRow({ product, last, toggling, savingSheet, onToggle, onSaveSheet }: {
-  product: TrackedProduct;
+function FormRow({ form, last, toggling, savingSheet, onToggle, onSaveSheet }: {
+  form: TrackedForm;
   last: boolean;
   toggling: boolean;
   savingSheet: boolean;
   onToggle: () => void;
   onSaveSheet: (id: string) => void;
 }) {
-  const [sheetInput, setSheetInput] = useState(product.sheet_id ?? "");
+  const [sheetInput, setSheetInput] = useState(form.sheet_id ?? "");
   const [saved, setSaved] = useState(false);
 
-  const firstSeen = new Date(product.first_seen).toLocaleDateString("pt-BR", {
+  const firstSeen = new Date(form.first_seen).toLocaleDateString("pt-BR", {
     day: "2-digit", month: "2-digit", year: "2-digit",
   });
 
@@ -221,15 +206,15 @@ function ProductRow({ product, last, toggling, savingSheet, onToggle, onSaveShee
     <div className={`px-5 py-4 ${!last ? "border-b border-border" : ""}`}>
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md border ${gatewayColor[product.gateway] ?? "text-text-muted border-border"}`}>
-            {gatewayLabel[product.gateway] ?? product.gateway}
+          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md border ${sourceColor[form.source] ?? "text-text-muted border-border"}`}>
+            {sourceLabel[form.source] ?? form.source}
           </span>
           <div>
             <div className="text-sm text-text-primary font-medium">
-              {product.product_name ?? "Produto sem nome"}
+              {form.display_name ?? form.conversion_event}
             </div>
             <div className="text-xs text-text-muted font-mono mt-0.5">
-              ID: {product.product_id} · Primeira venda: {firstSeen}
+              {form.conversion_event} · Primeiro lead: {firstSeen}
             </div>
           </div>
         </div>
@@ -238,26 +223,25 @@ function ProductRow({ product, last, toggling, savingSheet, onToggle, onSaveShee
           onClick={onToggle}
           disabled={toggling}
           className={`relative w-11 h-6 rounded-full transition-colors duration-200 focus:outline-none ${
-            product.active ? "bg-accent" : "bg-border"
+            form.active ? "bg-accent" : "bg-border"
           } ${toggling ? "opacity-50 cursor-wait" : "cursor-pointer"}`}
         >
           <span
             className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full shadow transition-transform duration-200 ${
-              product.active ? "translate-x-5" : "translate-x-0"
+              form.active ? "translate-x-5" : "translate-x-0"
             }`}
-            style={{ backgroundColor: product.active ? "#0A0A0C" : "#F2F2F5" }}
+            style={{ backgroundColor: form.active ? "#0A0A0C" : "#F2F2F5" }}
           />
         </button>
       </div>
 
-      {/* Sheet ID input */}
       <div className="mt-3 flex items-center gap-2">
         <FileSpreadsheet size={13} className="text-text-muted flex-shrink-0" />
         <input
           type="text"
           value={sheetInput}
           onChange={e => setSheetInput(e.target.value)}
-          placeholder="ID da planilha Google (ex: 1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgVE2upms)"
+          placeholder="ID da planilha Google (pesquisa de audiência)"
           className="flex-1 bg-bg border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary font-mono placeholder:text-text-dark focus:outline-none focus:border-accent/40"
         />
         <button
