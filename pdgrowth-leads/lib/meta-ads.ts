@@ -285,6 +285,7 @@ interface MetaPlacementInsightRow {
   spend: string
   reach: string
   date_start: string
+  actions?: { action_type: string; value: string }[]
 }
 
 export interface MappedPlacementDay {
@@ -297,6 +298,7 @@ export interface MappedPlacementDay {
   clicks: number
   spend: number
   reach: number
+  conversions: number
 }
 
 async function fetchPlacementInsights(
@@ -306,7 +308,7 @@ async function fetchPlacementInsights(
 ): Promise<MetaPlacementInsightRow[]> {
   const url = buildUrl(`/${accountId}/insights`, {
     level: 'campaign',
-    fields: 'campaign_id,impressions,clicks,spend,reach,date_start',
+    fields: 'campaign_id,impressions,clicks,spend,reach,date_start,actions',
     breakdowns: 'publisher_platform,platform_position',
     time_range: timeRange,
     time_increment: '1',
@@ -475,6 +477,9 @@ export async function syncAccountData(
       const pub = row.publisher_platform ?? ''
       const pos = row.platform_position ?? ''
       const placement = pos ? `${pub}_${pos}` : pub
+      const actions = row.actions ?? []
+      const leadAction = actions.find(a => a.action_type === 'lead' || a.action_type === 'onsite_conversion.lead_grouped')
+      const conversions = leadAction ? parseInt(leadAction.value, 10) : 0
       return {
         client_slug:  clientSlug,
         platform:     'meta',
@@ -485,6 +490,7 @@ export async function syncAccountData(
         clicks:       parseNum(row.clicks),
         spend:        parseFloat2(row.spend),
         reach:        parseNum(row.reach),
+        conversions,
       }
     })
 

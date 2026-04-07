@@ -160,24 +160,26 @@ export default function OverviewPage() {
 
     // Posicionamentos
     const plcQ = supabase.from("ad_placements")
-      .select("placement, impressions, clicks, spend")
+      .select("placement, impressions, clicks, spend, conversions")
       .gte("date", since).lte("date", until);
     if (metaSlug) plcQ.eq("client_slug", metaSlug);
     const { data: plcData } = await plcQ;
-    const plcMap = new Map<string, { impressions: number; clicks: number; spend: number }>();
+    const plcMap = new Map<string, { impressions: number; clicks: number; spend: number; conversions: number }>();
     for (const r of (plcData ?? [])) {
-      const e = plcMap.get(r.placement) ?? { impressions: 0, clicks: 0, spend: 0 };
-      e.impressions += Number(r.impressions);
-      e.clicks      += Number(r.clicks);
-      e.spend       += Number(r.spend);
+      const e = plcMap.get(r.placement) ?? { impressions: 0, clicks: 0, spend: 0, conversions: 0 };
+      e.impressions  += Number(r.impressions);
+      e.clicks       += Number(r.clicks);
+      e.spend        += Number(r.spend);
+      e.conversions  += Number(r.conversions ?? 0);
       plcMap.set(r.placement, e);
     }
-    const totalPlcImp = Array.from(plcMap.values()).reduce((s, v) => s + v.impressions, 0);
+    const totalPlcConv = Array.from(plcMap.values()).reduce((s, v) => s + v.conversions, 0);
     const placementBars: HorizontalBarItem[] = Array.from(plcMap.entries())
+      .filter(([, v]) => v.conversions > 0 || v.impressions > 0)
       .map(([label, v], i) => ({
         label: formatPlacement(label),
-        value: v.impressions,
-        rate: totalPlcImp > 0 ? (v.impressions / totalPlcImp) * 100 : 0,
+        value: v.conversions,
+        rate: totalPlcConv > 0 ? (v.conversions / totalPlcConv) * 100 : 0,
         color: CHART_COLORS[i % CHART_COLORS.length],
       }))
       .sort((a, b) => b.value - a.value)
@@ -367,7 +369,7 @@ export default function OverviewPage() {
           {/* Posicionamento + Regiões */}
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {placements.length > 0 && (
-              <HorizontalBar title="Impressões por Posicionamento" data={placements} valueLabel="impressões por placement" />
+              <HorizontalBar title="Conversões por Posicionamento" data={placements} valueLabel="conversões por placement" />
             )}
             {regions.length > 0 && (
               <div className="bg-card border border-border rounded-xl p-5">
