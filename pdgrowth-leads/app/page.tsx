@@ -93,10 +93,11 @@ export default function OverviewPage() {
     const { since: leadSince, until: leadUntil } = getLeadDates(period);
     const metaSlug = client === "all" ? null : client;
 
-    // Leads no período (BRT)
+    // Leads no período (BRT) — só leads de campanha (com utm_medium)
     const leadsQ = supabase
       .from("leads")
       .select("id, lead_email, lead_name, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, converted_at, source")
+      .not("utm_medium", "is", null)
       .gte("converted_at", leadSince)
       .lte("converted_at", leadUntil);
     if (metaSlug) leadsQ.eq("client_slug", metaSlug);

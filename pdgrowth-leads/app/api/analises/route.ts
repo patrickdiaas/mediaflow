@@ -57,6 +57,7 @@ REGRAS:
       .from("leads")
       .select("id, converted_at, source, lead_email, lead_name, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, utm_term")
       .eq("client_slug", client)
+      .not("utm_medium", "is", null)
       .gte("converted_at", period_from)
       .lte("converted_at", period_to);
 
