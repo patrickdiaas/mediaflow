@@ -144,7 +144,15 @@ export default function CampanhasPage() {
           else { map.set(key, { campaign_id: r.campaign_id, campaign_name: r.campaign_name, platform: r.platform as Platform, impressions: r.impressions ?? 0, clicks: r.clicks ?? 0, spend: r.spend ?? 0, leads: 0, cpl: 0, ctr: 0 }); }
         }
         setCampaigns(Array.from(map.values()).map(c => {
-          const ld = byCampaign.get(c.campaign_name) ?? 0;
+          // Match exato primeiro, depois parcial (utm_campaign contém ou está contido no campaign_name)
+          let ld = byCampaign.get(c.campaign_name) ?? 0;
+          if (ld === 0) {
+            for (const [utmCamp, count] of Array.from(byCampaign.entries())) {
+              if (c.campaign_name.includes(utmCamp) || utmCamp.includes(c.campaign_name)) {
+                ld += count;
+              }
+            }
+          }
           return { ...c, ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0, leads: ld, cpl: ld > 0 ? c.spend / ld : 0 };
         }));
       } else { setCampaigns([]); }
