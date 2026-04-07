@@ -3,6 +3,15 @@ import { useState, useEffect } from "react";
 import Sidebar from "@/components/sidebar";
 import CreativeCard from "@/components/creative-card";
 import DataTable, { Column } from "@/components/data-table";
+
+function fuzzyMatch(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (a.includes(b) || b.includes(a)) return true;
+  const aParts = a.split("-");
+  const bParts = b.split("-");
+  const [smaller, larger] = aParts.length <= bParts.length ? [aParts, bParts] : [bParts, aParts];
+  return smaller.length >= 2 && smaller.every(p => larger.includes(p));
+}
 import { useDashboard } from "@/lib/dashboard-context";
 import type { CreativeRow, Platform } from "@/lib/types";
 import { supabase } from "@/lib/supabase";
@@ -114,7 +123,7 @@ export default function CriativosPage() {
           let ld = byAdName.get(c.ad_name) ?? 0;
           if (ld === 0) {
             for (const [utmVal, count] of Array.from(byAdName.entries())) {
-              if (c.ad_name.includes(utmVal) || utmVal.includes(c.ad_name)) { ld += count; }
+              if (fuzzyMatch(c.ad_name, utmVal)) { ld += count; }
             }
           }
           return { ...c, ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0, cpm: c.impressions > 0 ? (c.spend / c.impressions) * 1000 : 0, leads: ld, cpl: ld > 0 ? c.spend / ld : 0 };

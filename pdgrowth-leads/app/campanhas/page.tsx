@@ -3,6 +3,16 @@ import { useState, useEffect } from "react";
 import Sidebar from "@/components/sidebar";
 import Header from "@/components/header";
 import DataTable, { Column } from "@/components/data-table";
+
+// Match inteligente: verifica se todas as partes (split por -) do menor existem no maior
+function fuzzyMatch(a: string, b: string): boolean {
+  if (a === b) return true;
+  if (a.includes(b) || b.includes(a)) return true;
+  const aParts = a.split("-");
+  const bParts = b.split("-");
+  const [smaller, larger] = aParts.length <= bParts.length ? [aParts, bParts] : [bParts, aParts];
+  return smaller.length >= 2 && smaller.every(p => larger.includes(p));
+}
 import { useDashboard } from "@/lib/dashboard-context";
 import type { CampaignRow, AdSetRow, CreativeRow, Platform, FunnelStep } from "@/lib/types";
 import { supabase } from "@/lib/supabase";
@@ -149,7 +159,7 @@ export default function CampanhasPage() {
           let ld = byCampaign.get(c.campaign_name) ?? 0;
           if (ld === 0) {
             for (const [utmCamp, count] of Array.from(byCampaign.entries())) {
-              if (c.campaign_name.includes(utmCamp) || utmCamp.includes(c.campaign_name)) {
+              if (fuzzyMatch(c.campaign_name, utmCamp)) {
                 ld += count;
               }
             }
@@ -171,7 +181,7 @@ export default function CampanhasPage() {
           let ld = byAdSet.get(c.ad_set_name) ?? 0;
           if (ld === 0) {
             for (const [utmVal, count] of Array.from(byAdSet.entries())) {
-              if (c.ad_set_name.includes(utmVal) || utmVal.includes(c.ad_set_name)) { ld += count; }
+              if (fuzzyMatch(c.ad_set_name, utmVal)) { ld += count; }
             }
           }
           return { ...c, ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0, leads: ld, cpl: ld > 0 ? c.spend / ld : 0 };
@@ -191,7 +201,7 @@ export default function CampanhasPage() {
           let ld = byAdName.get(c.ad_name) ?? 0;
           if (ld === 0) {
             for (const [utmVal, count] of Array.from(byAdName.entries())) {
-              if (c.ad_name.includes(utmVal) || utmVal.includes(c.ad_name)) { ld += count; }
+              if (fuzzyMatch(c.ad_name, utmVal)) { ld += count; }
             }
           }
           return { ...c, ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0, cpm: c.impressions > 0 ? (c.spend / c.impressions) * 1000 : 0, leads: ld, cpl: ld > 0 ? c.spend / ld : 0 };
@@ -205,8 +215,7 @@ export default function CampanhasPage() {
     if (allCampRowsRef.length === 0) { setFunnelSteps([]); setFunnelMetrics(null); return; }
     const filteredRows = selectedCampaign === "all" ? allCampRowsRef : allCampRowsRef.filter((r: any) => r.campaign_name === selectedCampaign);
     const filteredLeads = selectedCampaign === "all" ? allLeadsRef : allLeadsRef.filter((l: any) => {
-      const utmCamp = l.utm_campaign ?? "";
-      return utmCamp === selectedCampaign || selectedCampaign.includes(utmCamp) || utmCamp.includes(selectedCampaign);
+      return fuzzyMatch(l.utm_campaign ?? "", selectedCampaign);
     });
 
     const imp = filteredRows.reduce((s: number, r: any) => s + (r.impressions ?? 0), 0);
