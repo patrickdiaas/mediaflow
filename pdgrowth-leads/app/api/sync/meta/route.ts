@@ -81,7 +81,7 @@ export async function POST(request: Request) {
   }
 
   // ── 3. Sincronizar dados por conta ────────────────────────────────────────────
-  const results: Record<string, { campaigns: number; adSets: number; ads: number; regions: number; error?: string }> = {}
+  const results: Record<string, { campaigns: number; adSets: number; ads: number; regions: number; placements: number; error?: string }> = {}
 
   for (const client of clients) {
     const accountId = client.meta_ad_account_id as string
@@ -91,30 +91,35 @@ export async function POST(request: Request) {
     try {
       syncData = await syncAccountData(accountId, clientSlug, token, since, until)
     } catch (err) {
-      results[clientSlug] = { campaigns: 0, adSets: 0, ads: 0, regions: 0, error: String(err) }
+      results[clientSlug] = { campaigns: 0, adSets: 0, ads: 0, regions: 0, placements: 0, error: String(err) }
       continue
     }
 
-    const { campaigns, adSets, ads, regions } = syncData
+    const { campaigns, adSets, ads, regions, placements } = syncData
 
     if (campaigns.length > 0) {
       const err = await upsertBatched(supabase, 'ad_campaigns', campaigns, 'platform,campaign_id,date')
-      if (err) { results[clientSlug] = { campaigns: 0, adSets: 0, ads: 0, regions: 0, error: `campaigns: ${err}` }; continue }
+      if (err) { results[clientSlug] = { campaigns: 0, adSets: 0, ads: 0, regions: 0, placements: 0, error: `campaigns: ${err}` }; continue }
     }
 
     if (adSets.length > 0) {
       const err = await upsertBatched(supabase, 'ad_sets', adSets, 'platform,ad_set_id,date')
-      if (err) { results[clientSlug] = { campaigns: campaigns.length, adSets: 0, ads: 0, regions: 0, error: `ad_sets: ${err}` }; continue }
+      if (err) { results[clientSlug] = { campaigns: campaigns.length, adSets: 0, ads: 0, regions: 0, placements: 0, error: `ad_sets: ${err}` }; continue }
     }
 
     if (ads.length > 0) {
       const err = await upsertBatched(supabase, 'ad_creatives', ads, 'platform,ad_id,date')
-      if (err) { results[clientSlug] = { campaigns: campaigns.length, adSets: adSets.length, ads: 0, regions: 0, error: `ad_creatives: ${err}` }; continue }
+      if (err) { results[clientSlug] = { campaigns: campaigns.length, adSets: adSets.length, ads: 0, regions: 0, placements: 0, error: `ad_creatives: ${err}` }; continue }
     }
 
     if (regions.length > 0) {
       const err = await upsertBatched(supabase, 'ad_regions', regions, 'platform,campaign_id,region,date')
-      if (err) { results[clientSlug] = { campaigns: campaigns.length, adSets: adSets.length, ads: ads.length, regions: 0, error: `ad_regions: ${err}` }; continue }
+      if (err) { results[clientSlug] = { campaigns: campaigns.length, adSets: adSets.length, ads: ads.length, regions: 0, placements: 0, error: `ad_regions: ${err}` }; continue }
+    }
+
+    if (placements.length > 0) {
+      const err = await upsertBatched(supabase, 'ad_placements', placements, 'platform,campaign_id,placement,date')
+      if (err) { results[clientSlug] = { campaigns: campaigns.length, adSets: adSets.length, ads: ads.length, regions: regions.length, placements: 0, error: `ad_placements: ${err}` }; continue }
     }
 
     results[clientSlug] = {
@@ -122,6 +127,7 @@ export async function POST(request: Request) {
       adSets: adSets.length,
       ads: ads.length,
       regions: regions.length,
+      placements: placements.length,
     }
   }
 
@@ -129,6 +135,7 @@ export async function POST(request: Request) {
   const totalAdSets = Object.values(results).reduce((s, r) => s + r.adSets, 0)
   const totalAds = Object.values(results).reduce((s, r) => s + r.ads, 0)
   const totalRegions = Object.values(results).reduce((s, r) => s + r.regions, 0)
+  const totalPlacements = Object.values(results).reduce((s, r) => s + r.placements, 0)
   const errors = Object.entries(results)
     .filter(([, r]) => r.error)
     .map(([slug, r]) => ({ slug, error: r.error }))
@@ -138,7 +145,7 @@ export async function POST(request: Request) {
     since,
     until,
     clients_synced: clients.length,
-    total: { campaigns: totalCampaigns, ad_sets: totalAdSets, ads: totalAds, regions: totalRegions },
+    total: { campaigns: totalCampaigns, ad_sets: totalAdSets, ads: totalAds, regions: totalRegions, placements: totalPlacements },
     per_client: results,
     ...(errors.length > 0 && { errors }),
   })

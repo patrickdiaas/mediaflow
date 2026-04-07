@@ -274,6 +274,47 @@ async function fetchInsights(
   return fetchAllPages<MetaInsightRow>(url)
 }
 
+// ─── Placement insights ───────────────────────────────────────────────────────
+
+interface MetaPlacementInsightRow {
+  campaign_id?: string
+  publisher_platform?: string
+  platform_position?: string
+  impressions: string
+  clicks: string
+  spend: string
+  reach: string
+  date_start: string
+}
+
+export interface MappedPlacementDay {
+  client_slug: string
+  platform: 'meta'
+  campaign_id: string
+  placement: string
+  date: string
+  impressions: number
+  clicks: number
+  spend: number
+  reach: number
+}
+
+async function fetchPlacementInsights(
+  accountId: string,
+  timeRange: string,
+  token: string
+): Promise<MetaPlacementInsightRow[]> {
+  const url = buildUrl(`/${accountId}/insights`, {
+    level: 'campaign',
+    fields: 'campaign_id,impressions,clicks,spend,reach,date_start',
+    breakdowns: 'publisher_platform,platform_position',
+    time_range: timeRange,
+    time_increment: '1',
+    limit: '500',
+  }, token)
+  return fetchAllPages<MetaPlacementInsightRow>(url)
+}
+
 // ─── Region insights ──────────────────────────────────────────────────────────
 
 interface MetaRegionInsightRow {
@@ -316,18 +357,20 @@ export async function syncAccountData(
   adSets: MappedAdSetDay[]
   ads: MappedAdDay[]
   regions: MappedRegionDay[]
+  placements: MappedPlacementDay[]
 }> {
   const normalizedId = normalizeAccountId(accountId)
   const timeRange = JSON.stringify({ since, until })
 
   // Fetch all data in parallel to minimize latency
-  const [campaignList, campaignInsights, adSetInsights, adList, adInsights, regionInsights] = await Promise.all([
+  const [campaignList, campaignInsights, adSetInsights, adList, adInsights, regionInsights, placementInsights] = await Promise.all([
     fetchCampaignList(normalizedId, token),
     fetchInsights(normalizedId, 'campaign', timeRange, token),
     fetchInsights(normalizedId, 'adset', timeRange, token),
     fetchAdList(normalizedId, token),
     fetchInsights(normalizedId, 'ad', timeRange, token),
     fetchRegionInsights(normalizedId, timeRange, token),
+    fetchPlacementInsights(normalizedId, timeRange, token),
   ])
 
   const campaignMap = new Map(campaignList.map(c => [c.id, c]))
@@ -426,5 +469,24 @@ export async function syncAccountData(
       reach:        parseNum(row.reach),
     }))
 
-  return { campaigns, adSets, ads, regions }
+  const placements: MappedPlacementDay[] = placementInsights
+    .filter(row => row.publisher_platform || row.platform_position)
+    .map(row => {
+      const pub = row.publisher_platform ?? ''
+      const pos = row.platform_position ?? ''
+      const placement = pos ? `${pub}_${pos}` : pub
+      return {
+        client_slug:  clientSlug,
+        platform:     'meta',
+        campaign_id:  row.campaign_id ?? '',
+        placement,
+        date:         row.date_start,
+        impressions:  parseNum(row.impressions),
+        clicks:       parseNum(row.clicks),
+        spend:        parseFloat2(row.spend),
+        reach:        parseNum(row.reach),
+      }
+    })
+
+  return { campaigns, adSets, ads, regions, placements }
 }

@@ -23,6 +23,18 @@ const periods = [
 
 const CHART_COLORS = ["#CAFF04", "#60A5FA", "#F59E0B", "#EF4444", "#A78BFA", "#34D399"];
 
+const PLACEMENT_LABELS: Record<string, string> = {
+  facebook_feed: "Feed", facebook_story: "Stories", facebook_reels: "Reels",
+  facebook_right_hand_column: "Coluna Direita", facebook_video_feeds: "Vídeos",
+  facebook_marketplace: "Marketplace", facebook_search: "Busca FB",
+  instagram_feed: "IG Feed", instagram_story: "IG Stories", instagram_reels: "IG Reels",
+  instagram_explore: "IG Explorar", instagram_profile_feed: "IG Perfil",
+  audience_network_classic: "Audience Network", messenger_inbox: "Messenger",
+};
+function formatPlacement(raw: string): string {
+  return PLACEMENT_LABELS[raw] ?? raw.replace(/_/g, " ");
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 interface LeadStats {
   leads: number;
@@ -79,6 +91,7 @@ export default function OverviewPage() {
   const [formDonut,     setFormDonut]     = useState<DonutSlice[]>([]);
   const [trendData,     setTrendData]     = useState<TrendPoint[]>([]);
   const [regions,       setRegions]       = useState<RegionRow[]>([]);
+  const [placements,    setPlacements]    = useState<HorizontalBarItem[]>([]);
   const [loading,       setLoading]       = useState(true);
   const [updatedAt,     setUpdatedAt]     = useState("");
 
@@ -145,6 +158,31 @@ export default function OverviewPage() {
       .sort((a, b) => b.impressions - a.impressions)
       .slice(0, 10);
 
+    // Posicionamentos
+    const plcQ = supabase.from("ad_placements")
+      .select("placement, impressions, clicks, spend")
+      .gte("date", since).lte("date", until);
+    if (metaSlug) plcQ.eq("client_slug", metaSlug);
+    const { data: plcData } = await plcQ;
+    const plcMap = new Map<string, { impressions: number; clicks: number; spend: number }>();
+    for (const r of (plcData ?? [])) {
+      const e = plcMap.get(r.placement) ?? { impressions: 0, clicks: 0, spend: 0 };
+      e.impressions += Number(r.impressions);
+      e.clicks      += Number(r.clicks);
+      e.spend       += Number(r.spend);
+      plcMap.set(r.placement, e);
+    }
+    const totalPlcImp = Array.from(plcMap.values()).reduce((s, v) => s + v.impressions, 0);
+    const placementBars: HorizontalBarItem[] = Array.from(plcMap.entries())
+      .map(([label, v], i) => ({
+        label: formatPlacement(label),
+        value: v.impressions,
+        rate: totalPlcImp > 0 ? (v.impressions / totalPlcImp) * 100 : 0,
+        color: CHART_COLORS[i % CHART_COLORS.length],
+      }))
+      .sort((a, b) => b.value - a.value)
+      .slice(0, 8);
+
     // Trend: leads x investimento por dia
     const leadsByDay = new Map<string, number>();
     for (const l of leads) {
@@ -208,6 +246,7 @@ export default function OverviewPage() {
     setUtmOrigins(utmBars);
     setTrendData(trend);
     setRegions(regionRows);
+    setPlacements(placementBars);
     setUpdatedAt(new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
     setLoading(false);
   }
@@ -325,13 +364,18 @@ export default function OverviewPage() {
             <DonutChart title="Leads por Formulário"   data={formDonut}   centerLabel="leads" />
           </div>
 
-          {/* Top Regiões */}
-          {regions.length > 0 && (
-            <div className="bg-card border border-border rounded-xl p-5">
-              <span className="text-sm font-semibold text-text-primary block mb-3">Top Regiões por Impressões</span>
-              <DataTable<RegionRow> columns={regionColumns} data={regions} rowKey="region" />
-            </div>
-          )}
+          {/* Posicionamento + Regiões */}
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            {placements.length > 0 && (
+              <HorizontalBar title="Impressões por Posicionamento" data={placements} valueLabel="impressões por placement" />
+            )}
+            {regions.length > 0 && (
+              <div className="bg-card border border-border rounded-xl p-5">
+                <span className="text-sm font-semibold text-text-primary block mb-3">Top Regiões por Impressões</span>
+                <DataTable<RegionRow> columns={regionColumns} data={regions} rowKey="region" />
+              </div>
+            )}
+          </div>
         </div>
       </main>
     </div>
