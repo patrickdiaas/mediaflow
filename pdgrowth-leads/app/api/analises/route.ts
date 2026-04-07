@@ -85,7 +85,7 @@ REGRAS:
     // Leads por UTM medium (campanha)
     const campLeads = new Map<string, number>();
     for (const l of leads) {
-      if (l.utm_medium) campLeads.set(l.utm_medium, (campLeads.get(l.utm_medium) ?? 0) + 1);
+      if (l.utm_campaign) campLeads.set(l.utm_campaign, (campLeads.get(l.utm_campaign) ?? 0) + 1);
     }
 
     // ── 2. Ad Campaigns ──────────────────────────────────────────────────────

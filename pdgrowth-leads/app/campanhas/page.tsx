@@ -120,12 +120,15 @@ export default function CampanhasPage() {
       setAllCampRowsRef(campRes.data ?? []);
       setAllLeadsRef(leadsData);
 
+      // utm_campaign = nome da campanha no Meta/Google
+      // utm_content = nome do anúncio/criativo
+      // utm_term = nome do conjunto ou keyword
       const byCampaign = new Map<string, number>();
       const byAdSet    = new Map<string, number>();
       const byAdName   = new Map<string, number>();
       for (const l of leadsData) {
-        if (l.utm_medium) byCampaign.set(l.utm_medium, (byCampaign.get(l.utm_medium) ?? 0) + 1);
-        if (l.utm_campaign) byAdSet.set(l.utm_campaign, (byAdSet.get(l.utm_campaign) ?? 0) + 1);
+        if (l.utm_campaign) byCampaign.set(l.utm_campaign, (byCampaign.get(l.utm_campaign) ?? 0) + 1);
+        if (l.utm_term) byAdSet.set(l.utm_term, (byAdSet.get(l.utm_term) ?? 0) + 1);
         if (l.utm_content) byAdName.set(l.utm_content, (byAdName.get(l.utm_content) ?? 0) + 1);
       }
 
@@ -182,7 +185,7 @@ export default function CampanhasPage() {
   useEffect(() => {
     if (allCampRowsRef.length === 0) { setFunnelSteps([]); setFunnelMetrics(null); return; }
     const filteredRows = selectedCampaign === "all" ? allCampRowsRef : allCampRowsRef.filter((r: any) => r.campaign_name === selectedCampaign);
-    const filteredLeads = selectedCampaign === "all" ? allLeadsRef : allLeadsRef.filter((l: any) => l.utm_medium === selectedCampaign);
+    const filteredLeads = selectedCampaign === "all" ? allLeadsRef : allLeadsRef.filter((l: any) => l.utm_campaign === selectedCampaign);
 
     const imp = filteredRows.reduce((s: number, r: any) => s + (r.impressions ?? 0), 0);
     const clk = filteredRows.reduce((s: number, r: any) => s + (r.clicks ?? 0), 0);
