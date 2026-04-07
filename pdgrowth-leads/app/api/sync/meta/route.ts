@@ -12,11 +12,8 @@
 import { NextResponse } from 'next/server'
 import { createServiceClient } from '@/lib/supabase'
 import {
-  fetchBMAdAccounts,
   syncAccountData,
   getDateRange,
-  slugify,
-  BMAccount,
 } from '@/lib/meta-ads'
 
 const UPSERT_BATCH = 200 // Supabase upsert batch size
@@ -56,39 +53,9 @@ export async function POST(request: Request) {
   const { since, until } = getDateRange(days)
   const supabase = createServiceClient()
 
-  // ── 1. Descobrir contas via BM ────────────────────────────────────────────────
-  let bmAccounts: BMAccount[] = []
-  const bmId = process.env.META_BM_ID
-
-  if (bmId) {
-    try {
-      bmAccounts = await fetchBMAdAccounts(bmId, token)
-    } catch (err) {
-      return NextResponse.json(
-        { error: 'Falha ao buscar contas da Business Manager', details: String(err) },
-        { status: 502 }
-      )
-    }
-
-    // Upsert clients — cria novos automaticamente, preserva dados existentes
-    if (bmAccounts.length > 0) {
-      const { error } = await supabase.from('clients').upsert(
-        bmAccounts.map(a => ({
-          slug: a.slug,
-          name: a.name,
-          meta_ad_account_id: a.id,
-          active: true,
-        })),
-        { onConflict: 'slug', ignoreDuplicates: false }
-      )
-      if (error) {
-        return NextResponse.json(
-          { error: 'Falha ao upsert de clientes', details: error.message },
-          { status: 500 }
-        )
-      }
-    }
-  }
+  // ── 1. NÃO auto-criar clientes da BM ────────────────────────────────────────
+  // No dashboard de leads, os clientes são cadastrados manualmente.
+  // O sync só busca dados para clientes já existentes e ativos.
 
   // ── 2. Buscar todos os clientes ativos com conta Meta ─────────────────────────
   const { data: clients, error: clientsError } = await supabase
