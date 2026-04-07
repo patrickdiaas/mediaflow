@@ -1,4 +1,4 @@
-// Meta Marketing API v21.0 — pdgrowth-vendas sync client
+// Meta Marketing API v21.0 — pdgrowth-leads sync client
 const META_API_BASE = 'https://graph.facebook.com/v21.0'
 
 // ─── Raw API types ─────────────────────────────────────────────────────────────
@@ -77,7 +77,20 @@ export interface MappedCampaignDay {
   spend: number
   reach: number
   landing_page_views: number
-  initiate_checkouts: number
+  lead_form_submissions: number
+}
+
+export interface MappedRegionDay {
+  client_slug: string
+  platform: 'meta'
+  campaign_id: string
+  region: string
+  country_code: string
+  date: string
+  impressions: number
+  clicks: number
+  spend: number
+  reach: number
 }
 
 export interface MappedAdSetDay {
@@ -261,6 +274,35 @@ async function fetchInsights(
   return fetchAllPages<MetaInsightRow>(url)
 }
 
+// ─── Region insights ──────────────────────────────────────────────────────────
+
+interface MetaRegionInsightRow {
+  campaign_id?: string
+  region?: string
+  country?: string
+  impressions: string
+  clicks: string
+  spend: string
+  reach: string
+  date_start: string
+}
+
+async function fetchRegionInsights(
+  accountId: string,
+  timeRange: string,
+  token: string
+): Promise<MetaRegionInsightRow[]> {
+  const url = buildUrl(`/${accountId}/insights`, {
+    level: 'campaign',
+    fields: 'campaign_id,impressions,clicks,spend,reach,date_start',
+    breakdowns: 'region',
+    time_range: timeRange,
+    time_increment: '1',
+    limit: '500',
+  }, token)
+  return fetchAllPages<MetaRegionInsightRow>(url)
+}
+
 // ─── Main sync function ────────────────────────────────────────────────────────
 
 export async function syncAccountData(
@@ -273,17 +315,19 @@ export async function syncAccountData(
   campaigns: MappedCampaignDay[]
   adSets: MappedAdSetDay[]
   ads: MappedAdDay[]
+  regions: MappedRegionDay[]
 }> {
   const normalizedId = normalizeAccountId(accountId)
   const timeRange = JSON.stringify({ since, until })
 
   // Fetch all data in parallel to minimize latency
-  const [campaignList, campaignInsights, adSetInsights, adList, adInsights] = await Promise.all([
+  const [campaignList, campaignInsights, adSetInsights, adList, adInsights, regionInsights] = await Promise.all([
     fetchCampaignList(normalizedId, token),
     fetchInsights(normalizedId, 'campaign', timeRange, token),
     fetchInsights(normalizedId, 'adset', timeRange, token),
     fetchAdList(normalizedId, token),
     fetchInsights(normalizedId, 'ad', timeRange, token),
+    fetchRegionInsights(normalizedId, timeRange, token),
   ])
 
   const campaignMap = new Map(campaignList.map(c => [c.id, c]))
@@ -308,8 +352,8 @@ export async function syncAccountData(
       clicks:             parseNum(row.clicks),
       spend:              parseFloat2(row.spend),
       reach:              parseNum(row.reach),
-      landing_page_views: findAction('landing_page_view'),
-      initiate_checkouts: findAction('initiate_checkout'),
+      landing_page_views:    findAction('landing_page_view'),
+      lead_form_submissions: findAction('lead'),
     }
   })
 
@@ -367,5 +411,20 @@ export async function syncAccountData(
     }
   })
 
-  return { campaigns, adSets, ads }
+  const regions: MappedRegionDay[] = regionInsights
+    .filter(row => row.region && row.region !== 'Unknown')
+    .map(row => ({
+      client_slug:  clientSlug,
+      platform:     'meta',
+      campaign_id:  row.campaign_id ?? '',
+      region:       row.region ?? '',
+      country_code: row.country ?? 'BR',
+      date:         row.date_start,
+      impressions:  parseNum(row.impressions),
+      clicks:       parseNum(row.clicks),
+      spend:        parseFloat2(row.spend),
+      reach:        parseNum(row.reach),
+    }))
+
+  return { campaigns, adSets, ads, regions }
 }

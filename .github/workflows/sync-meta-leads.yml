@@ -1,0 +1,17 @@
+name: Sync Meta Ads (Leads)
+
+on:
+  schedule:
+    - cron: '0 6 * * *'   # 06:00 UTC = 03:00 BRT
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync Meta Ads — Leads dashboard
+        run: |
+          curl -X POST \
+            "https://leads.pdgrowth.com.br/api/sync/meta?secret=${{ secrets.LEADS_META_SYNC_SECRET }}&days=1" \
+            --fail --silent --show-error \
+            --max-time 120

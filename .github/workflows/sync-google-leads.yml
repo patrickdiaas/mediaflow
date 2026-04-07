@@ -1,0 +1,17 @@
+name: Sync Google Ads (Leads)
+
+on:
+  schedule:
+    - cron: '30 6 * * *'  # 06:30 UTC = 03:30 BRT
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Sync Google Ads — Leads dashboard
+        run: |
+          curl -X POST \
+            "https://leads.pdgrowth.com.br/api/sync/google?secret=${{ secrets.LEADS_GOOGLE_SYNC_SECRET }}&days=1" \
+            --fail --silent --show-error \
+            --max-time 120
