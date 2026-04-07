@@ -161,7 +161,7 @@ REGRAS:
     }
 
     for (const l of leads) {
-      const adName = l.utm_content;
+      const adName = l.utm_term;
       if (adName) {
         for (const [, e] of Array.from(creativeAgg.entries())) {
           if (e.name === adName || e.name.includes(adName) || adName.includes(e.name)) {

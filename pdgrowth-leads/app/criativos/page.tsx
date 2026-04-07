@@ -79,7 +79,7 @@ export default function CriativosPage() {
     const qAds = metaSlug ? q1.eq("client_slug", metaSlug) : q1;
 
     const baseLeads = supabase.from("leads")
-      .select("utm_source, utm_content")
+      .select("utm_source, utm_term")
       .not("utm_medium", "is", null)
       .gte("converted_at", leadSince)
       .lte("converted_at", leadUntil);
@@ -98,8 +98,8 @@ export default function CriativosPage() {
 
       const byAdName = new Map<string, number>();
       for (const l of leadsData) {
-        if (!l.utm_content) continue;
-        byAdName.set(l.utm_content, (byAdName.get(l.utm_content) ?? 0) + 1);
+        if (!l.utm_term) continue;
+        byAdName.set(l.utm_term, (byAdName.get(l.utm_term) ?? 0) + 1);
       }
 
       if (rows && rows.length > 0) {
@@ -111,7 +111,12 @@ export default function CriativosPage() {
           else { map.set(key, { ad_id: r.ad_id, ad_name: r.ad_name, campaign_name: r.campaign_name ?? "", platform: r.platform as Platform, creative_type: r.creative_type ?? null, thumbnail_url: r.thumbnail_url ?? null, video_url: r.video_url ?? null, permalink_url: r.permalink_url ?? null, headline: r.headline ?? null, placement: r.placement ?? null, impressions: r.impressions ?? 0, clicks: r.clicks ?? 0, spend: r.spend ?? 0, frequency: r.frequency ?? null, leads: 0, cpl: 0, ctr: 0, cpm: 0, video_3s_rate: null, video_thruplay_rate: null }); }
         }
         setData(Array.from(map.values()).map(c => {
-          const ld = byAdName.get(c.ad_name) ?? 0;
+          let ld = byAdName.get(c.ad_name) ?? 0;
+          if (ld === 0) {
+            for (const [utmVal, count] of Array.from(byAdName.entries())) {
+              if (c.ad_name.includes(utmVal) || utmVal.includes(c.ad_name)) { ld += count; }
+            }
+          }
           return { ...c, ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0, cpm: c.impressions > 0 ? (c.spend / c.impressions) * 1000 : 0, leads: ld, cpl: ld > 0 ? c.spend / ld : 0 };
         }));
       } else { setData([]); }

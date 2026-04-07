@@ -120,16 +120,17 @@ export default function CampanhasPage() {
       setAllCampRowsRef(campRes.data ?? []);
       setAllLeadsRef(leadsData);
 
-      // utm_campaign = nome da campanha no Meta/Google
-      // utm_content = nome do anúncio/criativo
-      // utm_term = nome do conjunto ou keyword
+      // Mapeamento UTM → Meta Ads:
+      // utm_campaign = nome da campanha
+      // utm_content  = nome do conjunto de anúncios
+      // utm_term     = nome do anúncio/criativo
       const byCampaign = new Map<string, number>();
       const byAdSet    = new Map<string, number>();
       const byAdName   = new Map<string, number>();
       for (const l of leadsData) {
         if (l.utm_campaign) byCampaign.set(l.utm_campaign, (byCampaign.get(l.utm_campaign) ?? 0) + 1);
-        if (l.utm_term) byAdSet.set(l.utm_term, (byAdSet.get(l.utm_term) ?? 0) + 1);
-        if (l.utm_content) byAdName.set(l.utm_content, (byAdName.get(l.utm_content) ?? 0) + 1);
+        if (l.utm_content) byAdSet.set(l.utm_content, (byAdSet.get(l.utm_content) ?? 0) + 1);
+        if (l.utm_term) byAdName.set(l.utm_term, (byAdName.get(l.utm_term) ?? 0) + 1);
       }
 
       setLoading(false);
@@ -167,7 +168,12 @@ export default function CampanhasPage() {
           else { map.set(key, { ad_set_id: r.ad_set_id, ad_set_name: r.ad_set_name, campaign_name: r.campaign_name ?? "", platform: r.platform as Platform, impressions: r.impressions ?? 0, clicks: r.clicks ?? 0, spend: r.spend ?? 0, leads: 0, cpl: 0, ctr: 0 }); }
         }
         setAdSets(Array.from(map.values()).map(c => {
-          const ld = byAdSet.get(c.ad_set_name) ?? 0;
+          let ld = byAdSet.get(c.ad_set_name) ?? 0;
+          if (ld === 0) {
+            for (const [utmVal, count] of Array.from(byAdSet.entries())) {
+              if (c.ad_set_name.includes(utmVal) || utmVal.includes(c.ad_set_name)) { ld += count; }
+            }
+          }
           return { ...c, ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0, leads: ld, cpl: ld > 0 ? c.spend / ld : 0 };
         }));
       } else { setAdSets([]); }
@@ -182,7 +188,12 @@ export default function CampanhasPage() {
           else { map.set(key, { ad_id: r.ad_id, ad_name: r.ad_name, campaign_name: r.campaign_name ?? "", platform: r.platform as Platform, creative_type: r.creative_type ?? null, thumbnail_url: r.thumbnail_url ?? null, video_url: r.video_url ?? null, permalink_url: r.permalink_url ?? null, headline: r.headline ?? null, placement: r.placement ?? null, impressions: r.impressions ?? 0, clicks: r.clicks ?? 0, spend: r.spend ?? 0, frequency: r.frequency ?? null, leads: 0, cpl: 0, ctr: 0, cpm: 0, video_3s_rate: null, video_thruplay_rate: null }); }
         }
         setAds(Array.from(map.values()).map(c => {
-          const ld = byAdName.get(c.ad_name) ?? 0;
+          let ld = byAdName.get(c.ad_name) ?? 0;
+          if (ld === 0) {
+            for (const [utmVal, count] of Array.from(byAdName.entries())) {
+              if (c.ad_name.includes(utmVal) || utmVal.includes(c.ad_name)) { ld += count; }
+            }
+          }
           return { ...c, ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0, cpm: c.impressions > 0 ? (c.spend / c.impressions) * 1000 : 0, leads: ld, cpl: ld > 0 ? c.spend / ld : 0 };
         }));
       } else { setAds([]); }
@@ -193,7 +204,10 @@ export default function CampanhasPage() {
   useEffect(() => {
     if (allCampRowsRef.length === 0) { setFunnelSteps([]); setFunnelMetrics(null); return; }
     const filteredRows = selectedCampaign === "all" ? allCampRowsRef : allCampRowsRef.filter((r: any) => r.campaign_name === selectedCampaign);
-    const filteredLeads = selectedCampaign === "all" ? allLeadsRef : allLeadsRef.filter((l: any) => l.utm_campaign === selectedCampaign);
+    const filteredLeads = selectedCampaign === "all" ? allLeadsRef : allLeadsRef.filter((l: any) => {
+      const utmCamp = l.utm_campaign ?? "";
+      return utmCamp === selectedCampaign || selectedCampaign.includes(utmCamp) || utmCamp.includes(selectedCampaign);
+    });
 
     const imp = filteredRows.reduce((s: number, r: any) => s + (r.impressions ?? 0), 0);
     const clk = filteredRows.reduce((s: number, r: any) => s + (r.clicks ?? 0), 0);
