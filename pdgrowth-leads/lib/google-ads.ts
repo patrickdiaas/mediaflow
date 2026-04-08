@@ -5,7 +5,7 @@
 //
 // Hierarquia: Manager Account (MCC) > Customer > Campaign > AdGroup > Ad / Keyword
 
-const GOOGLE_ADS_API_VERSION = 'v19'
+const GOOGLE_ADS_API_VERSION = 'v23'
 const GOOGLE_ADS_BASE = `https://googleads.googleapis.com/${GOOGLE_ADS_API_VERSION}`
 const OAUTH_TOKEN_URL = 'https://oauth2.googleapis.com/token'
 
