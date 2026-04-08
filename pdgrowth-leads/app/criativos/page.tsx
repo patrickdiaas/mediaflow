@@ -4,13 +4,18 @@ import Sidebar from "@/components/sidebar";
 import CreativeCard from "@/components/creative-card";
 import DataTable, { Column } from "@/components/data-table";
 
+function extractWords(s: string): string[] {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter(w => w.length > 1);
+}
 function fuzzyMatch(a: string, b: string): boolean {
   if (a === b) return true;
-  if (a.includes(b) || b.includes(a)) return true;
-  const aParts = a.split("-");
-  const bParts = b.split("-");
-  const [smaller, larger] = aParts.length <= bParts.length ? [aParts, bParts] : [bParts, aParts];
-  return smaller.length >= 2 && smaller.every(p => larger.includes(p));
+  const al = a.toLowerCase(), bl = b.toLowerCase();
+  if (al.includes(bl) || bl.includes(al)) return true;
+  const aWords = extractWords(a);
+  const bWords = extractWords(b);
+  if (aWords.length === 0 || bWords.length === 0) return false;
+  const [smaller, larger] = aWords.length <= bWords.length ? [aWords, bWords] : [bWords, aWords];
+  return smaller.length >= 1 && smaller.every(w => larger.includes(w));
 }
 import { useDashboard } from "@/lib/dashboard-context";
 import type { CreativeRow, Platform } from "@/lib/types";
@@ -48,10 +53,13 @@ const tableColumns: Column<CreativeRow>[] = [
         <div className="relative w-14 h-9 rounded-md overflow-hidden bg-bg flex-shrink-0 border border-border">
           {row.thumbnail_url
             ? <Image src={row.thumbnail_url} alt={String(v)} fill className="object-cover" sizes="56px" unoptimized />
-            : <div className="w-full h-full flex items-center justify-center text-text-muted text-[10px]">—</div>}
+            : row.platform === "google"
+              ? <div className="w-full h-full flex items-center justify-center text-gold text-[10px] font-bold">Search</div>
+              : <div className="w-full h-full flex items-center justify-center text-text-muted text-[10px]">—</div>}
         </div>
         <div>
           <div className="flex items-center gap-2 mb-0.5"><PlatformBadge p={row.platform} /><span className="text-text-primary text-sm">{String(v)}</span></div>
+          {row.headline && <span className="text-xs text-gold block mb-0.5">{row.headline}</span>}
           <span className="text-xs text-text-muted">{row.campaign_name}{row.placement ? ` · ${row.placement}` : ""}</span>
         </div>
       </div>

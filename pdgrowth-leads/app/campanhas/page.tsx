@@ -4,14 +4,21 @@ import Sidebar from "@/components/sidebar";
 import Header from "@/components/header";
 import DataTable, { Column } from "@/components/data-table";
 
-// Match inteligente: verifica se todas as partes (split por -) do menor existem no maior
+// Extrai palavras significativas de um nome (remove pontuação, lowercase)
+function extractWords(s: string): string[] {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter(w => w.length > 1);
+}
+
+// Match inteligente: compara palavras significativas entre dois nomes
 function fuzzyMatch(a: string, b: string): boolean {
   if (a === b) return true;
-  if (a.includes(b) || b.includes(a)) return true;
-  const aParts = a.split("-");
-  const bParts = b.split("-");
-  const [smaller, larger] = aParts.length <= bParts.length ? [aParts, bParts] : [bParts, aParts];
-  return smaller.length >= 2 && smaller.every(p => larger.includes(p));
+  const al = a.toLowerCase(), bl = b.toLowerCase();
+  if (al.includes(bl) || bl.includes(al)) return true;
+  const aWords = extractWords(a);
+  const bWords = extractWords(b);
+  if (aWords.length === 0 || bWords.length === 0) return false;
+  const [smaller, larger] = aWords.length <= bWords.length ? [aWords, bWords] : [bWords, aWords];
+  return smaller.length >= 1 && smaller.every(w => larger.includes(w));
 }
 import { useDashboard } from "@/lib/dashboard-context";
 import type { CampaignRow, AdSetRow, CreativeRow, Platform, FunnelStep } from "@/lib/types";
@@ -157,16 +164,24 @@ export default function CampanhasPage() {
           if (ex) { ex.impressions += r.impressions ?? 0; ex.clicks += r.clicks ?? 0; ex.spend += r.spend ?? 0; }
           else { map.set(key, { campaign_id: r.campaign_id, campaign_name: r.campaign_name, platform: r.platform as Platform, status: r.status ?? "", impressions: r.impressions ?? 0, clicks: r.clicks ?? 0, spend: r.spend ?? 0, leads: 0, cpl: 0, ctr: 0 }); }
         }
-        setCampaigns(Array.from(map.values()).map(c => {
-          // Match exato primeiro, depois parcial (utm_campaign contém ou está contido no campaign_name)
-          let ld = byCampaign.get(c.campaign_name) ?? 0;
-          if (ld === 0) {
-            for (const [utmCamp, count] of Array.from(byCampaign.entries())) {
-              if (fuzzyMatch(c.campaign_name, utmCamp)) {
-                ld += count;
-              }
-            }
-          }
+        // Atribui cada lead a no máximo 1 campanha
+        const campRows = Array.from(map.values());
+        const campNames = campRows.map(c => c.campaign_name);
+        const campIdToName = new Map<string, string>();
+        for (const c of campRows) campIdToName.set(c.campaign_id, c.campaign_name);
+        const leadsPerCamp = new Map<string, number>();
+        for (const l of leadsData) {
+          if (!l.utm_campaign) continue;
+          const utmCamp = l.utm_campaign;
+          const exact = campNames.find(n => n === utmCamp);
+          if (exact) { leadsPerCamp.set(exact, (leadsPerCamp.get(exact) ?? 0) + 1); continue; }
+          const byId = campIdToName.get(utmCamp);
+          if (byId) { leadsPerCamp.set(byId, (leadsPerCamp.get(byId) ?? 0) + 1); continue; }
+          const fuzzy = campNames.find(n => fuzzyMatch(n, utmCamp));
+          if (fuzzy) { leadsPerCamp.set(fuzzy, (leadsPerCamp.get(fuzzy) ?? 0) + 1); }
+        }
+        setCampaigns(campRows.map(c => {
+          const ld = leadsPerCamp.get(c.campaign_name) ?? 0;
           return { ...c, ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0, leads: ld, cpl: ld > 0 ? c.spend / ld : 0 };
         }));
       } else { setCampaigns([]); }

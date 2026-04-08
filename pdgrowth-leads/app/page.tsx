@@ -14,13 +14,22 @@ import type { Platform, KPIData, DonutSlice, HorizontalBarItem, TrendPoint, Regi
 import { RefreshCw, Calendar, Building2, Menu, Megaphone, Trophy, CalendarDays, CalendarRange } from "lucide-react";
 
 // ─── Fuzzy match (same as campanhas/criativos) ─────────────────────────────
+// Extrai palavras significativas de um nome (remove pontuação, lowercase)
+function extractWords(s: string): string[] {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter(w => w.length > 1);
+}
+
 function fuzzyMatch(a: string, b: string): boolean {
   if (a === b) return true;
-  if (a.includes(b) || b.includes(a)) return true;
-  const aParts = a.split("-");
-  const bParts = b.split("-");
-  const [smaller, larger] = aParts.length <= bParts.length ? [aParts, bParts] : [bParts, aParts];
-  return smaller.length >= 2 && smaller.every(p => larger.includes(p));
+  const al = a.toLowerCase(), bl = b.toLowerCase();
+  if (al.includes(bl) || bl.includes(al)) return true;
+  // Split por qualquer separador (-, _, |, espaço, [])
+  const aWords = extractWords(a);
+  const bWords = extractWords(b);
+  if (aWords.length === 0 || bWords.length === 0) return false;
+  const [smaller, larger] = aWords.length <= bWords.length ? [aWords, bWords] : [bWords, aWords];
+  // Todas as palavras significativas do menor existem no maior
+  return smaller.length >= 1 && smaller.every(w => larger.includes(w));
 }
 
 const periods = [
