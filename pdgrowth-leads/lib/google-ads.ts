@@ -333,14 +333,11 @@ export async function syncGoogleAdsAccount(
         search_term_view.search_term, search_term_view.status,
         campaign.id, campaign.name,
         ad_group.id, ad_group.name,
-        ad_group_criterion.criterion_id,
-        ad_group_criterion.keyword.text,
         metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions,
         segments.date
       FROM search_term_view
       WHERE ${dateCondition}
         AND campaign.status != 'REMOVED'
-        AND ad_group.status != 'REMOVED'
     `, accessToken, managerId),
   ])
 
@@ -438,10 +435,10 @@ export async function syncGoogleAdsAccount(
       campaign_name: r.campaign?.name ?? '',
       ad_group_id:   r.adGroup?.id ?? '',
       ad_group_name: r.adGroup?.name ?? '',
-      keyword_id:    r.adGroupCriterion?.criterionId ?? '',
-      keyword_text:  r.adGroupCriterion?.keyword?.text ?? '',
+      keyword_id:    '',
+      keyword_text:  '',
       search_term:   r.searchTermView?.searchTerm ?? '',
-      match_type:    r.adGroupCriterion?.keyword?.matchType ?? '',
+      match_type:    '',
       date:          r.segments?.date ?? '',
       impressions:   toInt(r.metrics?.impressions),
       clicks:        toInt(r.metrics?.clicks),
