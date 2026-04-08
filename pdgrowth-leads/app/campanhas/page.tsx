@@ -88,10 +88,13 @@ const adColumns: Column<CreativeRow>[] = [
   { key: "cpl",         label: "CPL",        align: "right", render: v => { const n = Number(v); return n > 0 ? <span className={`font-semibold ${cplColor(n)}`}>R$ {n.toFixed(2)}</span> : <span className="text-text-muted">—</span>; } },
 ];
 
+type StatusFilter = "active" | "all";
+
 export default function CampanhasPage() {
   const { platform, period, client } = useDashboard();
   const [tab, setTab] = useState<Tab>("campanhas");
   const [selectedCampaign, setSelectedCampaign] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("active");
   const [campaigns, setCampaigns] = useState<CampaignRow[]>([]);
   const [adSets, setAdSets] = useState<AdSetRow[]>([]);
   const [ads, setAds] = useState<CreativeRow[]>([]);
@@ -107,9 +110,9 @@ export default function CampanhasPage() {
     setLoading(true);
     const metaSlug = client !== "all" ? client : null;
 
-    const baseCamp = supabase.from("ad_campaigns").select("campaign_id,campaign_name,platform,impressions,clicks,spend,landing_page_views,lead_form_submissions").gte("date", since).lte("date", until);
-    const baseSets = supabase.from("ad_sets").select("ad_set_id,ad_set_name,campaign_name,platform,impressions,clicks,spend").gte("date", since).lte("date", until);
-    const baseAds  = supabase.from("ad_creatives").select("ad_id,ad_name,campaign_name,platform,creative_type,thumbnail_url,video_url,permalink_url,headline,impressions,clicks,spend,frequency,placement").gte("date", since).lte("date", until);
+    const baseCamp = supabase.from("ad_campaigns").select("campaign_id,campaign_name,platform,status,impressions,clicks,spend,landing_page_views,lead_form_submissions").gte("date", since).lte("date", until);
+    const baseSets = supabase.from("ad_sets").select("ad_set_id,ad_set_name,campaign_name,platform,status,impressions,clicks,spend").gte("date", since).lte("date", until);
+    const baseAds  = supabase.from("ad_creatives").select("ad_id,ad_name,campaign_name,platform,status,creative_type,thumbnail_url,video_url,permalink_url,headline,impressions,clicks,spend,frequency,placement").gte("date", since).lte("date", until);
 
     const qCamp = metaSlug ? (platform !== "all" ? baseCamp.eq("platform", platform) : baseCamp).eq("client_slug", metaSlug) : (platform !== "all" ? baseCamp.eq("platform", platform) : baseCamp);
     const qSets = metaSlug ? (platform !== "all" ? baseSets.eq("platform", platform) : baseSets).eq("client_slug", metaSlug) : (platform !== "all" ? baseSets.eq("platform", platform) : baseSets);
@@ -152,7 +155,7 @@ export default function CampanhasPage() {
           const key = `${r.platform}:${r.campaign_id}`;
           const ex = map.get(key);
           if (ex) { ex.impressions += r.impressions ?? 0; ex.clicks += r.clicks ?? 0; ex.spend += r.spend ?? 0; }
-          else { map.set(key, { campaign_id: r.campaign_id, campaign_name: r.campaign_name, platform: r.platform as Platform, impressions: r.impressions ?? 0, clicks: r.clicks ?? 0, spend: r.spend ?? 0, leads: 0, cpl: 0, ctr: 0 }); }
+          else { map.set(key, { campaign_id: r.campaign_id, campaign_name: r.campaign_name, platform: r.platform as Platform, status: r.status ?? "", impressions: r.impressions ?? 0, clicks: r.clicks ?? 0, spend: r.spend ?? 0, leads: 0, cpl: 0, ctr: 0 }); }
         }
         setCampaigns(Array.from(map.values()).map(c => {
           // Match exato primeiro, depois parcial (utm_campaign contém ou está contido no campaign_name)
@@ -245,11 +248,14 @@ export default function CampanhasPage() {
     });
   }, [selectedCampaign, allCampRowsRef, allLeadsRef]);
 
-  const filteredCampaigns = campaigns;
-  const filteredAdSets = selectedCampaign === "all" ? adSets : adSets.filter(c => c.campaign_name === selectedCampaign);
-  const filteredAds = selectedCampaign === "all" ? ads : ads.filter(c => c.campaign_name === selectedCampaign);
+  const isActive = (s: string) => !s || s === "ACTIVE" || s === "ENABLED";
+  const statusCampaigns = statusFilter === "active" ? campaigns.filter(c => isActive(c.status) || c.spend > 0) : campaigns;
+  const filteredCampaigns = selectedCampaign === "all" ? statusCampaigns : statusCampaigns.filter(c => c.campaign_name === selectedCampaign);
+  const activeCampNames = new Set(statusCampaigns.map(c => c.campaign_name));
+  const filteredAdSets = (selectedCampaign === "all" ? adSets : adSets.filter(c => c.campaign_name === selectedCampaign)).filter(c => statusFilter === "all" || activeCampNames.has(c.campaign_name));
+  const filteredAds = (selectedCampaign === "all" ? ads : ads.filter(c => c.campaign_name === selectedCampaign)).filter(c => statusFilter === "all" || activeCampNames.has(c.campaign_name));
   const activeData = tab === "campanhas" ? filteredCampaigns : tab === "conjuntos" ? filteredAdSets : filteredAds;
-  const campaignOptions = ["all", ...Array.from(new Set(campaigns.map(c => c.campaign_name)))];
+  const campaignOptions = ["all", ...Array.from(new Set(statusCampaigns.map(c => c.campaign_name)))];
   const totalSpend = activeData.reduce((s, c) => s + c.spend, 0);
   const totalLeads = activeData.reduce((s, c) => s + c.leads, 0);
   const overallCpl = totalLeads > 0 ? totalSpend / totalLeads : 0;
@@ -279,6 +285,16 @@ export default function CampanhasPage() {
             <option value="all">Todas as campanhas</option>
             {campaignOptions.filter(c => c !== "all").map(c => (<option key={c} value={c}>{c}</option>))}
           </select>
+          <div className="flex items-center bg-card border border-border rounded-lg overflow-hidden text-xs font-medium">
+            <button onClick={() => setStatusFilter("active")}
+              className={`px-3 py-1.5 transition-colors ${statusFilter === "active" ? "bg-accent/10 text-accent" : "text-text-secondary hover:text-text-primary"}`}>
+              Ativas
+            </button>
+            <button onClick={() => setStatusFilter("all")}
+              className={`px-3 py-1.5 transition-colors ${statusFilter === "all" ? "bg-accent/10 text-accent" : "text-text-secondary hover:text-text-primary"}`}>
+              Todas
+            </button>
+          </div>
         </div>
 
         <div className="flex gap-4 mb-5 p-3 bg-card border border-border rounded-xl text-sm flex-wrap">

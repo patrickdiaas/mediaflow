@@ -147,6 +147,7 @@ export interface CampaignRow {
   campaign_id: string;
   campaign_name: string;
   platform: Platform;
+  status: string;
   impressions: number;
   clicks: number;
   ctr: number;

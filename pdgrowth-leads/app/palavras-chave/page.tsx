@@ -73,8 +73,10 @@ type Tab = "keywords" | "search_terms";
 export default function PalavrasChavePage() {
   const { platform, period, client } = useDashboard();
   const [tab, setTab] = useState<Tab>("keywords");
+  const [selectedCampaign, setSelectedCampaign] = useState<string>("all");
   const [keywords, setKeywords] = useState<KeywordRow[]>([]);
   const [searchTerms, setSearchTerms] = useState<SearchTermRow[]>([]);
+  const [campaignNames, setCampaignNames] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -96,10 +98,14 @@ export default function PalavrasChavePage() {
     Promise.all([kQuery, stQuery]).then(([{ data: kRows }, { data: stRows }]) => {
       setLoading(false);
 
+      // Extrair nomes de campanhas para o seletor
+      const allCampNames = new Set<string>();
+
       if (kRows && kRows.length > 0) {
         const kMap = new Map<string, { impressions: number; clicks: number; spend: number; conversions: number; campaign_name: string; ad_group_name: string; keyword_text: string; match_type: string }>();
         for (const r of kRows) {
           const key = r.keyword_id;
+          if (r.campaign_name) allCampNames.add(r.campaign_name);
           const ex = kMap.get(key);
           if (ex) { ex.impressions += r.impressions ?? 0; ex.clicks += r.clicks ?? 0; ex.spend += Number(r.spend ?? 0); ex.conversions += Number(r.conversions ?? 0); }
           else { kMap.set(key, { impressions: r.impressions ?? 0, clicks: r.clicks ?? 0, spend: Number(r.spend ?? 0), conversions: Number(r.conversions ?? 0), campaign_name: r.campaign_name ?? "", ad_group_name: r.ad_group_name ?? "", keyword_text: r.keyword_text ?? "", match_type: r.match_type ?? "" }); }
@@ -123,6 +129,7 @@ export default function PalavrasChavePage() {
         const stMap = new Map<string, { impressions: number; clicks: number; spend: number; conversions: number; campaign_name: string; ad_group_name: string; keyword_text: string }>();
         for (const r of stRows) {
           const key = `${r.campaign_name}::${r.search_term}`;
+          if (r.campaign_name) allCampNames.add(r.campaign_name);
           const ex = stMap.get(key);
           if (ex) { ex.impressions += r.impressions ?? 0; ex.clicks += r.clicks ?? 0; ex.spend += Number(r.spend ?? 0); ex.conversions += Number(r.conversions ?? 0); }
           else { stMap.set(key, { impressions: r.impressions ?? 0, clicks: r.clicks ?? 0, spend: Number(r.spend ?? 0), conversions: Number(r.conversions ?? 0), campaign_name: r.campaign_name ?? "", ad_group_name: r.ad_group_name ?? "", keyword_text: r.keyword_text ?? "" }); }
@@ -139,6 +146,8 @@ export default function PalavrasChavePage() {
           conversions: a.conversions,
         })).sort((a, b) => b.clicks - a.clicks));
       } else { setSearchTerms([]); }
+
+      setCampaignNames(Array.from(allCampNames).sort());
     });
   }, [platform, period, client]);
 
@@ -157,9 +166,14 @@ export default function PalavrasChavePage() {
     );
   }
 
-  const totalSpend = keywords.reduce((s, k) => s + k.spend, 0);
-  const totalConv  = keywords.reduce((s, k) => s + k.conversions, 0);
-  const avgCpc     = keywords.reduce((s, k) => s + k.clicks, 0) > 0 ? totalSpend / keywords.reduce((s, k) => s + k.clicks, 0) : 0;
+  const filteredKw = selectedCampaign === "all" ? keywords : keywords.filter(k => k.campaign_name === selectedCampaign);
+  const filteredSt = selectedCampaign === "all" ? searchTerms : searchTerms.filter(s => s.campaign_name === selectedCampaign);
+
+  const totalSpend = filteredKw.reduce((s, k) => s + k.spend, 0);
+  const totalClicks = filteredKw.reduce((s, k) => s + k.clicks, 0);
+  const totalConv  = filteredKw.reduce((s, k) => s + k.conversions, 0);
+  const avgCpc     = totalClicks > 0 ? totalSpend / totalClicks : 0;
+  const costPerConv = totalConv > 0 ? totalSpend / totalConv : 0;
 
   return (
     <div className="flex h-screen bg-bg">
@@ -168,34 +182,44 @@ export default function PalavrasChavePage() {
         <Header title="Palavras-chave" subtitle="Performance por keyword e termos de pesquisa do Google Search" />
 
         {keywords.length > 0 && (
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-            <SummaryCard label="Keywords ativas" value={String(keywords.length)} color="text-text-primary" />
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mb-6">
+            <SummaryCard label="Keywords" value={String(filteredKw.length)} color="text-text-primary" />
             <SummaryCard label="Investimento" value={`R$ ${totalSpend.toLocaleString("pt-BR", { minimumFractionDigits: 2 })}`} color="text-blue" />
             <SummaryCard label="CPC médio" value={avgCpc > 0 ? `R$ ${avgCpc.toFixed(2)}` : "—"} color="text-gold" />
             <SummaryCard label="Conversões" value={String(totalConv.toFixed(0))} color="text-accent" />
+            <SummaryCard label="Custo/Conv." value={costPerConv > 0 ? `R$ ${costPerConv.toFixed(2)}` : "—"} color="text-gold" />
           </div>
         )}
 
-        <div className="flex items-center gap-1 bg-card border border-border rounded-lg p-1 w-fit mb-5">
-          <TabBtn active={tab === "keywords"} onClick={() => setTab("keywords")}>
-            <Tag size={13} /> Palavras-chave{keywords.length > 0 && <span className="ml-1 text-[10px] font-mono text-text-muted">({keywords.length})</span>}
-          </TabBtn>
-          <TabBtn active={tab === "search_terms"} onClick={() => setTab("search_terms")}>
-            <Search size={13} /> Termos de pesquisa{searchTerms.length > 0 && <span className="ml-1 text-[10px] font-mono text-text-muted">({searchTerms.length})</span>}
-          </TabBtn>
+        <div className="flex items-center gap-3 mb-5 flex-wrap">
+          <div className="flex items-center gap-1 bg-card border border-border rounded-lg p-1">
+            <TabBtn active={tab === "keywords"} onClick={() => setTab("keywords")}>
+              <Tag size={13} /> Palavras-chave{filteredKw.length > 0 && <span className="ml-1 text-[10px] font-mono text-text-muted">({filteredKw.length})</span>}
+            </TabBtn>
+            <TabBtn active={tab === "search_terms"} onClick={() => setTab("search_terms")}>
+              <Search size={13} /> Termos de pesquisa{filteredSt.length > 0 && <span className="ml-1 text-[10px] font-mono text-text-muted">({filteredSt.length})</span>}
+            </TabBtn>
+          </div>
+          {campaignNames.length > 0 && (
+            <select value={selectedCampaign} onChange={e => setSelectedCampaign(e.target.value)}
+              className="bg-card border border-border rounded-lg px-3 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent/40 cursor-pointer font-mono max-w-[220px] truncate">
+              <option value="all">Todas as campanhas</option>
+              {campaignNames.map(c => (<option key={c} value={c}>{c}</option>))}
+            </select>
+          )}
         </div>
 
         {loading ? (
           <div className="text-text-secondary text-sm py-8 text-center">Carregando...</div>
         ) : tab === "keywords" ? (
-          keywords.length > 0 ? (
-            <DataTable<KeywordRow> columns={keywordColumns} data={keywords} rowKey="keyword_id" />
+          filteredKw.length > 0 ? (
+            <DataTable<KeywordRow> columns={keywordColumns} data={filteredKw} rowKey="keyword_id" />
           ) : (
             <EmptyState icon={<Tag size={28} className="text-text-dark" />} title="Nenhuma palavra-chave encontrada" description="Execute o sync do Google Ads para carregar os dados." />
           )
         ) : (
-          searchTerms.length > 0 ? (
-            <DataTable<SearchTermRow> columns={searchTermColumns} data={searchTerms} rowKey="search_term" />
+          filteredSt.length > 0 ? (
+            <DataTable<SearchTermRow> columns={searchTermColumns} data={filteredSt} rowKey="search_term" />
           ) : (
             <EmptyState icon={<Search size={28} className="text-text-dark" />} title="Nenhum termo de pesquisa encontrado" description="Execute o sync do Google Ads para carregar os dados." />
           )
