@@ -254,14 +254,22 @@ export default function OverviewPage() {
     }
     setCampaignRank(rankRows.sort((a, b) => b.leads - a.leads).slice(0, 10));
 
+    // IDs das campanhas selecionadas (para filtrar regiões e posicionamentos)
+    const selectedCampIds = campaign === "all"
+      ? null
+      : new Set(ads.map((a: any) => a.campaign_id as string));
+
     // Regiões
     const regQ = supabase.from("ad_regions")
-      .select("region, impressions, clicks, spend")
+      .select("campaign_id, region, impressions, clicks, spend")
       .gte("date", since).lte("date", until);
     if (metaSlug) regQ.eq("client_slug", metaSlug);
     const { data: regData } = await regQ;
+    const filteredRegData = selectedCampIds
+      ? (regData ?? []).filter((r: any) => selectedCampIds.has(r.campaign_id))
+      : (regData ?? []);
     const regMap = new Map<string, { impressions: number; clicks: number; spend: number }>();
-    for (const r of (regData ?? [])) {
+    for (const r of filteredRegData) {
       const e = regMap.get(r.region) ?? { impressions: 0, clicks: 0, spend: 0 };
       e.impressions += Number(r.impressions);
       e.clicks      += Number(r.clicks);
@@ -275,12 +283,15 @@ export default function OverviewPage() {
 
     // Posicionamentos
     const plcQ = supabase.from("ad_placements")
-      .select("placement, impressions, clicks, spend, conversions")
+      .select("campaign_id, placement, impressions, clicks, spend, conversions")
       .gte("date", since).lte("date", until);
     if (metaSlug) plcQ.eq("client_slug", metaSlug);
     const { data: plcData } = await plcQ;
+    const filteredPlcData = selectedCampIds
+      ? (plcData ?? []).filter((r: any) => selectedCampIds.has(r.campaign_id))
+      : (plcData ?? []);
     const plcMap = new Map<string, { impressions: number; clicks: number; spend: number; conversions: number }>();
-    for (const r of (plcData ?? [])) {
+    for (const r of filteredPlcData) {
       const e = plcMap.get(r.placement) ?? { impressions: 0, clicks: 0, spend: 0, conversions: 0 };
       e.impressions  += Number(r.impressions);
       e.clicks       += Number(r.clicks);
