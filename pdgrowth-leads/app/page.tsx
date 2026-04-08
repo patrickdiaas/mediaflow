@@ -290,27 +290,36 @@ export default function OverviewPage() {
     }
 
     // ── Campaign ranking (top 10 by leads) ──
-    // Agrupa ads por campaign_name
-    const campMap = new Map<string, { platform: Platform; impressions: number; clicks: number; spend: number }>();
+    // Agrupa ads por campaign_name, guarda campaign_ids para match com Google UTMs
+    const campMap = new Map<string, { platform: Platform; campaignIds: Set<string>; impressions: number; clicks: number; spend: number }>();
     for (const r of allAds) {
       const key = r.campaign_name;
       const ex = campMap.get(key);
-      if (ex) { ex.impressions += Number(r.impressions); ex.clicks += Number(r.clicks); ex.spend += Number(r.spend); }
-      else campMap.set(key, { platform: r.platform as Platform, impressions: Number(r.impressions), clicks: Number(r.clicks), spend: Number(r.spend) });
+      if (ex) { ex.impressions += Number(r.impressions); ex.clicks += Number(r.clicks); ex.spend += Number(r.spend); if (r.campaign_id) ex.campaignIds.add(r.campaign_id); }
+      else campMap.set(key, { platform: r.platform as Platform, campaignIds: new Set(r.campaign_id ? [r.campaign_id] : []), impressions: Number(r.impressions), clicks: Number(r.clicks), spend: Number(r.spend) });
     }
-    // Atribui cada lead a no máximo UMA campanha (exato primeiro, fuzzy depois)
+    // Atribui cada lead a no máximo UMA campanha
+    // Google UTMs podem usar campaign_id numérico ou nome parcial
     const adCampNames = Array.from(campMap.keys());
+    const campIdToName = new Map<string, string>();
+    for (const [name, data] of Array.from(campMap.entries())) {
+      for (const cid of Array.from(data.campaignIds)) campIdToName.set(cid, name);
+    }
     const leadsPerCamp = new Map<string, number>();
     for (const l of platformLeads) {
       if (!l.utm_campaign) continue;
-      // 1. Match exato
-      const exact = adCampNames.find(n => n === l.utm_campaign);
+      const utmCamp = l.utm_campaign;
+      // 1. Match exato por nome
+      const exact = adCampNames.find(n => n === utmCamp);
       if (exact) { leadsPerCamp.set(exact, (leadsPerCamp.get(exact) ?? 0) + 1); continue; }
-      // 2. Substring (includes)
-      const substr = adCampNames.find(n => n.includes(l.utm_campaign) || l.utm_campaign.includes(n));
+      // 2. Match por campaign_id (Google usa IDs numéricos como utm_campaign)
+      const byId = campIdToName.get(utmCamp);
+      if (byId) { leadsPerCamp.set(byId, (leadsPerCamp.get(byId) ?? 0) + 1); continue; }
+      // 3. Substring (includes)
+      const substr = adCampNames.find(n => n.toLowerCase().includes(utmCamp.toLowerCase()) || utmCamp.toLowerCase().includes(n.toLowerCase()));
       if (substr) { leadsPerCamp.set(substr, (leadsPerCamp.get(substr) ?? 0) + 1); continue; }
-      // 3. Fuzzy (split por -)
-      const fuzzy = adCampNames.find(n => fuzzyMatch(n, l.utm_campaign));
+      // 4. Fuzzy (split por -)
+      const fuzzy = adCampNames.find(n => fuzzyMatch(n, utmCamp));
       if (fuzzy) { leadsPerCamp.set(fuzzy, (leadsPerCamp.get(fuzzy) ?? 0) + 1); }
     }
     const rankRows: CampaignRank[] = [];
@@ -665,7 +674,8 @@ export default function OverviewPage() {
             <DonutChart title="Leads por Formulário"   data={formDonut}   centerLabel="leads" />
           </div>
 
-          {/* Posicionamento + Regiões */}
+          {/* Posicionamento (Meta only) + Regiões (Meta only) */}
+          {platform !== "google" && (placements.length > 0 || regions.length > 0) && (
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
             {placements.length > 0 && (
               <HorizontalBar title="Conversões por Posicionamento" data={placements} valueLabel="conversões por placement" />
@@ -677,6 +687,7 @@ export default function OverviewPage() {
               </div>
             )}
           </div>
+          )}
         </div>
       </main>
     </div>
