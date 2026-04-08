@@ -208,7 +208,7 @@ async function googleAdsSearch(
   let pageToken: string | undefined
 
   do {
-    const body: Record<string, string | number> = { query, pageSize: 10000 }
+    const body: Record<string, string> = { query }
     if (pageToken) body.pageToken = pageToken
 
     const res = await fetch(url, {
