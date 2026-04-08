@@ -13,6 +13,14 @@ export function getLeadDates(period: string): { since: string; until: string } {
   };
 }
 
+/** Converte timestamp UTC (ISO string) para data BRT (YYYY-MM-DD). */
+export function toBRTDate(utcTimestamp: string): string {
+  const d = new Date(utcTimestamp);
+  // BRT = UTC-3
+  d.setUTCHours(d.getUTCHours() - 3);
+  return d.toISOString().split("T")[0];
+}
+
 export function getPeriodDates(period: string): { since: string; until: string } {
   const fmt   = (d: Date) => d.toISOString().split("T")[0];
   const today = new Date();

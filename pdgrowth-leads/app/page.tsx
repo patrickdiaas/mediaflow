@@ -9,7 +9,7 @@ import DataTable, { Column } from "@/components/data-table";
 import Funnel from "@/components/funnel";
 import { useDashboard } from "@/lib/dashboard-context";
 import { supabase } from "@/lib/supabase";
-import { getPeriodDates, getLeadDates } from "@/lib/period";
+import { getPeriodDates, getLeadDates, toBRTDate } from "@/lib/period";
 import type { Platform, KPIData, DonutSlice, HorizontalBarItem, TrendPoint, RegionRow, FunnelStep } from "@/lib/types";
 import { RefreshCw, Calendar, Building2, Menu, Megaphone, Trophy } from "lucide-react";
 
@@ -224,10 +224,7 @@ export default function OverviewPage() {
     }
 
     // ── Campaign ranking (top 10 by leads) ──
-    const byCampaignUTM = new Map<string, number>();
-    for (const l of platformLeads) {
-      if (l.utm_campaign) byCampaignUTM.set(l.utm_campaign, (byCampaignUTM.get(l.utm_campaign) ?? 0) + 1);
-    }
+    // Agrupa ads por campaign_name
     const campMap = new Map<string, { platform: Platform; impressions: number; clicks: number; spend: number }>();
     for (const r of allAds) {
       const key = r.campaign_name;
@@ -235,14 +232,24 @@ export default function OverviewPage() {
       if (ex) { ex.impressions += Number(r.impressions); ex.clicks += Number(r.clicks); ex.spend += Number(r.spend); }
       else campMap.set(key, { platform: r.platform as Platform, impressions: Number(r.impressions), clicks: Number(r.clicks), spend: Number(r.spend) });
     }
+    // Atribui cada lead a no máximo UMA campanha (exato primeiro, fuzzy depois)
+    const adCampNames = Array.from(campMap.keys());
+    const leadsPerCamp = new Map<string, number>();
+    for (const l of platformLeads) {
+      if (!l.utm_campaign) continue;
+      // 1. Match exato
+      const exact = adCampNames.find(n => n === l.utm_campaign);
+      if (exact) { leadsPerCamp.set(exact, (leadsPerCamp.get(exact) ?? 0) + 1); continue; }
+      // 2. Substring (includes)
+      const substr = adCampNames.find(n => n.includes(l.utm_campaign) || l.utm_campaign.includes(n));
+      if (substr) { leadsPerCamp.set(substr, (leadsPerCamp.get(substr) ?? 0) + 1); continue; }
+      // 3. Fuzzy (split por -)
+      const fuzzy = adCampNames.find(n => fuzzyMatch(n, l.utm_campaign));
+      if (fuzzy) { leadsPerCamp.set(fuzzy, (leadsPerCamp.get(fuzzy) ?? 0) + 1); }
+    }
     const rankRows: CampaignRank[] = [];
     for (const [name, data] of Array.from(campMap.entries())) {
-      let ld = byCampaignUTM.get(name) ?? 0;
-      if (ld === 0) {
-        for (const [utmCamp, count] of Array.from(byCampaignUTM.entries())) {
-          if (fuzzyMatch(name, utmCamp)) ld += count;
-        }
-      }
+      const ld = leadsPerCamp.get(name) ?? 0;
       rankRows.push({ campaign_name: name, platform: data.platform, impressions: data.impressions, clicks: data.clicks, spend: data.spend, leads: ld, cpl: ld > 0 ? data.spend / ld : 0 });
     }
     setCampaignRank(rankRows.sort((a, b) => b.leads - a.leads).slice(0, 10));
@@ -293,10 +300,10 @@ export default function OverviewPage() {
       .sort((a, b) => b.value - a.value)
       .slice(0, 8);
 
-    // Trend: leads x investimento x CPL por dia
+    // Trend: leads x investimento x CPL por dia (BRT)
     const leadsByDay = new Map<string, number>();
     for (const l of leads) {
-      const day = String(l.converted_at).slice(0, 10);
+      const day = toBRTDate(String(l.converted_at));
       leadsByDay.set(day, (leadsByDay.get(day) ?? 0) + 1);
     }
     const spendByDay = new Map<string, number>();
