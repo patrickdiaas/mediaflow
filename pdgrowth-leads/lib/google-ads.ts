@@ -271,8 +271,8 @@ export async function syncGoogleAdsAccount(
 }> {
   const dateCondition = `segments.date BETWEEN '${since}' AND '${until}'`
 
-  // Executa todas as queries em paralelo para minimizar latência
-  const [campaignRows, adGroupRows, adRows, keywordRows, searchTermRows] = await Promise.all([
+  // Executa queries core em paralelo, keywords e search terms separadas com fallback
+  const [campaignRows, adGroupRows, adRows] = await Promise.all([
     googleAdsSearch(customerId, `
       SELECT
         campaign.id, campaign.name, campaign.status, campaign.advertising_channel_type,
@@ -311,8 +311,14 @@ export async function syncGoogleAdsAccount(
         AND ad_group.status != 'REMOVED'
         AND ad_group_ad.status != 'REMOVED'
     `, accessToken, managerId),
+  ])
 
-    googleAdsSearch(customerId, `
+  // Keywords e search terms com fallback (podem falhar por compatibilidade de versão)
+  let keywordRows: GoogleAdsRow[] = []
+  let searchTermRows: GoogleAdsRow[] = []
+
+  try {
+    keywordRows = await googleAdsSearch(customerId, `
       SELECT
         ad_group_criterion.criterion_id,
         ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type,
@@ -321,15 +327,32 @@ export async function syncGoogleAdsAccount(
         ad_group.id, ad_group.name,
         metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions,
         segments.date
-      FROM ad_group_criterion
+      FROM keyword_view
       WHERE ${dateCondition}
         AND campaign.status != 'REMOVED'
         AND ad_group.status != 'REMOVED'
-        AND ad_group_criterion.status != 'REMOVED'
-        AND ad_group_criterion.type = 'KEYWORD'
-    `, accessToken, managerId),
+    `, accessToken, managerId)
+  } catch (e) {
+    console.warn('[google-ads] keyword_view query failed, trying fallback:', String(e).slice(0, 200))
+    // Fallback: buscar keywords sem métricas e métricas via ad_group sem detalhe de keyword
+    try {
+      keywordRows = await googleAdsSearch(customerId, `
+        SELECT
+          ad_group_criterion.criterion_id,
+          ad_group_criterion.keyword.text, ad_group_criterion.keyword.match_type,
+          ad_group_criterion.status,
+          campaign.id, campaign.name,
+          ad_group.id, ad_group.name
+        FROM ad_group_criterion
+        WHERE ad_group_criterion.type = 'KEYWORD'
+          AND ad_group_criterion.status != 'REMOVED'
+          AND campaign.status != 'REMOVED'
+      `, accessToken, managerId)
+    } catch { /* skip keywords entirely if all fails */ }
+  }
 
-    googleAdsSearch(customerId, `
+  try {
+    searchTermRows = await googleAdsSearch(customerId, `
       SELECT
         search_term_view.search_term, search_term_view.status,
         campaign.id, campaign.name,
@@ -339,8 +362,10 @@ export async function syncGoogleAdsAccount(
       FROM search_term_view
       WHERE ${dateCondition}
         AND campaign.status != 'REMOVED'
-    `, accessToken, managerId),
-  ])
+    `, accessToken, managerId)
+  } catch (e) {
+    console.warn('[google-ads] search_term_view query failed:', String(e).slice(0, 200))
+  }
 
   // ── Campanhas ────────────────────────────────────────────────────────────────
   const campaigns: MappedGoogleCampaignDay[] = campaignRows.map(r => ({
