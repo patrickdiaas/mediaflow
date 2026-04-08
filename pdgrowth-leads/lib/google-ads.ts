@@ -321,11 +321,12 @@ export async function syncGoogleAdsAccount(
         ad_group.id, ad_group.name,
         metrics.impressions, metrics.clicks, metrics.cost_micros, metrics.conversions,
         segments.date
-      FROM keyword_view
+      FROM ad_group_criterion
       WHERE ${dateCondition}
         AND campaign.status != 'REMOVED'
         AND ad_group.status != 'REMOVED'
         AND ad_group_criterion.status != 'REMOVED'
+        AND ad_group_criterion.type = 'KEYWORD'
     `, accessToken, managerId),
 
     googleAdsSearch(customerId, `
