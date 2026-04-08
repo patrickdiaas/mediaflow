@@ -11,7 +11,7 @@ import { useDashboard } from "@/lib/dashboard-context";
 import { supabase } from "@/lib/supabase";
 import { getPeriodDates, getLeadDates, toBRTDate } from "@/lib/period";
 import type { Platform, KPIData, DonutSlice, HorizontalBarItem, TrendPoint, RegionRow, FunnelStep } from "@/lib/types";
-import { RefreshCw, Calendar, Building2, Menu, Megaphone, Trophy } from "lucide-react";
+import { RefreshCw, Calendar, Building2, Menu, Megaphone, Trophy, CalendarDays, CalendarRange } from "lucide-react";
 
 // ─── Fuzzy match (same as campanhas/criativos) ─────────────────────────────
 function fuzzyMatch(a: string, b: string): boolean {
@@ -125,6 +125,70 @@ const rankColumns: Column<CampaignRank>[] = [
     render: v => { const n = Number(v); return n > 0 ? <span className={`text-xs font-mono font-semibold ${cplColor(n)}`}>R$ {n.toFixed(2)}</span> : <span className="text-text-muted text-xs">—</span>; } },
 ];
 
+// ─── Daily / Weekly comparison types ─────────────────────────────────────────
+interface DailyRow {
+  date: string;
+  dayLabel: string;
+  leads: number;
+  impressions: number;
+  clicks: number;
+  spend: number;
+  cpl: number;
+}
+
+interface WeeklyRow {
+  weekLabel: string;
+  leads: number;
+  impressions: number;
+  clicks: number;
+  spend: number;
+  cpl: number;
+}
+
+const dailyColumns: Column<DailyRow>[] = [
+  { key: "dayLabel", label: "Dia",
+    render: v => <span className="text-text-primary text-xs font-medium">{String(v)}</span> },
+  { key: "impressions", label: "Impr.", align: "right",
+    render: v => <span className="text-text-secondary text-xs">{Number(v).toLocaleString("pt-BR")}</span> },
+  { key: "clicks", label: "Cliques", align: "right",
+    render: v => <span className="text-blue text-xs">{Number(v).toLocaleString("pt-BR")}</span> },
+  { key: "spend", label: "Investido", align: "right",
+    render: v => <span className="text-blue text-xs font-mono">R$ {Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span> },
+  { key: "leads", label: "Leads", align: "right",
+    render: v => <span className="text-accent text-xs font-mono font-semibold">{String(v)}</span> },
+  { key: "cpl", label: "CPL", align: "right",
+    render: v => { const n = Number(v); return n > 0 ? <span className={`text-xs font-mono font-semibold ${cplColor(n)}`}>R$ {n.toFixed(2)}</span> : <span className="text-text-muted text-xs">—</span>; } },
+];
+
+const weeklyColumns: Column<WeeklyRow>[] = [
+  { key: "weekLabel", label: "Semana",
+    render: v => <span className="text-text-primary text-xs font-medium">{String(v)}</span> },
+  { key: "impressions", label: "Impr.", align: "right",
+    render: v => <span className="text-text-secondary text-xs">{Number(v).toLocaleString("pt-BR")}</span> },
+  { key: "clicks", label: "Cliques", align: "right",
+    render: v => <span className="text-blue text-xs">{Number(v).toLocaleString("pt-BR")}</span> },
+  { key: "spend", label: "Investido", align: "right",
+    render: v => <span className="text-blue text-xs font-mono">R$ {Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span> },
+  { key: "leads", label: "Leads", align: "right",
+    render: v => <span className="text-accent text-xs font-mono font-semibold">{String(v)}</span> },
+  { key: "cpl", label: "CPL", align: "right",
+    render: v => { const n = Number(v); return n > 0 ? <span className={`text-xs font-mono font-semibold ${cplColor(n)}`}>R$ {n.toFixed(2)}</span> : <span className="text-text-muted text-xs">—</span>; } },
+];
+
+function getWeekLabel(dateStr: string): string {
+  const d = new Date(dateStr + "T12:00:00");
+  const dayOfMonth = d.getDate();
+  const weekNum = Math.ceil(dayOfMonth / 7);
+  const month = d.toLocaleDateString("pt-BR", { month: "short" });
+  return `Sem ${weekNum} · ${month}`;
+}
+
+const DAY_NAMES = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
+function getDayLabel(dateStr: string): string {
+  const d = new Date(dateStr + "T12:00:00");
+  return `${DAY_NAMES[d.getDay()]} ${d.getDate().toString().padStart(2, "0")}/${(d.getMonth() + 1).toString().padStart(2, "0")}`;
+}
+
 // ─── Página ───────────────────────────────────────────────────────────────────
 export default function OverviewPage() {
   const { client, setClient, platform, setPlatform, period, setPeriod, campaign, setCampaign, setMobileSidebarOpen } = useDashboard();
@@ -141,6 +205,8 @@ export default function OverviewPage() {
   const [funnelSteps,   setFunnelSteps]   = useState<FunnelStep[]>([]);
   const [funnelMetrics, setFunnelMetrics] = useState<{ cpm: number; ctr: number; pageConvRate: number | null; checkoutConvRate: number | null; overallConvRate: number } | null>(null);
   const [campaignRank,  setCampaignRank]  = useState<CampaignRank[]>([]);
+  const [dailyRows,     setDailyRows]     = useState<DailyRow[]>([]);
+  const [weeklyRows,    setWeeklyRows]    = useState<WeeklyRow[]>([]);
   const [loading,       setLoading]       = useState(true);
   const [updatedAt,     setUpdatedAt]     = useState("");
 
@@ -368,6 +434,34 @@ export default function OverviewPage() {
         color: CHART_COLORS[i % CHART_COLORS.length],
       }));
 
+    // ── Tabela diária ──
+    const impByDay = new Map<string, number>();
+    const clkByDay = new Map<string, number>();
+    for (const a of ads) {
+      impByDay.set(a.date, (impByDay.get(a.date) ?? 0) + Number(a.impressions));
+      clkByDay.set(a.date, (clkByDay.get(a.date) ?? 0) + Number(a.clicks));
+    }
+    const daily: DailyRow[] = allDays.map(day => {
+      const ld = leadsByDay.get(day) ?? 0;
+      const sp = spendByDay.get(day) ?? 0;
+      const imp = impByDay.get(day) ?? 0;
+      const clk = clkByDay.get(day) ?? 0;
+      return { date: day, dayLabel: getDayLabel(day), leads: ld, impressions: imp, clicks: clk, spend: sp, cpl: ld > 0 ? sp / ld : 0 };
+    }).sort((a, b) => b.date.localeCompare(a.date));
+    setDailyRows(daily);
+
+    // ── Tabela semanal ──
+    const weekMap = new Map<string, { leads: number; impressions: number; clicks: number; spend: number }>();
+    for (const d of daily) {
+      const wk = getWeekLabel(d.date);
+      const ex = weekMap.get(wk) ?? { leads: 0, impressions: 0, clicks: 0, spend: 0 };
+      ex.leads += d.leads; ex.impressions += d.impressions; ex.clicks += d.clicks; ex.spend += d.spend;
+      weekMap.set(wk, ex);
+    }
+    setWeeklyRows(Array.from(weekMap.entries()).map(([weekLabel, v]) => ({
+      weekLabel, ...v, cpl: v.leads > 0 ? v.spend / v.leads : 0,
+    })));
+
     setStats({ leads: leads.length, spend: totalSpend, impressions: totalImp, clicks: totalClk, reach: totalReach, landingPageViews: totalLpv, leadFormSubmissions: totalLfs });
     setSourceChart(srcDonut);
     setFormDonut(fDonut);
@@ -536,6 +630,31 @@ export default function OverviewPage() {
                 <span className="text-xs text-text-muted ml-auto">{campaignRank.length} campanhas · ordenado por leads</span>
               </div>
               <DataTable<CampaignRank> columns={rankColumns} data={campaignRank} rowKey="campaign_name" />
+            </div>
+          )}
+
+          {/* Resultados diários + semanais */}
+          {dailyRows.length > 0 && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="bg-card border border-border rounded-xl p-5">
+                <div className="flex items-center gap-2 mb-4">
+                  <CalendarDays size={14} className="text-blue" />
+                  <span className="text-sm font-semibold text-text-primary">Resultados por Dia</span>
+                  <span className="text-xs text-text-muted ml-auto">{dailyRows.length} dias</span>
+                </div>
+                <div className="max-h-[320px] overflow-y-auto">
+                  <DataTable<DailyRow> columns={dailyColumns} data={dailyRows} rowKey="date" />
+                </div>
+              </div>
+              {weeklyRows.length > 0 && (
+                <div className="bg-card border border-border rounded-xl p-5">
+                  <div className="flex items-center gap-2 mb-4">
+                    <CalendarRange size={14} className="text-gold" />
+                    <span className="text-sm font-semibold text-text-primary">Resultados por Semana</span>
+                  </div>
+                  <DataTable<WeeklyRow> columns={weeklyColumns} data={weeklyRows} rowKey="weekLabel" />
+                </div>
+              )}
             </div>
           )}
 
