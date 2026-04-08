@@ -6,9 +6,30 @@ import { validateWebhookSecret } from "@/lib/webhook-auth";
 // Configure in RD Station: Configurações → Integrações → Webhooks
 // URL: https://leads.pdgrowth.com.br/api/webhooks/rdstation?secret=YOUR_SECRET&client=SLUG
 //
-// Suporta dois formatos:
-// 1. Webhook de conversão RD Station (landing page / formulário RD)
-// 2. Meta Lead Ads integrado via RD Station
+// O payload do RD Station traz os UTMs em:
+// 1. last_conversion.conversion_origin → { source, medium, campaign, value, channel }
+// 2. last_conversion.content.traffic_source → base64 encoded com utm_source/medium/campaign/content/term
+// 3. Campos diretos no lead (formato mais antigo)
+
+// Decodifica o campo traffic_source do RD Station (base64 com UTMs completos)
+function decodeTrafficSource(ts: string): Record<string, string> {
+  if (!ts || !ts.startsWith("encoded_")) return {};
+  try {
+    const decoded = Buffer.from(ts.slice(8), "base64").toString("utf-8");
+    const parsed = JSON.parse(decoded);
+    // Pega current_session ou first_session
+    const sessionValue = parsed.current_session?.value ?? parsed.first_session?.value ?? "";
+    if (!sessionValue) return {};
+    const params = new URLSearchParams(sessionValue);
+    const result: Record<string, string> = {};
+    for (const [key, value] of Array.from(params.entries())) {
+      if (key.startsWith("utm_")) result[key] = value;
+    }
+    return result;
+  } catch {
+    return {};
+  }
+}
 
 export async function POST(req: NextRequest) {
   const secret = req.nextUrl.searchParams.get("secret");
@@ -25,14 +46,6 @@ export async function POST(req: NextRequest) {
 
   const clientSlug = req.nextUrl.searchParams.get("client") ?? "unknown";
 
-  // RD Station webhook payload (conversão):
-  // { leads: [{ id, email, name, personal_phone, company, ...
-  //            first_conversion: { content: { ... }, source: "...", utm_* },
-  //            last_conversion: { content: { ... }, source: "...", utm_* } }] }
-  //
-  // Pode vir também como objeto plano (formato mais antigo):
-  // { email, name, personal_phone, company, conversion_identifier, ... }
-
   const supabase = createServiceClient();
   const leads = body.leads ?? [body];
   let inserted = 0;
@@ -41,27 +54,43 @@ export async function POST(req: NextRequest) {
     const email = (lead.email ?? lead.lead_email ?? "").toLowerCase().trim();
     if (!email) continue;
 
-    // Pega UTMs da última conversão ou do topo do payload
+    // Pega a conversão mais recente
     const conv = lead.last_conversion ?? lead.first_conversion ?? lead;
-    const utmSource   = conv.utm_source   ?? conv.traffic_source ?? lead.utm_source   ?? null;
-    const utmMedium   = conv.utm_medium   ?? lead.utm_medium   ?? null;
-    const utmCampaign = conv.utm_campaign ?? lead.utm_campaign ?? null;
-    const utmContent  = conv.utm_content  ?? lead.utm_content  ?? null;
-    const utmTerm     = conv.utm_term     ?? lead.utm_term     ?? null;
+    const origin = conv.conversion_origin ?? {};
 
-    const conversionEvent = lead.conversion_identifier
+    // Decodifica traffic_source (tem UTMs completos incluindo utm_content e utm_term)
+    const trafficSource = conv.content?.traffic_source ?? conv.traffic_source ?? "";
+    const tsUtms = decodeTrafficSource(trafficSource);
+
+    // Prioridade: traffic_source decoded > conversion_origin > campos diretos
+    const utmSource   = tsUtms.utm_source   ?? origin.source   ?? conv.utm_source   ?? lead.utm_source   ?? null;
+    const utmMedium   = tsUtms.utm_medium   ?? origin.medium   ?? conv.utm_medium   ?? lead.utm_medium   ?? null;
+    const utmCampaign = tsUtms.utm_campaign ?? origin.campaign ?? conv.utm_campaign ?? lead.utm_campaign ?? null;
+    const utmContent  = tsUtms.utm_content  ?? origin.value    ?? conv.utm_content  ?? lead.utm_content  ?? null;
+    const utmTerm     = tsUtms.utm_term     ?? conv.utm_term   ?? lead.utm_term     ?? null;
+
+    // Normaliza source: "Facebook" → "facebook", "Google" → "google"
+    const normalizedSource = utmSource ? utmSource.toLowerCase() : null;
+    // Normaliza medium: ignora "unknown"
+    const normalizedMedium = utmMedium && utmMedium !== "unknown" ? utmMedium.toLowerCase() : null;
+
+    // Conversion identifier: conv.source (ex: "volformer-cotacao-lp") ou content.identificador
+    const conversionEvent = conv.content?.conversion_identifier
+      ?? conv.content?.identificador
+      ?? conv.source
+      ?? lead.conversion_identifier
       ?? conv.conversion_identifier
       ?? lead.identifier
-      ?? conv.content?.identifier
       ?? "unknown";
 
-    const landingPage = conv.content?.landing_page_url
+    const landingPage = conv.content?.conversion_url
+      ?? conv.content?.landing_page_url
       ?? conv.landing_page
       ?? lead.landing_page_url
       ?? null;
 
     // Detecta se veio de Meta Lead Form
-    const source = (utmSource ?? "").toLowerCase().includes("facebook") && conversionEvent.includes("lead_ad")
+    const source = (normalizedSource ?? "").includes("facebook") && conversionEvent.includes("lead_ad")
       ? "meta_leadform"
       : "rdstation";
 
@@ -72,7 +101,11 @@ export async function POST(req: NextRequest) {
 
     console.log("[rdstation]", {
       clientSlug, email, conversionEvent,
-      utm_medium: utmMedium,
+      utm_source: normalizedSource,
+      utm_medium: normalizedMedium,
+      utm_campaign: utmCampaign,
+      utm_content: utmContent,
+      utm_term: utmTerm,
       source,
     });
 
@@ -85,8 +118,8 @@ export async function POST(req: NextRequest) {
       lead_company:     lead.company ?? lead.company_name ?? null,
       conversion_event: conversionEvent,
       landing_page:     landingPage,
-      utm_source:       utmSource,
-      utm_medium:       utmMedium,
+      utm_source:       normalizedSource,
+      utm_medium:       normalizedMedium,
       utm_campaign:     utmCampaign,
       utm_content:      utmContent,
       utm_term:         utmTerm,
