@@ -218,8 +218,8 @@ async function googleAdsSearch(
     })
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}))
-      throw new Error(`Google Ads API ${res.status}: ${JSON.stringify(err)}`)
+      const errText = await res.text().catch(() => '')
+      throw new Error(`Google Ads API ${res.status}: ${errText}`)
     }
 
     const data = await res.json() as GoogleAdsSearchResponse
