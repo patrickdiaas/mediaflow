@@ -430,47 +430,61 @@ export async function syncGoogleAdsAccount(
     }
   })
 
-  // ── Palavras-chave ────────────────────────────────────────────────────────────
-  const keywords: MappedKeywordDay[] = keywordRows
-    .filter(r => r.adGroupCriterion?.keyword?.text)
-    .map(r => ({
-      client_slug:   clientSlug,
-      platform:      'google',
-      campaign_id:   r.campaign?.id ?? '',
-      campaign_name: r.campaign?.name ?? '',
-      ad_group_id:   r.adGroup?.id ?? '',
-      ad_group_name: r.adGroup?.name ?? '',
-      keyword_id:    r.adGroupCriterion?.criterionId ?? '',
-      keyword_text:  r.adGroupCriterion?.keyword?.text ?? '',
-      match_type:    r.adGroupCriterion?.keyword?.matchType ?? '',
-      status:        r.adGroupCriterion?.status ?? '',
-      date:          r.segments?.date ?? '',
-      impressions:   toInt(r.metrics?.impressions),
-      clicks:        toInt(r.metrics?.clicks),
-      spend:         microsToReal(r.metrics?.costMicros),
-      conversions:   parseFloat(r.metrics?.conversions ?? '0'),
-    }))
+  // ── Palavras-chave (deduplica por client_slug+keyword_id+date) ───────────────
+  const kwMap = new Map<string, MappedKeywordDay>()
+  for (const r of keywordRows) {
+    if (!r.adGroupCriterion?.keyword?.text) continue
+    const kwId = r.adGroupCriterion?.criterionId ?? ''
+    const date = r.segments?.date ?? ''
+    const key = `${kwId}:${date}`
+    const ex = kwMap.get(key)
+    if (ex) {
+      ex.impressions += toInt(r.metrics?.impressions)
+      ex.clicks      += toInt(r.metrics?.clicks)
+      ex.spend       += microsToReal(r.metrics?.costMicros)
+      ex.conversions += parseFloat(r.metrics?.conversions ?? '0')
+    } else {
+      kwMap.set(key, {
+        client_slug: clientSlug, platform: 'google',
+        campaign_id: r.campaign?.id ?? '', campaign_name: r.campaign?.name ?? '',
+        ad_group_id: r.adGroup?.id ?? '', ad_group_name: r.adGroup?.name ?? '',
+        keyword_id: kwId, keyword_text: r.adGroupCriterion?.keyword?.text ?? '',
+        match_type: r.adGroupCriterion?.keyword?.matchType ?? '',
+        status: r.adGroupCriterion?.status ?? '', date,
+        impressions: toInt(r.metrics?.impressions), clicks: toInt(r.metrics?.clicks),
+        spend: microsToReal(r.metrics?.costMicros), conversions: parseFloat(r.metrics?.conversions ?? '0'),
+      })
+    }
+  }
+  const keywords = Array.from(kwMap.values())
 
-  // ── Termos de pesquisa ────────────────────────────────────────────────────────
-  const searchTerms: MappedSearchTermDay[] = searchTermRows
-    .filter(r => r.searchTermView?.searchTerm)
-    .map(r => ({
-      client_slug:   clientSlug,
-      platform:      'google',
-      campaign_id:   r.campaign?.id ?? '',
-      campaign_name: r.campaign?.name ?? '',
-      ad_group_id:   r.adGroup?.id ?? '',
-      ad_group_name: r.adGroup?.name ?? '',
-      keyword_id:    '',
-      keyword_text:  '',
-      search_term:   r.searchTermView?.searchTerm ?? '',
-      match_type:    '',
-      date:          r.segments?.date ?? '',
-      impressions:   toInt(r.metrics?.impressions),
-      clicks:        toInt(r.metrics?.clicks),
-      spend:         microsToReal(r.metrics?.costMicros),
-      conversions:   parseFloat(r.metrics?.conversions ?? '0'),
-    }))
+  // ── Termos de pesquisa (deduplica por campaign+adgroup+term+date) ────────────
+  const stMap = new Map<string, MappedSearchTermDay>()
+  for (const r of searchTermRows) {
+    if (!r.searchTermView?.searchTerm) continue
+    const term = r.searchTermView.searchTerm
+    const campId = r.campaign?.id ?? ''
+    const agId = r.adGroup?.id ?? ''
+    const date = r.segments?.date ?? ''
+    const key = `${campId}:${agId}:${term}:${date}`
+    const ex = stMap.get(key)
+    if (ex) {
+      ex.impressions += toInt(r.metrics?.impressions)
+      ex.clicks      += toInt(r.metrics?.clicks)
+      ex.spend       += microsToReal(r.metrics?.costMicros)
+      ex.conversions += parseFloat(r.metrics?.conversions ?? '0')
+    } else {
+      stMap.set(key, {
+        client_slug: clientSlug, platform: 'google',
+        campaign_id: campId, campaign_name: r.campaign?.name ?? '',
+        ad_group_id: agId, ad_group_name: r.adGroup?.name ?? '',
+        keyword_id: '', keyword_text: '', search_term: term, match_type: '', date,
+        impressions: toInt(r.metrics?.impressions), clicks: toInt(r.metrics?.clicks),
+        spend: microsToReal(r.metrics?.costMicros), conversions: parseFloat(r.metrics?.conversions ?? '0'),
+      })
+    }
+  }
+  const searchTerms = Array.from(stMap.values())
 
   return { campaigns, adSets, ads, keywords, searchTerms }
 }
