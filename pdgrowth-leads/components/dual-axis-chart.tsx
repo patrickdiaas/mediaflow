@@ -15,7 +15,7 @@ const CustomTooltip = ({ active, payload, label }: any) => {
           <span className="w-2 h-2 rounded-full flex-shrink-0" style={{ background: p.color }} />
           <span className="text-text-secondary">{p.name}:</span>
           <span className="text-text-primary font-mono font-semibold">
-            {p.dataKey === "leads" ? p.value : `R$ ${Number(p.value).toLocaleString("pt-BR")}`}
+            {p.dataKey === "leads" ? p.value : `R$ ${Number(p.value).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
           </span>
         </div>
       ))}
@@ -23,7 +23,12 @@ const CustomTooltip = ({ active, payload, label }: any) => {
   );
 };
 
-export default function DualAxisChart({ data }: { data: TrendPoint[] }) {
+interface Props {
+  data: TrendPoint[];
+  showCpl?: boolean;
+}
+
+export default function DualAxisChart({ data, showCpl = false }: Props) {
   return (
     <div className="bg-card border border-border rounded-xl p-5">
       <div className="flex items-center justify-between mb-5">
@@ -35,6 +40,11 @@ export default function DualAxisChart({ data }: { data: TrendPoint[] }) {
           <span className="flex items-center gap-1.5">
             <span className="w-3 h-0.5 bg-red inline-block" /> Investimento
           </span>
+          {showCpl && (
+            <span className="flex items-center gap-1.5">
+              <span className="w-3 h-0.5 bg-gold inline-block" /> CPL
+            </span>
+          )}
         </div>
       </div>
       <ResponsiveContainer width="100%" height={260}>
@@ -81,6 +91,19 @@ export default function DualAxisChart({ data }: { data: TrendPoint[] }) {
             dot={false}
             activeDot={{ r: 4, fill: "#EF4444" }}
           />
+          {showCpl && (
+            <Line
+              yAxisId="right"
+              type="monotone"
+              dataKey="cpl"
+              name="CPL"
+              stroke="#F59E0B"
+              strokeWidth={2}
+              strokeDasharray="5 5"
+              dot={false}
+              activeDot={{ r: 4, fill: "#F59E0B" }}
+            />
+          )}
         </ComposedChart>
       </ResponsiveContainer>
     </div>
