@@ -125,103 +125,184 @@ export async function POST(req: NextRequest) {
       .map(c => ({ ...c, ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0, cpl: c.leads > 0 ? c.spend / c.leads : null }))
       .filter(c => c.leads > 0).sort((a, b) => b.leads - a.leads).slice(0, 5);
 
-    // Keywords
+    // Keywords by campaign
     const { data: kwData } = await supabase
-      .from("keywords").select("keyword_text, campaign_name, impressions, clicks, spend, conversions")
+      .from("keywords").select("keyword_text, campaign_name, match_type, impressions, clicks, spend, conversions")
       .eq("client_slug", client).gte("date", dateSince).lte("date", dateUntil);
-    const kwAgg = new Map<string, { campaign: string; clicks: number; spend: number; conversions: number }>();
+    const kwByCampaign = new Map<string, { text: string; matchType: string; clicks: number; spend: number; conversions: number }[]>();
+    const kwAgg = new Map<string, { campaign: string; matchType: string; clicks: number; spend: number; conversions: number }>();
     for (const k of (kwData ?? [])) {
       if (!k.keyword_text) continue;
-      const e = kwAgg.get(k.keyword_text) ?? { campaign: k.campaign_name ?? "", clicks: 0, spend: 0, conversions: 0 };
+      const camp = k.campaign_name ?? "";
+      if (!kwByCampaign.has(camp)) kwByCampaign.set(camp, []);
+      // aggregate per keyword
+      const e = kwAgg.get(k.keyword_text) ?? { campaign: camp, matchType: k.match_type ?? "", clicks: 0, spend: 0, conversions: 0 };
       e.clicks += Number(k.clicks); e.spend += Number(k.spend ?? 0); e.conversions += Number(k.conversions ?? 0);
       kwAgg.set(k.keyword_text, e);
     }
-    const topKw = Array.from(kwAgg.entries()).map(([text, v]) => ({ text, ...v })).sort((a, b) => b.conversions - a.conversions || b.clicks - a.clicks).slice(0, 10);
+    const topKw = Array.from(kwAgg.entries()).map(([text, v]) => ({ text, ...v })).sort((a, b) => b.conversions - a.conversions || b.clicks - a.clicks).slice(0, 15);
 
-    // ── Build KPIs summary ───────────────────────────────────────────────────
+    // Search terms
+    const { data: stData } = await supabase
+      .from("search_terms").select("search_term, campaign_name, impressions, clicks, spend, conversions")
+      .eq("client_slug", client).gte("date", dateSince).lte("date", dateUntil);
+    const stAgg = new Map<string, { campaign: string; clicks: number; spend: number; conversions: number }>();
+    for (const s of (stData ?? [])) {
+      if (!s.search_term) continue;
+      const e = stAgg.get(s.search_term) ?? { campaign: s.campaign_name ?? "", clicks: 0, spend: 0, conversions: 0 };
+      e.clicks += Number(s.clicks); e.spend += Number(s.spend ?? 0); e.conversions += Number(s.conversions ?? 0);
+      stAgg.set(s.search_term, e);
+    }
+    const topSt = Array.from(stAgg.entries()).map(([term, v]) => ({ term, ...v })).sort((a, b) => b.conversions - a.conversions || b.clicks - a.clicks).slice(0, 15);
+
+    // Placements
+    const { data: plcData } = await supabase
+      .from("ad_placements").select("placement, impressions, clicks, spend, conversions")
+      .eq("client_slug", client).gte("date", dateSince).lte("date", dateUntil);
+    const plcAgg = new Map<string, { impressions: number; clicks: number; spend: number; conversions: number }>();
+    for (const p of (plcData ?? [])) {
+      const e = plcAgg.get(p.placement) ?? { impressions: 0, clicks: 0, spend: 0, conversions: 0 };
+      e.impressions += Number(p.impressions); e.clicks += Number(p.clicks); e.spend += Number(p.spend); e.conversions += Number(p.conversions ?? 0);
+      plcAgg.set(p.placement, e);
+    }
+    const topPlacements = Array.from(plcAgg.entries()).map(([name, v]) => ({ name, ...v })).sort((a, b) => b.conversions - a.conversions).slice(0, 6);
+
+    // Criativos agrupados por campanha
+    const creativesByCampaign = new Map<string, typeof topCreatives>();
+    const allCreatives = Array.from(creativeAgg.values())
+      .map(c => ({ ...c, ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0, cpl: c.leads > 0 ? c.spend / c.leads : null }))
+      .sort((a, b) => b.leads - a.leads);
+    for (const c of allCreatives) {
+      if (!creativesByCampaign.has(c.campaign)) creativesByCampaign.set(c.campaign, []);
+      const arr = creativesByCampaign.get(c.campaign)!;
+      if (arr.length < 3) arr.push(c);
+    }
+
+    // Formulários por campanha
+    const formsByCampaign = new Map<string, Map<string, number>>();
+    for (const l of leads) {
+      const camp = l.utm_campaign ?? "(sem campanha)";
+      const form = l.conversion_event ?? "desconhecido";
+      if (!formsByCampaign.has(camp)) formsByCampaign.set(camp, new Map());
+      const fMap = formsByCampaign.get(camp)!;
+      fMap.set(form, (fMap.get(form) ?? 0) + 1);
+    }
+
+    // ── Build KPIs ───────────────────────────────────────────────────────────
+    const metaSpend = campaignRows.filter(c => c.platform === "meta").reduce((s, c) => s + c.spend, 0);
+    const googleSpend = campaignRows.filter(c => c.platform === "google").reduce((s, c) => s + c.spend, 0);
+    const metaCpl = metaLeads.length > 0 && metaSpend > 0 ? metaSpend / metaLeads.length : 0;
+    const googleCpl = googleLeads.length > 0 && googleSpend > 0 ? googleSpend / googleLeads.length : 0;
+
     const kpis = {
       leads: leads.length,
       metaLeads: metaLeads.length,
       googleLeads: googleLeads.length,
       spend: totalSpend,
+      metaSpend,
+      googleSpend,
       cpl: overallCpl,
+      metaCpl,
+      googleCpl,
       impressions: totalImpressions,
       clicks: totalClicks,
       ctr: overallCtr,
     };
 
-    // ── Build context for Claude ─────────────────────────────────────────────
+    // ── Build context ────────────────────────────────────────────────────────
     const periodLabel = `${new Date(period_from).toLocaleDateString("pt-BR")} a ${new Date(period_to).toLocaleDateString("pt-BR")}`;
     const typeLabel = reportType === "semanal" ? "Semanal" : reportType === "quinzenal" ? "Quinzenal" : "Mensal";
 
-    const context = `
-RELATÓRIO ${typeLabel.toUpperCase()} — ${periodLabel}
+    const metaCampaigns = campaignRows.filter(c => c.platform === "meta");
+    const googleCampaigns = campaignRows.filter(c => c.platform === "google");
 
-KPIs:
-- Leads gerados: ${leads.length} (Meta: ${metaLeads.length} | Google: ${googleLeads.length})
-- Investimento: R$ ${fmt(totalSpend)}
-- CPL geral: ${overallCpl > 0 ? `R$ ${fmt(overallCpl)}` : "—"}
-- Impressões: ${fmtInt(totalImpressions)}
-- Cliques: ${fmtInt(totalClicks)}
-- CTR: ${overallCtr.toFixed(2)}%
-
-CAMPANHAS:
-${campaignRows.filter(c => c.leads > 0 || c.spend > 100).map(c => {
-  return `  • [${c.platform.toUpperCase()}] ${c.name} | R$${fmt(c.spend)} | ${fmtInt(c.impressions)} impr | ${c.leads} leads${c.cpl ? ` | CPL R$${fmt(c.cpl)}` : ""}`;
-}).join("\n")}
-
-TOP CRIATIVOS:
-${topCreatives.map((c, i) => `  ${i + 1}. [${c.platform.toUpperCase()}] ${c.name} | ${c.leads} leads | CTR ${c.ctr.toFixed(2)}%${c.cpl ? ` | CPL R$${fmt(c.cpl)}` : ""}`).join("\n") || "  Sem dados suficientes"}
-
-FORMULÁRIOS:
-${topForms.map(([f, n]) => `  • ${f}: ${n} leads`).join("\n")}
-
-${topKw.length > 0 ? `TOP PALAVRAS-CHAVE GOOGLE:\n${topKw.map((k, i) => `  ${i + 1}. "${k.text}" | ${k.clicks} cliques | ${k.conversions.toFixed(0)} conv | R$${fmt(k.spend)}`).join("\n")}` : ""}
+    const overviewContext = `
+OVERVIEW GERAL — ${periodLabel}
+- Total leads: ${leads.length} | Investimento: R$ ${fmt(totalSpend)} | CPL: ${overallCpl > 0 ? `R$ ${fmt(overallCpl)}` : "—"}
+- Meta Ads: ${metaLeads.length} leads | R$ ${fmt(metaSpend)} investido | CPL ${metaCpl > 0 ? `R$ ${fmt(metaCpl)}` : "—"}
+- Google Ads: ${googleLeads.length} leads | R$ ${fmt(googleSpend)} investido | CPL ${googleCpl > 0 ? `R$ ${fmt(googleCpl)}` : "—"}
+- Impressões: ${fmtInt(totalImpressions)} | Cliques: ${fmtInt(totalClicks)} | CTR: ${overallCtr.toFixed(2)}%
+- Formulários: ${topForms.map(([f, n]) => `${f} (${n})`).join(", ")}
 `.trim();
 
-    // ── Claude prompt for report ─────────────────────────────────────────────
-    const systemPrompt = `Você é o responsável por redigir relatórios de performance de mídia paga para uma equipe de marketing de uma agência. O relatório será enviado para a equipe de criação, comercial e gestores.
+    const metaDetailContext = metaCampaigns.length > 0 ? `
+META ADS — DETALHAMENTO POR CAMPANHA:
+${metaCampaigns.filter(c => c.leads > 0 || c.spend > 50).map(c => {
+  const creatives = creativesByCampaign.get(c.name) ?? [];
+  const forms = formsByCampaign.get(c.name);
+  const formsStr = forms ? Array.from(forms.entries()).sort((a, b) => b[1] - a[1]).map(([f, n]) => `${f}(${n})`).join(", ") : "";
+  return [
+    `  CAMPANHA: ${c.name}`,
+    `    Gasto: R$${fmt(c.spend)} | Impressões: ${fmtInt(c.impressions)} | Cliques: ${fmtInt(c.clicks)} | CTR: ${c.ctr.toFixed(2)}%`,
+    `    Leads: ${c.leads}${c.cpl ? ` | CPL: R$${fmt(c.cpl)}` : ""}`,
+    formsStr ? `    Formulários: ${formsStr}` : "",
+    creatives.length > 0 ? `    Criativos:\n${creatives.map(cr => `      - ${cr.name} | ${cr.leads} leads | CTR ${cr.ctr.toFixed(2)}%${cr.cpl ? ` | CPL R$${fmt(cr.cpl)}` : ""}`).join("\n")}` : "",
+  ].filter(Boolean).join("\n");
+}).join("\n\n")}
+${topPlacements.length > 0 ? `\n  POSICIONAMENTOS:\n${topPlacements.map(p => `    ${p.name}: ${p.conversions} conv | ${fmtInt(p.clicks)} cliques | R$${fmt(p.spend)}`).join("\n")}` : ""}
+`.trim() : "";
 
-REGRAS:
-- Linguagem profissional mas acessível — a equipe de criação não é especialista em mídia paga
-- Foco em RESULTADOS e PRÓXIMOS PASSOS, não em diagnóstico técnico
-- Use números para embasar, mas explique o que significam
-- Destaque vitórias (campanhas que performaram bem) antes dos problemas
-- Sugestões de criativos devem ser específicas e acionáveis para o time de criação
-- Termine com ações claras divididas por responsável (tráfego, criação, comercial)
-- Tom motivacional mas realista`;
+    const googleDetailContext = googleCampaigns.length > 0 ? `
+GOOGLE ADS — DETALHAMENTO POR CAMPANHA:
+${googleCampaigns.filter(c => c.leads > 0 || c.spend > 50).map(c => {
+  return [
+    `  CAMPANHA: ${c.name}`,
+    `    Gasto: R$${fmt(c.spend)} | Impressões: ${fmtInt(c.impressions)} | Cliques: ${fmtInt(c.clicks)} | CTR: ${c.ctr.toFixed(2)}%`,
+    `    Leads: ${c.leads}${c.cpl ? ` | CPL: R$${fmt(c.cpl)}` : ""}`,
+  ].join("\n");
+}).join("\n\n")}
 
-    const userPrompt = `Gere um relatório ${typeLabel.toLowerCase()} de performance para enviar à equipe. Período: ${periodLabel}.
+  TOP PALAVRAS-CHAVE:
+${topKw.slice(0, 10).map((k, i) => `    ${i + 1}. "${k.text}" [${k.matchType}] | ${k.clicks} cliques | ${k.conversions.toFixed(0)} conv | CPC R$${k.clicks > 0 ? fmt(k.spend / k.clicks) : "—"}`).join("\n")}
+
+  TOP TERMOS DE PESQUISA (o que as pessoas realmente digitam):
+${topSt.slice(0, 10).map((s, i) => `    ${i + 1}. "${s.term}" | ${s.clicks} cliques | ${s.conversions.toFixed(0)} conv`).join("\n")}
+`.trim() : "";
+
+    const context = [overviewContext, metaDetailContext, googleDetailContext].filter(Boolean).join("\n\n");
+
+    // ── Claude prompt ────────────────────────────────────────────────────────
+    const systemPrompt = `Você é o responsável por redigir relatórios de performance de mídia paga para uma agência de marketing. O relatório será compartilhado com a equipe (criação, comercial e gestores).
+
+REGRAS CRÍTICAS:
+- USE APENAS os dados fornecidos. NUNCA invente números, metas ou projeções que não estejam nos dados.
+- O relatório deve começar com DADOS e NÚMEROS, depois análise e recomendações.
+- Linguagem profissional mas acessível para quem não é especialista em tráfego.
+- Destaque vitórias antes de problemas.
+- Sugestões de criativos devem ser específicas e acionáveis.
+- NÃO crie metas ou benchmarks fictícios. Só compare dados que existem.`;
+
+    const userPrompt = `Gere um relatório ${typeLabel.toLowerCase()} de performance. Período: ${periodLabel}.
 
 DADOS:
 ${context}
 
 Escreva o relatório EXATAMENTE neste formato:
 
-**1. Resultados do Período**
-Resumo executivo dos resultados: quantos leads geramos, quanto investimos, qual o CPL. Compare Meta vs Google. Destaque o que foi positivo.
+**1. Overview do Período**
+Números gerais: total de leads, investimento, CPL. Quebre por plataforma (Meta vs Google) com leads, investimento e CPL de cada. Liste os formulários que mais receberam leads. Seja direto com os números.
 
-**2. Destaques de Campanhas**
-As campanhas que mais geraram leads e com melhor CPL. Para cada uma, explique em 1 frase o que está funcionando. Mencione também campanhas que precisam de atenção.
+**2. Meta Ads — Resultados por Campanha**
+${metaCampaigns.length > 0 ? "Para CADA campanha Meta, apresente: investimento, leads, CPL, CTR. Abaixo de cada campanha, liste os criativos que geraram leads com seus números. Mencione posicionamentos que mais converteram (Feed, Stories, Reels). Se uma campanha gerou leads em formulários de outros produtos, destaque isso." : "Sem campanhas Meta no período."}
 
-**3. Performance de Criativos**
-Quais criativos/anúncios geraram mais leads? Qual padrão de comunicação está funcionando? O que a equipe de criação deve saber sobre o que converte.
+**3. Google Ads — Resultados por Campanha**
+${googleCampaigns.length > 0 ? "Para CADA campanha Google, apresente: investimento, leads, CPL, CTR. Liste as top palavras-chave com cliques e conversões. Liste os termos de pesquisa mais relevantes — o que as pessoas realmente digitaram. Destaque termos com alta conversão e termos que gastam sem converter." : "Sem campanhas Google no período."}
 
-**4. Recomendações de Novos Criativos**
-Liste 3-4 sugestões de criativos para a equipe produzir na próxima ${reportType === "semanal" ? "semana" : reportType === "quinzenal" ? "quinzena" : "mês"}. Para cada:
+**4. Destaques e Pontos de Atenção**
+O que funcionou bem no período? O que precisa de atenção? Quais campanhas/criativos devem ser escalados e quais devem ser revisados? Use os dados para justificar.
+
+**5. Recomendações de Criativos**
+Baseado nos criativos que mais converteram, sugira 3-4 novos criativos para o time de criação produzir:
 - Formato (vídeo/imagem/carrossel)
-- Conceito e mensagem principal
-- Referência: qual criativo atual inspirou essa sugestão
-- Plataforma alvo (Meta/Google/ambas)
-
-**5. Palavras-chave e Busca (Google)**
-${topKw.length > 0 ? "Quais termos as pessoas estão buscando? O que isso revela sobre a intenção do público? Algum ajuste necessário?" : "Sem dados de Google Ads no período."}
+- Conceito e mensagem
+- Qual criativo atual serve de referência
+- Para qual plataforma (Meta/Google)
 
 **6. Próximos Passos**
-Divida as ações por área:
-- **Tráfego**: ajustes de campanha, budget, segmentação
-- **Criação**: novos criativos a produzir, ajustes de copy/visual
-- **Comercial**: insights sobre os leads que podem ajudar no atendimento`;
+Ações divididas por área:
+- **Tráfego**: ajustes de campanha, orçamento, segmentação, palavras-chave
+- **Criação**: novos criativos, ajustes de copy/visual
+- **Comercial**: perfil dos leads, como abordar, insights para atendimento`;
 
     const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",

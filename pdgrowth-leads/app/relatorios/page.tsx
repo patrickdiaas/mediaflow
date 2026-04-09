@@ -96,11 +96,11 @@ function SectionCard({ icon: Icon, color, title, children }: { icon: React.Eleme
 }
 
 const SECTION_CONFIG: Record<string, { icon: React.ElementType; color: string; title: string }> = {
-  "1": { icon: TrendingUp,  color: "bg-accent/5 text-accent", title: "Resultados do Período" },
-  "2": { icon: Megaphone,   color: "bg-blue/5 text-blue",     title: "Destaques de Campanhas" },
-  "3": { icon: Image,       color: "bg-gold/5 text-gold",     title: "Performance de Criativos" },
-  "4": { icon: Sparkles,    color: "bg-accent/5 text-accent", title: "Recomendações de Criativos" },
-  "5": { icon: Target,      color: "bg-blue/5 text-blue",     title: "Palavras-chave e Busca" },
+  "1": { icon: TrendingUp,  color: "bg-accent/5 text-accent", title: "Overview do Período" },
+  "2": { icon: Megaphone,   color: "bg-blue/5 text-blue",     title: "Meta Ads — Campanhas" },
+  "3": { icon: Target,      color: "bg-gold/5 text-gold",     title: "Google Ads — Campanhas" },
+  "4": { icon: Sparkles,    color: "bg-accent/5 text-accent", title: "Destaques e Pontos de Atenção" },
+  "5": { icon: Image,       color: "bg-blue/5 text-blue",     title: "Recomendações de Criativos" },
   "6": { icon: Users,       color: "bg-gold/5 text-gold",     title: "Próximos Passos" },
 };
 
