@@ -120,15 +120,19 @@ function SectionCard({
 // ─── Parse analysis into named sections ───────────────────────────────────────
 function parseSections(text: string) {
   const sections: Record<string, string> = {};
-  const parts = text.split(/\n(?=\*\*\d+\.\s)/);
+  // Match various heading formats: **1. Title**, ## 1. Title, **1.Title**, etc.
+  const parts = text.split(/\n(?=\*\*\d+[\.\)]\s|\#{1,3}\s*\d+[\.\)]\s)/);
   for (const part of parts) {
-    const titleMatch = part.match(/^\*\*(\d+)\.\s+(.+?)\*\*/);
+    const titleMatch = part.match(/^(?:\*\*|\#{1,3}\s*)(\d+)[\.\)]\s+(.+?)(?:\*\*|$)/m);
     if (titleMatch) {
       sections[titleMatch[1]] = part;
-    } else {
+    } else if (!sections["0"]) {
       sections["0"] = part;
     }
   }
+  // Fallback: if we found fewer than 3 sections, return null to show full text
+  const numSections = Object.keys(sections).filter(k => k !== "0").length;
+  if (numSections < 3) return null;
   return sections;
 }
 
@@ -253,17 +257,25 @@ export default function AnalisesPage() {
 
     const pLabel: Record<string, string> = {
       today: "Hoje", yesterday: "Ontem",
-      "7d": "Últimos 7 dias", "30d": "Últimos 30 dias",
-      "90d": "Últimos 90 dias", mtd: "Mês atual",
+      last7: "Últimos 7 dias", last30: "Últimos 30 dias",
+      last90: "Últimos 90 dias", thisMonth: "Este mês", lastMonth: "Mês passado",
     };
+
+    const clientName = client === "all" ? "Todas as contas" : client;
+    const periodName = pLabel[period] ?? period;
 
     function mdToHtml(text: string): string {
       return text
         .split("\n")
         .map(line => {
-          if (!line.trim()) return "<br/>";
-          const headerMatch = line.trim().match(/^\*\*(\d+\.\s+.+?)\*\*$/);
+          if (!line.trim()) return "<div style='height:8px'></div>";
+          // Section headers: **1. Title** or ## 1. Title
+          const headerMatch = line.trim().match(/^(?:\*\*|\#{1,3}\s*)(\d+[\.\)]\s+.+?)(?:\*\*|$)/);
           if (headerMatch) return `<h2>${headerMatch[1]}</h2>`;
+          // Sub-headers: **Bold text**
+          const subMatch = line.trim().match(/^\*\*(.+?)\*\*$/);
+          if (subMatch) return `<h3>${subMatch[1]}</h3>`;
+          // Bullet points
           if (/^[-*]\s+/.test(line)) {
             return `<li>${line.replace(/^[-*]\s+/, "").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")}</li>`;
           }
@@ -273,35 +285,70 @@ export default function AnalisesPage() {
     }
 
     const followUpHtml = followUps.length > 0
-      ? `<hr/><h1>Perguntas de Aprofundamento</h1>` +
+      ? `<div class="section-break"></div><h2>Perguntas de Aprofundamento</h2>` +
         followUps.map(f =>
-          `<div class="question"><strong>Pergunta:</strong> ${f.question}</div>${mdToHtml(f.answer)}`
-        ).join("<hr/>")
+          `<div class="question"><span class="q-label">Pergunta:</span> ${f.question}</div>${mdToHtml(f.answer)}`
+        ).join('<div class="section-break"></div>')
       : "";
 
     const html = `<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
   <meta charset="utf-8"/>
-  <title>Análise — ${client}</title>
+  <title>Relatório de Performance — ${clientName}</title>
   <style>
-    body { font-family: system-ui, -apple-system, sans-serif; max-width: 820px; margin: 40px auto; color: #111; font-size: 13px; line-height: 1.65; }
-    h1 { font-size: 20px; margin: 0 0 4px; }
-    h2 { font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.06em; border-bottom: 1px solid #ddd; padding-bottom: 5px; margin: 28px 0 10px; color: #333; }
-    p { margin: 4px 0; }
-    li { margin: 3px 0 3px 18px; }
-    strong { font-weight: 600; }
-    .meta { color: #666; font-size: 11px; margin-bottom: 32px; }
-    .question { background: #f5f5f5; padding: 8px 12px; border-radius: 4px; margin: 20px 0 10px; font-size: 13px; }
-    hr { border: none; border-top: 1px solid #eee; margin: 32px 0; }
-    @media print { body { margin: 20mm; } }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; max-width: 860px; margin: 0 auto; color: #1a1a2e; font-size: 13px; line-height: 1.7; padding: 40px 32px; }
+
+    /* Header */
+    .header { border-bottom: 3px solid #CAFF04; padding-bottom: 20px; margin-bottom: 32px; }
+    .header-brand { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
+    .header-logo { width: 36px; height: 36px; border-radius: 8px; background: #0a0a0c; display: flex; align-items: center; justify-content: center; color: #CAFF04; font-weight: 900; font-size: 14px; }
+    .header-title { font-size: 22px; font-weight: 700; color: #0a0a0c; }
+    .header-meta { font-size: 12px; color: #666; margin-top: 4px; }
+    .header-meta span { display: inline-block; margin-right: 16px; }
+
+    /* Sections */
+    h2 { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #0a0a0c; border-left: 4px solid #CAFF04; padding-left: 12px; margin: 32px 0 14px; }
+    h3 { font-size: 13px; font-weight: 700; color: #333; margin: 18px 0 8px; }
+    p { margin: 5px 0; color: #333; }
+    li { margin: 4px 0 4px 24px; color: #333; }
+    strong { font-weight: 600; color: #0a0a0c; }
+
+    /* Question blocks */
+    .question { background: #f8f9fa; border-left: 3px solid #CAFF04; padding: 10px 16px; border-radius: 0 6px 6px 0; margin: 20px 0 12px; font-size: 13px; }
+    .q-label { font-weight: 700; color: #CAFF04; }
+
+    .section-break { border-top: 1px solid #e5e7eb; margin: 28px 0; }
+
+    /* Footer */
+    .footer { margin-top: 48px; padding-top: 16px; border-top: 2px solid #f0f0f0; font-size: 10px; color: #999; display: flex; justify-content: space-between; }
+
+    @media print {
+      body { padding: 16mm; font-size: 11px; }
+      h2 { break-after: avoid; }
+      .header { break-after: avoid; }
+    }
   </style>
 </head>
 <body>
-  <h1>Análise de Performance</h1>
-  <div class="meta">${pLabel[period] ?? period} · Cliente: ${client} · ${new Date().toLocaleString("pt-BR")}</div>
+  <div class="header">
+    <div class="header-brand">
+      <div class="header-logo">PD</div>
+      <div class="header-title">Relatório de Performance</div>
+    </div>
+    <div class="header-meta">
+      <span>Cliente: <strong>${clientName}</strong></span>
+      <span>Período: <strong>${periodName}</strong></span>
+      <span>Gerado: ${new Date().toLocaleString("pt-BR")}</span>
+    </div>
+  </div>
   ${mdToHtml(analysis)}
   ${followUpHtml}
+  <div class="footer">
+    <span>PD Growth // leads.pdgrowth.com.br</span>
+    <span>Análise gerada por IA — Claude Sonnet 4.6</span>
+  </div>
 </body>
 </html>`;
 
@@ -402,19 +449,25 @@ export default function AnalisesPage() {
         )}
 
         {/* Analysis sections */}
-        {sections && !loading && (
+        {analysis && !loading && (
           <div className="space-y-4">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-              {Object.entries(SECTION_CONFIG).map(([num, cfg]) => {
-                const content = sections[num];
-                if (!content) return null;
-                return (
-                  <SectionCard key={num} icon={cfg.icon} color={cfg.color} title={cfg.title}>
-                    {renderMarkdown(content.replace(/^\*\*\d+\.\s+.+?\*\*\n?/, ""))}
-                  </SectionCard>
-                );
-              })}
-            </div>
+            {sections ? (
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {Object.entries(SECTION_CONFIG).map(([num, cfg]) => {
+                  const content = sections[num];
+                  if (!content) return null;
+                  return (
+                    <SectionCard key={num} icon={cfg.icon} color={cfg.color} title={cfg.title}>
+                      {renderMarkdown(content.replace(/^(?:\*\*|\#{1,3}\s*)\d+[\.\)]\s+.+?(?:\*\*|\n)/, ""))}
+                    </SectionCard>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="bg-card border border-border rounded-xl p-6">
+                {renderMarkdown(analysis)}
+              </div>
+            )}
 
             {/* Follow-up chat */}
             <div ref={followUpRef} className="bg-card border border-border rounded-xl overflow-hidden">
