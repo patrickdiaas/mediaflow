@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
 
-export const maxDuration = 300; // 5 min — requires Vercel Pro plan
+export const maxDuration = 60; // Vercel free plan limit
 
 function fmt(n: number) {
   return n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -140,7 +140,7 @@ export async function POST(req: NextRequest) {
       e.clicks += Number(k.clicks); e.spend += Number(k.spend ?? 0); e.conversions += Number(k.conversions ?? 0);
       kwAgg.set(k.keyword_text, e);
     }
-    const topKw = Array.from(kwAgg.entries()).map(([text, v]) => ({ text, ...v })).sort((a, b) => b.conversions - a.conversions || b.clicks - a.clicks).slice(0, 15);
+    const topKw = Array.from(kwAgg.entries()).map(([text, v]) => ({ text, ...v })).sort((a, b) => b.conversions - a.conversions || b.clicks - a.clicks).slice(0, 10);
 
     // Search terms
     const { data: stData } = await supabase
@@ -153,7 +153,7 @@ export async function POST(req: NextRequest) {
       e.clicks += Number(s.clicks); e.spend += Number(s.spend ?? 0); e.conversions += Number(s.conversions ?? 0);
       stAgg.set(s.search_term, e);
     }
-    const topSt = Array.from(stAgg.entries()).map(([term, v]) => ({ term, ...v })).sort((a, b) => b.conversions - a.conversions || b.clicks - a.clicks).slice(0, 15);
+    const topSt = Array.from(stAgg.entries()).map(([term, v]) => ({ term, ...v })).sort((a, b) => b.conversions - a.conversions || b.clicks - a.clicks).slice(0, 10);
 
     // Placements
     const { data: plcData } = await supabase
@@ -312,7 +312,7 @@ Ações divididas por área:
     const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": anthropicKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 10000, system: systemPrompt, messages: [{ role: "user", content: userPrompt }] }),
+      body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 7000, system: systemPrompt, messages: [{ role: "user", content: userPrompt }] }),
     });
 
     if (!claudeRes.ok) {
