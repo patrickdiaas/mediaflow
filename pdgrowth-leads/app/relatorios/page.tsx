@@ -135,11 +135,15 @@ export default function RelatoriosPage() {
     const { since, until } = getPeriodDates(period);
 
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 180000); // 3 min
       const res = await fetch("/api/relatorios", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ client, period_from: since, period_to: until, reportType }),
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
       const data = await res.json();
       if (!res.ok) setError(data.error ?? "Erro desconhecido.");
       else { setReport(data.report); setKpis(data.kpis); }

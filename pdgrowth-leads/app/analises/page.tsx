@@ -187,11 +187,15 @@ export default function AnalisesPage() {
     const { since, until } = getPeriodDates(period);
 
     try {
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 180000);
       const res = await fetch("/api/analises", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ client, period_from: since, period_to: until }),
+        signal: controller.signal,
       });
+      clearTimeout(timeout);
 
       const data = await res.json();
 
