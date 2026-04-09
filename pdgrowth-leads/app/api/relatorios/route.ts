@@ -283,7 +283,7 @@ Escreva o relatório EXATAMENTE neste formato:
 Números gerais: total de leads, investimento, CPL. Quebre por plataforma (Meta vs Google) com leads, investimento e CPL de cada. Liste os formulários que mais receberam leads. Seja direto com os números.
 
 **2. Meta Ads — Resultados por Campanha**
-${metaCampaigns.length > 0 ? "Para CADA campanha Meta, apresente: investimento, leads, CPL, CTR. Abaixo de cada campanha, liste os criativos que geraram leads com seus números. Mencione posicionamentos que mais converteram (Feed, Stories, Reels). Se uma campanha gerou leads em formulários de outros produtos, destaque isso." : "Sem campanhas Meta no período."}
+${metaCampaigns.length > 0 ? "Para CADA campanha Meta, apresente: investimento, leads, CPL, CTR. Abaixo de cada campanha, liste os criativos que geraram leads com seus números e link do criativo (se disponível nos dados). Mencione posicionamentos que mais converteram (Feed, Stories, Reels). Se uma campanha gerou leads em formulários de outros produtos, destaque isso." : "Sem campanhas Meta no período."}
 
 **3. Google Ads — Resultados por Campanha**
 ${googleCampaigns.length > 0 ? "Para CADA campanha Google, apresente: investimento, leads, CPL, CTR. Liste as top palavras-chave com cliques e conversões. Liste os termos de pesquisa mais relevantes — o que as pessoas realmente digitaram. Destaque termos com alta conversão e termos que gastam sem converter." : "Sem campanhas Google no período."}
@@ -292,16 +292,21 @@ ${googleCampaigns.length > 0 ? "Para CADA campanha Google, apresente: investimen
 O que funcionou bem no período? O que precisa de atenção? Quais campanhas/criativos devem ser escalados e quais devem ser revisados? Use os dados para justificar.
 
 **5. Recomendações de Criativos**
-Baseado nos criativos que mais converteram, sugira 3-4 novos criativos para o time de criação produzir:
-- Formato (vídeo/imagem/carrossel)
-- Conceito e mensagem
-- Qual criativo atual serve de referência
-- Para qual plataforma (Meta/Google)
+Sugira exatamente 6 novos criativos para o time de criação produzir, considerando o sistema Andromeda do Meta (que favorece diversidade de formatos e variações para alimentar a IA de entrega). Para cada criativo:
+- **Nome sugerido**: nome descritivo para o time identificar
+- **Formato**: vídeo curto (Reels/Stories), imagem estática, carrossel, ou UGC
+- **Conceito e mensagem principal**: o que comunicar e qual gancho usar
+- **Referência**: qual criativo atual inspirou (cite o nome e métricas)
+- **Posicionamento recomendado**: Feed, Stories, Reels, ou automático
+- **Plataforma**: Meta / Google / ambas
+- **Hipótese**: por que esse criativo deve funcionar baseado nos dados
+
+Priorize variações do que já funciona (testar novos visuais mantendo a mensagem do campeão), formatos de vídeo curto (Reels performa bem no Andromeda), e pelo menos 1 criativo em formato UGC ou depoimento.
 
 **6. Próximos Passos**
 Ações divididas por área:
 - **Tráfego**: ajustes de campanha, orçamento, segmentação, palavras-chave
-- **Criação**: novos criativos, ajustes de copy/visual
+- **Criação**: novos criativos a produzir (resumir as 6 recomendações em checklist)
 - **Comercial**: perfil dos leads, como abordar, insights para atendimento`;
 
     const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {

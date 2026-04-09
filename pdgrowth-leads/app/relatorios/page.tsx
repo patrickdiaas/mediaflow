@@ -195,6 +195,11 @@ export default function RelatoriosPage() {
     }
     const periodLabel = `${pSince} a ${pUntil}`;
 
+    // Convert URLs in text to clickable links
+    function autoLink(s: string): string {
+      return s.replace(/(https?:\/\/[^\s<>"')\]]+)/g, '<a href="$1" target="_blank">$1</a>');
+    }
+
     function mdToHtml(text: string): string {
       return text.split("\n").map(line => {
         if (!line.trim()) return "<div style='height:10px'></div>";
@@ -204,7 +209,7 @@ export default function RelatoriosPage() {
           const cells = line.split("|").filter(c => c.trim());
           const isHeader = !line.includes("R$") && !line.includes("%") && cells.every(c => c.trim().length < 30);
           const tag = isHeader ? "th" : "td";
-          return `<tr>${cells.map(c => `<${tag}>${c.trim().replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")}</${tag}>`).join("")}</tr>`;
+          return `<tr>${cells.map(c => `<${tag}>${autoLink(c.trim().replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>"))}</${tag}>`).join("")}</tr>`;
         }
         // Check if previous line was table start
         const headerMatch = line.trim().match(/^(?:\*\*|\#{1,3}\s*)(\d+[\.\)]\s+.+?)(?:\*\*|$)/);
@@ -213,12 +218,12 @@ export default function RelatoriosPage() {
         if (subMatch) return `</table><h3>${subMatch[1]}</h3><table>`;
         // Blockquote with emoji
         if (line.trim().startsWith(">")) {
-          const content = line.replace(/^>\s*/, "").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+          const content = autoLink(line.replace(/^>\s*/, "").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>"));
           return `</table><div class="callout">${content}</div><table>`;
         }
-        if (/^[-*]\s+/.test(line)) return `</table><li>${line.replace(/^[-*]\s+/, "").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")}</li><table>`;
+        if (/^[-*]\s+/.test(line)) return `</table><li>${autoLink(line.replace(/^[-*]\s+/, "").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>"))}</li><table>`;
         if (line.trim() === "---") return `</table><hr/><table>`;
-        return `</table><p>${line.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")}</p><table>`;
+        return `</table><p>${autoLink(line.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>"))}</p><table>`;
       }).join("\n").replace(/<table>\s*<\/table>/g, "").replace(/<table>\n<\/table>/g, "");
     }
 
