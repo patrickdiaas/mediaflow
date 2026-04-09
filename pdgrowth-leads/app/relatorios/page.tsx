@@ -132,7 +132,29 @@ export default function RelatoriosPage() {
     setReport(null);
     setKpis(null);
 
-    const { since, until } = getPeriodDates(period);
+    // Período inteligente baseado no tipo de relatório
+    let since: string, until: string;
+    if (reportType === "mensal") {
+      // Mês passado completo
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const s = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const u = new Date(today.getFullYear(), today.getMonth(), 0);
+      since = s.toISOString().split("T")[0];
+      until = u.toISOString().split("T")[0];
+    } else if (reportType === "quinzenal") {
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const u = new Date(today); u.setDate(u.getDate() - 1);
+      const s = new Date(u); s.setDate(s.getDate() - 14);
+      since = s.toISOString().split("T")[0];
+      until = u.toISOString().split("T")[0];
+    } else {
+      // Semanal: últimos 7 dias
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const u = new Date(today); u.setDate(u.getDate() - 1);
+      const s = new Date(u); s.setDate(s.getDate() - 6);
+      since = s.toISOString().split("T")[0];
+      until = u.toISOString().split("T")[0];
+    }
 
     try {
       const controller = new AbortController();
@@ -157,19 +179,47 @@ export default function RelatoriosPage() {
     if (!report) return;
     const clientName = client === "all" ? "Todas as contas" : client;
     const typeLabel = reportType === "semanal" ? "Semanal" : reportType === "quinzenal" ? "Quinzenal" : "Mensal";
-    const { since, until } = getPeriodDates(period);
-    const periodLabel = `${new Date(since).toLocaleDateString("pt-BR")} a ${new Date(until).toLocaleDateString("pt-BR")}`;
+
+    // Recalcular período para o PDF
+    let pSince: string, pUntil: string;
+    if (reportType === "mensal") {
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const s = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+      const u = new Date(today.getFullYear(), today.getMonth(), 0);
+      pSince = s.toLocaleDateString("pt-BR");
+      pUntil = u.toLocaleDateString("pt-BR");
+    } else {
+      const { since, until } = getPeriodDates(period);
+      pSince = new Date(since).toLocaleDateString("pt-BR");
+      pUntil = new Date(until).toLocaleDateString("pt-BR");
+    }
+    const periodLabel = `${pSince} a ${pUntil}`;
 
     function mdToHtml(text: string): string {
       return text.split("\n").map(line => {
-        if (!line.trim()) return "<div style='height:8px'></div>";
+        if (!line.trim()) return "<div style='height:10px'></div>";
+        // Tables: | col | col |
+        if (line.trim().startsWith("|") && line.trim().endsWith("|")) {
+          if (line.includes("---")) return ""; // separator row
+          const cells = line.split("|").filter(c => c.trim());
+          const isHeader = !line.includes("R$") && !line.includes("%") && cells.every(c => c.trim().length < 30);
+          const tag = isHeader ? "th" : "td";
+          return `<tr>${cells.map(c => `<${tag}>${c.trim().replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")}</${tag}>`).join("")}</tr>`;
+        }
+        // Check if previous line was table start
         const headerMatch = line.trim().match(/^(?:\*\*|\#{1,3}\s*)(\d+[\.\)]\s+.+?)(?:\*\*|$)/);
-        if (headerMatch) return `<h2>${headerMatch[1]}</h2>`;
+        if (headerMatch) return `</table><h2>${headerMatch[1]}</h2><table>`;
         const subMatch = line.trim().match(/^\*\*(.+?)\*\*$/);
-        if (subMatch) return `<h3>${subMatch[1]}</h3>`;
-        if (/^[-*]\s+/.test(line)) return `<li>${line.replace(/^[-*]\s+/, "").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")}</li>`;
-        return `<p>${line.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")}</p>`;
-      }).join("\n");
+        if (subMatch) return `</table><h3>${subMatch[1]}</h3><table>`;
+        // Blockquote with emoji
+        if (line.trim().startsWith(">")) {
+          const content = line.replace(/^>\s*/, "").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+          return `</table><div class="callout">${content}</div><table>`;
+        }
+        if (/^[-*]\s+/.test(line)) return `</table><li>${line.replace(/^[-*]\s+/, "").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")}</li><table>`;
+        if (line.trim() === "---") return `</table><hr/><table>`;
+        return `</table><p>${line.replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>")}</p><table>`;
+      }).join("\n").replace(/<table>\s*<\/table>/g, "").replace(/<table>\n<\/table>/g, "");
     }
 
     const kpiHtml = kpis ? `
@@ -187,43 +237,63 @@ export default function RelatoriosPage() {
   <title>Relatório ${typeLabel} — ${clientName}</title>
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; max-width: 860px; margin: 0 auto; color: #1a1a2e; font-size: 13px; line-height: 1.7; padding: 40px 32px; }
-    .header { border-bottom: 3px solid #CAFF04; padding-bottom: 20px; margin-bottom: 28px; }
-    .header-top { display: flex; align-items: center; gap: 12px; margin-bottom: 8px; }
-    .header-logo { width: 36px; height: 36px; border-radius: 8px; background: #0a0a0c; display: flex; align-items: center; justify-content: center; color: #CAFF04; font-weight: 900; font-size: 14px; }
-    .header-title { font-size: 22px; font-weight: 700; color: #0a0a0c; }
-    .header-badge { display: inline-block; background: #CAFF04; color: #0a0a0c; font-size: 11px; font-weight: 700; padding: 2px 10px; border-radius: 12px; text-transform: uppercase; letter-spacing: 0.05em; margin-left: 8px; }
-    .header-meta { font-size: 12px; color: #666; margin-top: 4px; }
-    .header-meta span { display: inline-block; margin-right: 16px; }
-    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 24px 0; }
-    .kpi { background: #f8f9fa; border-radius: 8px; padding: 14px 16px; text-align: center; }
-    .kpi-value { font-size: 18px; font-weight: 700; }
-    .kpi-value.accent { color: #16a34a; }
-    .kpi-value.blue { color: #2563eb; }
-    .kpi-value.gold { color: #d97706; }
-    .kpi-label { font-size: 11px; color: #888; margin-top: 4px; text-transform: uppercase; letter-spacing: 0.04em; }
-    h2 { font-size: 14px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.08em; color: #0a0a0c; border-left: 4px solid #CAFF04; padding-left: 12px; margin: 32px 0 14px; }
-    h3 { font-size: 13px; font-weight: 700; color: #333; margin: 18px 0 8px; }
-    p { margin: 5px 0; color: #333; }
-    li { margin: 4px 0 4px 24px; color: #333; }
-    strong { font-weight: 600; color: #0a0a0c; }
-    .footer { margin-top: 48px; padding-top: 16px; border-top: 2px solid #f0f0f0; font-size: 10px; color: #999; display: flex; justify-content: space-between; }
-    @media print { body { padding: 16mm; font-size: 11px; } h2 { break-after: avoid; } }
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; max-width: 900px; margin: 0 auto; color: #e2e2e8; font-size: 13px; line-height: 1.7; padding: 40px 36px; background: #0e1018; }
+
+    /* Header */
+    .header { margin-bottom: 32px; }
+    .header-top { margin-bottom: 12px; }
+    .header-title { font-size: 26px; font-weight: 800; color: #f2f2f5; letter-spacing: -0.02em; }
+    .header-sub { font-size: 13px; color: #8888a0; margin-top: 2px; }
+    .header-badge { display: inline-block; background: #CAFF04; color: #0a0a0c; font-size: 11px; font-weight: 800; padding: 3px 12px; border-radius: 12px; text-transform: uppercase; letter-spacing: 0.06em; margin-left: 10px; vertical-align: middle; }
+
+    /* KPIs */
+    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 24px 0 32px; }
+    .kpi { background: #14161e; border: 1px solid #24242c; border-radius: 12px; padding: 18px 16px; text-align: center; }
+    .kpi-value { font-size: 22px; font-weight: 800; font-family: 'DM Mono', monospace; }
+    .kpi-value.accent { color: #CAFF04; }
+    .kpi-value.blue { color: #60A5FA; }
+    .kpi-value.gold { color: #F59E0B; }
+    .kpi-label { font-size: 10px; color: #6a6a7a; margin-top: 6px; text-transform: uppercase; letter-spacing: 0.08em; }
+
+    /* Sections */
+    h2 { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: #CAFF04; border-left: 4px solid #CAFF04; padding-left: 14px; margin: 36px 0 16px; }
+    h3 { font-size: 13px; font-weight: 700; color: #f2f2f5; margin: 22px 0 10px; padding: 8px 14px; background: #14161e; border: 1px solid #24242c; border-radius: 8px; }
+    p { margin: 6px 0; color: #b0b0c0; }
+    li { margin: 4px 0 4px 20px; color: #b0b0c0; }
+    strong { font-weight: 700; color: #f2f2f5; }
+    hr { border: none; border-top: 1px solid #24242c; margin: 24px 0; }
+    a { color: #60A5FA; }
+
+    /* Tables */
+    table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12px; }
+    th { background: #14161e; color: #8888a0; font-weight: 600; text-align: left; padding: 8px 12px; border-bottom: 2px solid #24242c; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+    td { padding: 8px 12px; border-bottom: 1px solid #1a1a24; color: #d0d0dd; }
+    tr:hover td { background: #14161e; }
+
+    /* Callouts */
+    .callout { background: #14161e; border-left: 3px solid #CAFF04; border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 14px 0; font-size: 12px; color: #c0c0d0; }
+
+    /* Footer */
+    .footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid #24242c; font-size: 10px; color: #4a4a5a; display: flex; justify-content: space-between; }
+
+    @media print {
+      body { padding: 12mm; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      h2 { break-after: avoid; }
+      .kpi-grid { break-inside: avoid; }
+    }
   </style>
 </head>
 <body>
   <div class="header">
     <div class="header-top">
-      <div class="header-logo">PD</div>
       <div class="header-title">Relatório de Performance<span class="header-badge">${typeLabel}</span></div>
     </div>
-    <div class="header-meta">
-      <span>Cliente: <strong>${clientName}</strong></span>
-      <span>Período: <strong>${periodLabel}</strong></span>
-      <span>Gerado: ${new Date().toLocaleString("pt-BR")}</span>
+    <div class="header-sub">
+      Cliente: <strong>${clientName}</strong> &nbsp;·&nbsp; Período: <strong>${periodLabel}</strong> &nbsp;·&nbsp; Gerado: ${new Date().toLocaleString("pt-BR")}
     </div>
   </div>
   ${kpiHtml}
+  <table></table>
   ${mdToHtml(report)}
   <div class="footer">
     <span>PD Growth // leads.pdgrowth.com.br</span>
@@ -321,10 +391,25 @@ export default function RelatoriosPage() {
         {report && !loading && (
           <div className="space-y-4">
             {sections ? (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                {Object.entries(SECTION_CONFIG).map(([num, cfg]) => {
+              <div className="space-y-4">
+                {/* Overview + Destaques side by side */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                  {["1", "4"].map(num => {
+                    const cfg = SECTION_CONFIG[num];
+                    const content = sections[num];
+                    if (!cfg || !content) return null;
+                    return (
+                      <SectionCard key={num} icon={cfg.icon} color={cfg.color} title={cfg.title}>
+                        {renderMarkdown(content.replace(/^(?:\*\*|\#{1,3}\s*)\d+[\.\)]\s+.+?(?:\*\*|\n)/, ""))}
+                      </SectionCard>
+                    );
+                  })}
+                </div>
+                {/* Meta, Google, Criativos, Próximos passos — full width */}
+                {["2", "3", "5", "6"].map(num => {
+                  const cfg = SECTION_CONFIG[num];
                   const content = sections[num];
-                  if (!content) return null;
+                  if (!cfg || !content) return null;
                   return (
                     <SectionCard key={num} icon={cfg.icon} color={cfg.color} title={cfg.title}>
                       {renderMarkdown(content.replace(/^(?:\*\*|\#{1,3}\s*)\d+[\.\)]\s+.+?(?:\*\*|\n)/, ""))}

@@ -106,12 +106,12 @@ export async function POST(req: NextRequest) {
     // Creatives
     const { data: adCreatives } = await supabase
       .from("ad_creatives")
-      .select("ad_id, ad_name, campaign_name, platform, creative_type, headline, impressions, clicks, spend")
+      .select("ad_id, ad_name, campaign_name, platform, creative_type, headline, permalink_url, impressions, clicks, spend")
       .eq("client_slug", client).gte("date", dateSince).lte("date", dateUntil);
 
-    const creativeAgg = new Map<string, { name: string; campaign: string; platform: string; type: string | null; headline: string | null; spend: number; impressions: number; clicks: number; leads: number }>();
+    const creativeAgg = new Map<string, { name: string; campaign: string; platform: string; type: string | null; headline: string | null; permalink: string | null; spend: number; impressions: number; clicks: number; leads: number }>();
     for (const c of (adCreatives ?? [])) {
-      const e = creativeAgg.get(c.ad_id) ?? { name: c.ad_name, campaign: c.campaign_name ?? "", platform: c.platform, type: c.creative_type, headline: c.headline, spend: 0, impressions: 0, clicks: 0, leads: 0 };
+      const e = creativeAgg.get(c.ad_id) ?? { name: c.ad_name, campaign: c.campaign_name ?? "", platform: c.platform, type: c.creative_type, headline: c.headline, permalink: c.permalink_url ?? null, spend: 0, impressions: 0, clicks: 0, leads: 0 };
       e.spend += Number(c.spend); e.impressions += Number(c.impressions); e.clicks += Number(c.clicks);
       creativeAgg.set(c.ad_id, e);
     }
@@ -236,7 +236,7 @@ ${metaCampaigns.filter(c => c.leads > 0 || c.spend > 50).map(c => {
     `    Gasto: R$${fmt(c.spend)} | Impressões: ${fmtInt(c.impressions)} | Cliques: ${fmtInt(c.clicks)} | CTR: ${c.ctr.toFixed(2)}%`,
     `    Leads: ${c.leads}${c.cpl ? ` | CPL: R$${fmt(c.cpl)}` : ""}`,
     formsStr ? `    Formulários: ${formsStr}` : "",
-    creatives.length > 0 ? `    Criativos:\n${creatives.map(cr => `      - ${cr.name} | ${cr.leads} leads | CTR ${cr.ctr.toFixed(2)}%${cr.cpl ? ` | CPL R$${fmt(cr.cpl)}` : ""}`).join("\n")}` : "",
+    creatives.length > 0 ? `    Criativos:\n${creatives.map(cr => `      - ${cr.name} | ${cr.leads} leads | CTR ${cr.ctr.toFixed(2)}%${cr.cpl ? ` | CPL R$${fmt(cr.cpl)}` : ""}${cr.permalink ? ` | Link: ${cr.permalink}` : ""}`).join("\n")}` : "",
   ].filter(Boolean).join("\n");
 }).join("\n\n")}
 ${topPlacements.length > 0 ? `\n  POSICIONAMENTOS:\n${topPlacements.map(p => `    ${p.name}: ${p.conversions} conv | ${fmtInt(p.clicks)} cliques | R$${fmt(p.spend)}`).join("\n")}` : ""}
