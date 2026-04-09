@@ -134,11 +134,12 @@ function parseSections(text: string) {
 
 const SECTION_CONFIG: Record<string, { icon: React.ElementType; color: string; title: string }> = {
   "1": { icon: TrendingUp,  color: "bg-accent/5 text-accent", title: "Resumo Executivo" },
-  "2": { icon: Megaphone,   color: "bg-blue/5 text-blue",     title: "Diagnóstico de Campanhas" },
-  "3": { icon: Image,       color: "bg-gold/5 text-gold",     title: "Análise de Criativos" },
-  "4": { icon: Sparkles,    color: "bg-accent/5 text-accent", title: "Sugestões de Criativos" },
-  "5": { icon: Users,       color: "bg-gold/5 text-gold",     title: "Perfil do Comprador" },
-  "6": { icon: ShoppingBag, color: "bg-blue/5 text-blue",     title: "Recomendações Prioritárias" },
+  "2": { icon: Megaphone,   color: "bg-blue/5 text-blue",     title: "Diagnóstico Meta Ads" },
+  "3": { icon: Megaphone,   color: "bg-gold/5 text-gold",     title: "Diagnóstico Google Ads" },
+  "4": { icon: Image,       color: "bg-blue/5 text-blue",     title: "Criativos e Anúncios" },
+  "5": { icon: Sparkles,    color: "bg-accent/5 text-accent", title: "Sugestões de Criativos" },
+  "6": { icon: Users,       color: "bg-gold/5 text-gold",     title: "Perfil do Lead" },
+  "7": { icon: ShoppingBag, color: "bg-accent/5 text-accent", title: "Top 5 Ações da Semana" },
 };
 
 interface FollowUpMessage {
@@ -334,14 +335,16 @@ export default function AnalisesPage() {
                 <span className="text-sm font-semibold text-text-primary">Período: {periodLabel[period] ?? period}</span>
               </div>
               <p className="text-xs text-text-muted max-w-lg mb-2">
-                Analisa vendas, campanhas (Meta/Google), criativos e respostas de audiência para gerar diagnóstico e sugestões acionáveis.
+                Diagnóstico completo de Meta Ads e Google Ads: campanhas, criativos, palavras-chave, posicionamentos e recomendações acionáveis.
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {dataSources ? (
                   <>
-                    <DataBadge label="Leads"     active={dataSources.hasLeads} />
+                    <DataBadge label={`Leads (${dataSources.metaLeads ?? 0} Meta · ${dataSources.googleLeads ?? 0} Google)`} active={dataSources.hasLeads} />
                     <DataBadge label="Campanhas" active={dataSources.hasCampaigns} />
                     <DataBadge label="Criativos" active={dataSources.hasCreatives} />
+                    <DataBadge label="Keywords"  active={dataSources.hasKeywords} />
+                    <DataBadge label="Posicionamentos" active={dataSources.hasPlacements} />
                   </>
                 ) : (
                   <span className="text-[11px] text-text-dark font-mono">
@@ -506,17 +509,15 @@ export default function AnalisesPage() {
             </div>
             <p className="text-text-secondary text-sm font-medium">Análise completa com IA</p>
             <p className="text-text-muted text-xs max-w-sm leading-relaxed">
-              Diagnóstico de campanhas, padrões em criativos, perfil do comprador e recomendações acionáveis. Selecione o período e clique em "Gerar análise".
+              Diagnóstico de Meta Ads e Google Ads: campanhas, criativos, palavras-chave, posicionamentos e recomendações acionáveis. Selecione o período e clique em "Gerar análise".
             </p>
             <div className="flex flex-wrap gap-1.5 justify-center mt-1">
               <DataBadge label="Leads"     active={true} />
-              <DataBadge label="Campanhas" active={false} />
-              <DataBadge label="Criativos" active={false} />
-              <DataBadge label="Audiência" active={false} />
+              <DataBadge label="Campanhas Meta" active={true} />
+              <DataBadge label="Campanhas Google" active={true} />
+              <DataBadge label="Keywords"  active={true} />
+              <DataBadge label="Posicionamentos" active={true} />
             </div>
-            <p className="text-text-dark text-[11px] font-mono mt-1">
-              Campanhas e criativos disponíveis após integração Meta/Google API
-            </p>
           </div>
         )}
       </main>
