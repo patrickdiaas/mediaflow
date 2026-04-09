@@ -111,6 +111,7 @@ interface CampaignRank {
   clicks: number;
   spend: number;
   leads: number;
+  googleConversions: number;
   cpl: number;
 }
 
@@ -128,8 +129,12 @@ const rankColumns: Column<CampaignRank>[] = [
     ) },
   { key: "spend",  label: "Investido", align: "right",
     render: v => <span className="text-blue text-xs font-mono">R$ {Number(v).toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</span> },
-  { key: "leads",  label: "Leads", align: "right",
+  { key: "leads",  label: "Leads (UTM)", align: "right",
     render: v => <span className="text-accent text-xs font-mono font-semibold">{String(v)}</span> },
+  { key: "googleConversions", label: "Conv. Google", align: "right",
+    render: (v, row) => row.platform === "google" && Number(v) > 0
+      ? <span className="text-gold text-xs font-mono font-semibold">{Number(v).toFixed(0)}</span>
+      : <span className="text-text-muted text-xs">—</span> },
   { key: "cpl",    label: "CPL", align: "right",
     render: v => { const n = Number(v); return n > 0 ? <span className={`text-xs font-mono font-semibold ${cplColor(n)}`}>R$ {n.toFixed(2)}</span> : <span className="text-text-muted text-xs">—</span>; } },
 ];
@@ -331,12 +336,30 @@ export default function OverviewPage() {
       const fuzzy = adCampNames.find(n => fuzzyMatch(n, utmCamp));
       if (fuzzy) { leadsPerCamp.set(fuzzy, (leadsPerCamp.get(fuzzy) ?? 0) + 1); }
     }
+    // Buscar conversões Google por campaign_id (keywords)
+    const googleConvByCamp = new Map<string, number>();
+    const kwQ = supabase.from("keywords")
+      .select("campaign_id, conversions")
+      .eq("platform", "google")
+      .gte("date", since).lte("date", until);
+    if (metaSlug) kwQ.eq("client_slug", metaSlug);
+    const { data: kwData } = await kwQ;
+    for (const k of (kwData ?? [])) {
+      const cid = k.campaign_id;
+      googleConvByCamp.set(cid, (googleConvByCamp.get(cid) ?? 0) + Number(k.conversions ?? 0));
+    }
+
     const rankRows: CampaignRank[] = [];
     for (const [name, data] of Array.from(campMap.entries())) {
       const ld = leadsPerCamp.get(name) ?? 0;
-      rankRows.push({ campaign_name: name, platform: data.platform, impressions: data.impressions, clicks: data.clicks, spend: data.spend, leads: ld, cpl: ld > 0 ? data.spend / ld : 0 });
+      // Soma conversões Google de todos os campaign_ids desta campanha
+      let gConv = 0;
+      if (data.platform === "google") {
+        for (const cid of Array.from(data.campaignIds)) gConv += googleConvByCamp.get(cid) ?? 0;
+      }
+      rankRows.push({ campaign_name: name, platform: data.platform, impressions: data.impressions, clicks: data.clicks, spend: data.spend, leads: ld, googleConversions: Math.round(gConv), cpl: ld > 0 ? data.spend / ld : 0 });
     }
-    setCampaignRank(rankRows.sort((a, b) => b.leads - a.leads).slice(0, 10));
+    setCampaignRank(rankRows.sort((a, b) => (b.leads || b.googleConversions) - (a.leads || a.googleConversions)).slice(0, 10));
 
     // IDs das campanhas selecionadas (para filtrar regiões e posicionamentos)
     const selectedCampIds = campaign === "all"
