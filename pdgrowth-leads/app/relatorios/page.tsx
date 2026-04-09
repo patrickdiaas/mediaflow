@@ -379,7 +379,7 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
   ${mdToHtml(report)}
   <div class="footer">
     <span>PD Growth // leads.pdgrowth.com.br</span>
-    <span>Relatório gerado por IA — Claude Sonnet 4.6</span>
+    <span>${periodLabel}</span>
   </div>
 </body>
 </html>`;
@@ -516,23 +516,24 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
                   <p className="text-xs text-text-muted mb-3">
                     Informe correções ou contexto adicional e o relatório será regenerado completo com os ajustes.
                   </p>
-                  <div className="flex gap-2">
-                    <input
-                      type="text"
+                  <div className="space-y-2">
+                    <textarea
                       value={followUpInput}
                       onChange={e => setFollowUpInput(e.target.value)}
-                      onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendCorrection(); } }}
-                      placeholder='Ex: "A campanha institucional Google teve 8 conversões pelo pixel, ajuste o relatório"'
+                      placeholder={"Ex:\n- A campanha institucional Google teve 8 conversões pelo pixel, considere no relatório\n- Remover a análise do criativo ad02, já foi pausado"}
                       disabled={followUpLoading}
-                      className="flex-1 bg-bg border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-dark focus:outline-none focus:border-accent/40 disabled:opacity-50"
+                      rows={4}
+                      className="w-full bg-bg border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-dark focus:outline-none focus:border-accent/40 disabled:opacity-50 resize-y"
                     />
-                    <button
-                      onClick={sendCorrection}
-                      disabled={followUpLoading || !followUpInput.trim()}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent/10 border border-accent/30 text-accent text-sm font-medium hover:bg-accent/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
-                    >
-                      {followUpLoading ? <RefreshCw size={13} className="animate-spin" /> : <Send size={13} />}
-                    </button>
+                    <div className="flex justify-end">
+                      <button
+                        onClick={sendCorrection}
+                        disabled={followUpLoading || !followUpInput.trim()}
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent/10 border border-accent/30 text-accent text-sm font-medium hover:bg-accent/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        {followUpLoading ? <><RefreshCw size={13} className="animate-spin" /> Regenerando...</> : <><Send size={13} /> Regenerar com ajustes</>}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

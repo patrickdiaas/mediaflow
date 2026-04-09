@@ -351,7 +351,7 @@ export default function AnalisesPage() {
   ${followUpHtml}
   <div class="footer">
     <span>PD Growth // leads.pdgrowth.com.br</span>
-    <span>Análise gerada por IA — Claude Sonnet 4.6</span>
+    <span>${periodName}</span>
   </div>
 </body>
 </html>`;
