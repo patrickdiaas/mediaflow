@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
 
-export const maxDuration = 300; // 5 min — Vercel Pro
+export const maxDuration = 60; // Vercel Hobby limit
 
 function fmt(n: number) {
   return n.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -59,7 +59,7 @@ export async function POST(req: NextRequest) {
     // Forms
     const formMap = new Map<string, number>();
     for (const l of leads) formMap.set(l.conversion_event ?? "desconhecido", (formMap.get(l.conversion_event ?? "desconhecido") ?? 0) + 1);
-    const topForms = Array.from(formMap.entries()).sort((a, b) => b[1] - a[1]).slice(0, 6);
+    const topForms = Array.from(formMap.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10);
 
     // Campaigns
     const { data: adCampaigns } = await supabase
@@ -123,7 +123,7 @@ export async function POST(req: NextRequest) {
     }
     const topCreatives = Array.from(creativeAgg.values())
       .map(c => ({ ...c, ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0, cpl: c.leads > 0 ? c.spend / c.leads : null }))
-      .filter(c => c.leads > 0).sort((a, b) => b.leads - a.leads).slice(0, 5);
+      .filter(c => c.leads > 0).sort((a, b) => b.leads - a.leads).slice(0, 10);
 
     // Keywords by campaign
     const { data: kwData } = await supabase
@@ -140,7 +140,7 @@ export async function POST(req: NextRequest) {
       e.clicks += Number(k.clicks); e.spend += Number(k.spend ?? 0); e.conversions += Number(k.conversions ?? 0);
       kwAgg.set(k.keyword_text, e);
     }
-    const topKw = Array.from(kwAgg.entries()).map(([text, v]) => ({ text, ...v })).sort((a, b) => b.conversions - a.conversions || b.clicks - a.clicks).slice(0, 10);
+    const topKw = Array.from(kwAgg.entries()).map(([text, v]) => ({ text, ...v })).sort((a, b) => b.conversions - a.conversions || b.clicks - a.clicks).slice(0, 15);
 
     // Search terms
     const { data: stData } = await supabase
@@ -153,7 +153,7 @@ export async function POST(req: NextRequest) {
       e.clicks += Number(s.clicks); e.spend += Number(s.spend ?? 0); e.conversions += Number(s.conversions ?? 0);
       stAgg.set(s.search_term, e);
     }
-    const topSt = Array.from(stAgg.entries()).map(([term, v]) => ({ term, ...v })).sort((a, b) => b.conversions - a.conversions || b.clicks - a.clicks).slice(0, 10);
+    const topSt = Array.from(stAgg.entries()).map(([term, v]) => ({ term, ...v })).sort((a, b) => b.conversions - a.conversions || b.clicks - a.clicks).slice(0, 15);
 
     // Placements
     const { data: plcData } = await supabase
@@ -266,11 +266,14 @@ ${topSt.slice(0, 10).map((s, i) => `    ${i + 1}. "${s.term}" | ${s.clicks} cliq
 
 REGRAS CRÍTICAS:
 - USE APENAS os dados fornecidos. NUNCA invente números, metas ou projeções que não estejam nos dados.
-- O relatório deve começar com DADOS e NÚMEROS, depois análise e recomendações.
+- O relatório deve começar com DADOS e NÚMEROS completos, depois análise e recomendações.
+- Seja DETALHADO — cada campanha merece análise completa com contexto e interpretação.
 - Linguagem profissional mas acessível para quem não é especialista em tráfego.
 - Destaque vitórias antes de problemas.
 - Sugestões de criativos devem ser específicas e acionáveis.
-- NÃO crie metas ou benchmarks fictícios. Só compare dados que existem.`;
+- NÃO crie metas ou benchmarks fictícios. Só compare dados que existem.
+- NÃO inclua seção para time comercial. O relatório é para tráfego e criação.
+- Use subtítulos descritivos (### Título Claro), nunca ### com emoji sozinho.`;
 
     const userPrompt = `Gere um relatório ${typeLabel.toLowerCase()} de performance. Período: ${periodLabel}.
 
@@ -305,9 +308,15 @@ Priorize variações do que já funciona (testar novos visuais mantendo a mensag
 
 **6. Próximos Passos**
 Ações divididas por área:
-- **Tráfego**: ajustes de campanha, orçamento, segmentação, palavras-chave
-- **Criação**: novos criativos a produzir (resumir as 6 recomendações em checklist)
-- **Comercial**: perfil dos leads, como abordar, insights para atendimento`;
+- **Tráfego**: ajustes de campanha, orçamento, segmentação, palavras-chave a negativar, lances a ajustar
+- **Criação**: checklist dos 6 criativos recomendados em ordem de prioridade, com nome e formato
+
+NÃO inclua seção de comercial ou insights para time comercial. O relatório é para tráfego e criação.
+
+IMPORTANTE sobre formatação:
+- Use ### para subtítulos dentro das seções (ex: ### O que funcionou bem)
+- NÃO use ### sozinho com emojis — escreva o texto descritivo completo
+- Cada sub-seção deve ter um título claro e descritivo`;
 
     const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",

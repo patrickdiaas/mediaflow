@@ -34,6 +34,13 @@ function renderMarkdown(text: string): React.ReactNode[] {
       continue;
     }
 
+    // Sub-header: ### Title
+    const h3Match = line.trim().match(/^\#{3}\s+(.+)/);
+    if (h3Match) {
+      result.push(<p key={key++} className="text-sm font-semibold text-accent mt-4 mb-1.5">{h3Match[1].replace(/\*\*/g, "")}</p>);
+      continue;
+    }
+
     // Sub-header: **bold line**
     const subMatch = line.trim().match(/^\*\*(.+?)\*\*$/);
     if (subMatch) {
@@ -211,9 +218,12 @@ export default function RelatoriosPage() {
           const tag = isHeader ? "th" : "td";
           return `<tr>${cells.map(c => `<${tag}>${autoLink(c.trim().replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>"))}</${tag}>`).join("")}</tr>`;
         }
-        // Check if previous line was table start
-        const headerMatch = line.trim().match(/^(?:\*\*|\#{1,3}\s*)(\d+[\.\)]\s+.+?)(?:\*\*|$)/);
+        // Section headers: **1. Title** or ## 1. Title
+        const headerMatch = line.trim().match(/^(?:\*\*|\#{1,2}\s*)(\d+[\.\)]\s+.+?)(?:\*\*|$)/);
         if (headerMatch) return `</table><h2>${headerMatch[1]}</h2><table>`;
+        // Sub-headers: ### Title or **Title**
+        const h3Match = line.trim().match(/^\#{3}\s+(.+)/);
+        if (h3Match) return `</table><h3>${h3Match[1].replace(/\*\*/g, "")}</h3><table>`;
         const subMatch = line.trim().match(/^\*\*(.+?)\*\*$/);
         if (subMatch) return `</table><h3>${subMatch[1]}</h3><table>`;
         // Blockquote with emoji
