@@ -312,7 +312,7 @@ Ações divididas por área:
     const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
       method: "POST",
       headers: { "x-api-key": anthropicKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 5000, system: systemPrompt, messages: [{ role: "user", content: userPrompt }] }),
+      body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 16000, system: systemPrompt, messages: [{ role: "user", content: userPrompt }] }),
     });
 
     if (!claudeRes.ok) {
