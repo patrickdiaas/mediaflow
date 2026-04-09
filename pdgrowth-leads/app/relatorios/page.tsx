@@ -5,8 +5,8 @@ import Header from "@/components/header";
 import { useDashboard } from "@/lib/dashboard-context";
 import { getPeriodDates } from "@/lib/period";
 import {
-  FileBarChart2, RefreshCw, AlertCircle, Download,
-  TrendingUp, Megaphone, Image, Sparkles, Users, Target,
+  FileBarChart2, RefreshCw, AlertCircle, Download, Send,
+  TrendingUp, Megaphone, Image, Sparkles, Users, Target, MessageSquare,
 } from "lucide-react";
 
 type ReportType = "semanal" | "quinzenal" | "mensal";
@@ -133,6 +133,11 @@ export default function RelatoriosPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
 
+  // Follow-up / corrections
+  const [savedContext, setSavedContext] = useState<{ context: string; systemPrompt: string } | null>(null);
+  const [followUpInput, setFollowUpInput] = useState("");
+  const [followUpLoading, setFollowUpLoading] = useState(false);
+
   async function generateReport() {
     setLoading(true);
     setError(null);
@@ -191,11 +196,57 @@ export default function RelatoriosPage() {
       clearTimeout(timeout);
       const data2 = await res2.json();
       if (!res2.ok) setError(data2.error ?? "Erro ao gerar relatório.");
-      else setReport(data2.report);
+      else {
+        setReport(data2.report);
+        setSavedContext({ context: data1.context, systemPrompt: data1.systemPrompt });
+      }
     } catch (e: any) {
       setError(e.message ?? "Falha na requisição.");
     }
     setLoading(false);
+  }
+
+  async function sendCorrection() {
+    if (!followUpInput.trim() || !report || !savedContext) return;
+    const correction = followUpInput.trim();
+    setFollowUpInput("");
+    setFollowUpLoading(true);
+    setError(null);
+
+    try {
+      const correctionPrompt = `Você gerou o relatório abaixo. O gestor está pedindo uma correção ou ajuste.
+
+RELATÓRIO ATUAL:
+${report}
+
+DADOS DO PERÍODO:
+${savedContext.context}
+
+CORREÇÃO SOLICITADA:
+${correction}
+
+Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a estrutura e seções, apenas ajuste o que foi pedido. Use o mesmo formato (seções numeradas, tabelas, etc).`;
+
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 300000);
+      const res = await fetch("/api/relatorios/generate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          context: savedContext.context,
+          systemPrompt: savedContext.systemPrompt,
+          userPrompt: correctionPrompt,
+        }),
+        signal: controller.signal,
+      });
+      clearTimeout(timeout);
+      const data = await res.json();
+      if (!res.ok) setError(data.error ?? "Erro ao corrigir.");
+      else setReport(data.report);
+    } catch (e: any) {
+      setError(e.message ?? "Falha na requisição.");
+    }
+    setFollowUpLoading(false);
   }
 
   function exportPDF() {
@@ -451,6 +502,39 @@ export default function RelatoriosPage() {
             ) : (
               <div className="bg-card border border-border rounded-xl p-6">
                 {renderMarkdown(report)}
+              </div>
+            )}
+
+            {/* Correction chat */}
+            {savedContext && (
+              <div className="bg-card border border-border rounded-xl overflow-hidden">
+                <div className="flex items-center gap-2 px-5 py-3 border-b border-border bg-accent/5 text-accent">
+                  <MessageSquare size={14} />
+                  <span className="text-xs font-semibold uppercase tracking-wider">Corrigir ou Ajustar</span>
+                </div>
+                <div className="px-5 py-4">
+                  <p className="text-xs text-text-muted mb-3">
+                    Informe correções ou contexto adicional e o relatório será regenerado completo com os ajustes.
+                  </p>
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      value={followUpInput}
+                      onChange={e => setFollowUpInput(e.target.value)}
+                      onKeyDown={e => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); sendCorrection(); } }}
+                      placeholder='Ex: "A campanha institucional Google teve 8 conversões pelo pixel, ajuste o relatório"'
+                      disabled={followUpLoading}
+                      className="flex-1 bg-bg border border-border rounded-lg px-3 py-2 text-sm text-text-primary placeholder:text-text-dark focus:outline-none focus:border-accent/40 disabled:opacity-50"
+                    />
+                    <button
+                      onClick={sendCorrection}
+                      disabled={followUpLoading || !followUpInput.trim()}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-accent/10 border border-accent/30 text-accent text-sm font-medium hover:bg-accent/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      {followUpLoading ? <RefreshCw size={13} className="animate-spin" /> : <Send size={13} />}
+                    </button>
+                  </div>
+                </div>
               </div>
             )}
           </div>
