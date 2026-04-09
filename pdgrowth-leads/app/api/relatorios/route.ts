@@ -318,21 +318,8 @@ IMPORTANTE sobre formatação:
 - NÃO use ### sozinho com emojis — escreva o texto descritivo completo
 - Cada sub-seção deve ter um título claro e descritivo`;
 
-    const claudeRes = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: { "x-api-key": anthropicKey, "anthropic-version": "2023-06-01", "content-type": "application/json" },
-      body: JSON.stringify({ model: "claude-sonnet-4-6", max_tokens: 16000, system: systemPrompt, messages: [{ role: "user", content: userPrompt }] }),
-    });
-
-    if (!claudeRes.ok) {
-      const err = await claudeRes.text();
-      return NextResponse.json({ error: `Erro na API Claude: ${err}` }, { status: 500 });
-    }
-
-    const claudeData = await claudeRes.json();
-    const report = claudeData.content?.[0]?.text ?? "Sem resposta.";
-
-    return NextResponse.json({ report, context, kpis, reportType });
+    // Return data + prompts for 2-step generation (frontend calls /api/relatorios/generate)
+    return NextResponse.json({ context, kpis, reportType, systemPrompt, userPrompt, step: "data" });
   } catch (err: any) {
     return NextResponse.json({ error: err.message ?? "Erro interno." }, { status: 500 });
   }

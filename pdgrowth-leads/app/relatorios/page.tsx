@@ -164,18 +164,34 @@ export default function RelatoriosPage() {
     }
 
     try {
-      const controller = new AbortController();
-      const timeout = setTimeout(() => controller.abort(), 180000); // 3 min
-      const res = await fetch("/api/relatorios", {
+      // Step 1: Fetch data + build prompts (fast, ~5s)
+      const res1 = await fetch("/api/relatorios", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ client, period_from: since, period_to: until, reportType }),
+      });
+      const data1 = await res1.json();
+      if (!res1.ok) { setError(data1.error ?? "Erro ao buscar dados."); setLoading(false); return; }
+
+      setKpis(data1.kpis);
+
+      // Step 2: Generate report with Claude (longer, uses separate endpoint)
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), 300000); // 5 min
+      const res2 = await fetch("/api/relatorios/generate", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          context: data1.context,
+          systemPrompt: data1.systemPrompt,
+          userPrompt: data1.userPrompt,
+        }),
         signal: controller.signal,
       });
       clearTimeout(timeout);
-      const data = await res.json();
-      if (!res.ok) setError(data.error ?? "Erro desconhecido.");
-      else { setReport(data.report); setKpis(data.kpis); }
+      const data2 = await res2.json();
+      if (!res2.ok) setError(data2.error ?? "Erro ao gerar relatório.");
+      else setReport(data2.report);
     } catch (e: any) {
       setError(e.message ?? "Falha na requisição.");
     }
