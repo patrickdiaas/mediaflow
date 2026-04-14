@@ -46,6 +46,7 @@ export async function POST(req: NextRequest) {
       .select("id, converted_at, source, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, utm_term")
       .eq("client_slug", client)
       .not("utm_medium", "is", null)
+      .not("utm_medium", "in", '(organic,"(none)",unknown,referral)')
       .gte("converted_at", period_from)
       .lte("converted_at", period_to);
     const leads = leadsRaw ?? [];

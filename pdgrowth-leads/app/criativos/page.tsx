@@ -98,6 +98,7 @@ export default function CriativosPage() {
     const baseLeads = supabase.from("leads")
       .select("utm_source, utm_term")
       .not("utm_medium", "is", null)
+      .not("utm_medium", "in", '(organic,"(none)",unknown,referral)')
       .gte("converted_at", leadSince)
       .lte("converted_at", leadUntil);
     const qLeads = metaSlug ? baseLeads.eq("client_slug", metaSlug) : baseLeads;

@@ -240,6 +240,7 @@ export default function OverviewPage() {
       .from("leads")
       .select("id, lead_email, lead_name, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, converted_at, source")
       .not("utm_medium", "is", null)
+      .not("utm_medium", "in", '(organic,"(none)",unknown,referral)')
       .gte("converted_at", leadSince)
       .lte("converted_at", leadUntil);
     if (metaSlug) leadsQ.eq("client_slug", metaSlug);
