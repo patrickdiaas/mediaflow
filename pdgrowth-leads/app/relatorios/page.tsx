@@ -3,7 +3,6 @@ import { useState } from "react";
 import Sidebar from "@/components/sidebar";
 import Header from "@/components/header";
 import { useDashboard } from "@/lib/dashboard-context";
-import { getPeriodDates } from "@/lib/period";
 import {
   FileBarChart2, RefreshCw, AlertCircle, Download, Send,
   TrendingUp, Megaphone, Image, Sparkles, Users, Target, MessageSquare,
@@ -126,8 +125,10 @@ function parseSections(text: string) {
 
 // ─── Page ──────────────────────────────────────────────────────────────────
 export default function RelatoriosPage() {
-  const { client, period } = useDashboard();
+  const { client } = useDashboard();
   const [reportType, setReportType] = useState<ReportType>("semanal");
+  const [customSince, setCustomSince] = useState("");
+  const [customUntil, setCustomUntil] = useState("");
   const [report, setReport]   = useState<string | null>(null);
   const [kpis, setKpis]       = useState<any>(null);
   const [loading, setLoading] = useState(false);
@@ -144,10 +145,12 @@ export default function RelatoriosPage() {
     setReport(null);
     setKpis(null);
 
-    // Período inteligente baseado no tipo de relatório
+    // Usa datas personalizadas se preenchidas, senão calcula pelo tipo
     let since: string, until: string;
-    if (reportType === "mensal") {
-      // Mês passado completo
+    if (customSince && customUntil) {
+      since = customSince;
+      until = customUntil;
+    } else if (reportType === "mensal") {
       const today = new Date(); today.setHours(0, 0, 0, 0);
       const s = new Date(today.getFullYear(), today.getMonth() - 1, 1);
       const u = new Date(today.getFullYear(), today.getMonth(), 0);
@@ -160,7 +163,6 @@ export default function RelatoriosPage() {
       since = s.toISOString().split("T")[0];
       until = u.toISOString().split("T")[0];
     } else {
-      // Semanal: últimos 7 dias
       const today = new Date(); today.setHours(0, 0, 0, 0);
       const u = new Date(today); u.setDate(u.getDate() - 1);
       const s = new Date(u); s.setDate(s.getDate() - 6);
@@ -254,18 +256,29 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
     const clientName = client === "all" ? "Todas as contas" : client;
     const typeLabel = reportType === "semanal" ? "Semanal" : reportType === "quinzenal" ? "Quinzenal" : "Mensal";
 
-    // Recalcular período para o PDF
+    // Recalcular período para o PDF (mesma lógica do generateReport)
     let pSince: string, pUntil: string;
-    if (reportType === "mensal") {
+    if (customSince && customUntil) {
+      pSince = new Date(customSince + "T12:00:00").toLocaleDateString("pt-BR");
+      pUntil = new Date(customUntil + "T12:00:00").toLocaleDateString("pt-BR");
+    } else if (reportType === "mensal") {
       const today = new Date(); today.setHours(0, 0, 0, 0);
       const s = new Date(today.getFullYear(), today.getMonth() - 1, 1);
       const u = new Date(today.getFullYear(), today.getMonth(), 0);
       pSince = s.toLocaleDateString("pt-BR");
       pUntil = u.toLocaleDateString("pt-BR");
+    } else if (reportType === "quinzenal") {
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const u = new Date(today); u.setDate(u.getDate() - 1);
+      const s = new Date(u); s.setDate(s.getDate() - 14);
+      pSince = s.toLocaleDateString("pt-BR");
+      pUntil = u.toLocaleDateString("pt-BR");
     } else {
-      const { since, until } = getPeriodDates(period);
-      pSince = new Date(since).toLocaleDateString("pt-BR");
-      pUntil = new Date(until).toLocaleDateString("pt-BR");
+      const today = new Date(); today.setHours(0, 0, 0, 0);
+      const u = new Date(today); u.setDate(u.getDate() - 1);
+      const s = new Date(u); s.setDate(s.getDate() - 6);
+      pSince = s.toLocaleDateString("pt-BR");
+      pUntil = u.toLocaleDateString("pt-BR");
     }
     const periodLabel = `${pSince} a ${pUntil}`;
 
@@ -422,6 +435,23 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
                     <span className="text-[11px] opacity-70 block mt-0.5">{t.desc}</span>
                   </button>
                 ))}
+              </div>
+              <div className="flex items-center gap-2 mt-3">
+                <span className="text-xs text-text-muted">Período:</span>
+                <input type="date" value={customSince} onChange={e => setCustomSince(e.target.value)}
+                  className="bg-bg border border-border rounded-lg px-2.5 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent/40 cursor-pointer" />
+                <span className="text-xs text-text-muted">até</span>
+                <input type="date" value={customUntil} onChange={e => setCustomUntil(e.target.value)}
+                  className="bg-bg border border-border rounded-lg px-2.5 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent/40 cursor-pointer" />
+                {(customSince || customUntil) && (
+                  <button onClick={() => { setCustomSince(""); setCustomUntil(""); }}
+                    className="text-[10px] text-text-muted hover:text-red transition-colors">limpar</button>
+                )}
+                {!customSince && !customUntil && (
+                  <span className="text-[10px] text-text-dark font-mono">
+                    {reportType === "mensal" ? "mês anterior" : reportType === "quinzenal" ? "últimos 15 dias" : "últimos 7 dias"} (automático)
+                  </span>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
