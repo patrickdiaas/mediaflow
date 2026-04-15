@@ -11,7 +11,7 @@ function fmtInt(n: number) {
 }
 
 function extractWords(s: string): string[] {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter(w => w.length > 1);
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter(w => w.length > 1 && !/^\d{1,2}$/.test(w));
 }
 function fuzzyMatch(a: string, b: string): boolean {
   if (a === b) return true;

@@ -16,7 +16,7 @@ import { RefreshCw, Calendar, Building2, Menu, Megaphone, Trophy, CalendarDays, 
 // ─── Fuzzy match (same as campanhas/criativos) ─────────────────────────────
 // Extrai palavras significativas de um nome (remove pontuação, lowercase)
 function extractWords(s: string): string[] {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter(w => w.length > 1);
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter(w => w.length > 1 && !/^\d{1,2}$/.test(w));
 }
 
 function fuzzyMatch(a: string, b: string): boolean {
