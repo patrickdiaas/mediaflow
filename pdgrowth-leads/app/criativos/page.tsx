@@ -123,8 +123,20 @@ export default function CriativosPage() {
       .lte("converted_at", leadUntil);
     const qLeads = metaSlug ? baseLeads.eq("client_slug", metaSlug) : baseLeads;
 
-    Promise.all([qAds, qLeads]).then(([{ data: rows }, { data: rawLeads }]) => {
+    // Query for real first date of each creative (no period filter)
+    const baseFirstDate = supabase.from("ad_creatives")
+      .select("ad_id, date")
+      .order("date", { ascending: true });
+    const qFirstDate = metaSlug ? baseFirstDate.eq("client_slug", metaSlug) : baseFirstDate;
+
+    Promise.all([qAds, qLeads, qFirstDate]).then(([{ data: rows }, { data: rawLeads }, { data: firstDateRows }]) => {
       setLoading(false);
+
+      // Build first date map (real start date, independent of period)
+      const firstDateMap = new Map<string, string>();
+      for (const r of (firstDateRows ?? [])) {
+        if (r.ad_id && r.date && !firstDateMap.has(r.ad_id)) firstDateMap.set(r.ad_id, r.date);
+      }
 
       // Filtra leads pela plataforma selecionada
       const leadsData = platform === "all" ? (rawLeads ?? []) : (rawLeads ?? []).filter((l: any) => {
@@ -168,14 +180,15 @@ export default function CriativosPage() {
           return { ...c, ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0, cpm: c.impressions > 0 ? (c.spend / c.impressions) * 1000 : 0, leads: ld, cpl: ld > 0 ? c.spend / ld : 0, _key: key };
         });
         setData(mapped);
-        // Build catalog
+        // Build catalog with real first date
         setCatalogData(mapped.map(c => {
           const cat = catMap.get(c._key);
+          const realFirstDate = firstDateMap.get(c.ad_id) ?? cat?.firstDate ?? "";
           return {
             ad_id: c.ad_id, ad_name: c.ad_name, campaign_name: c.campaign_name, platform: c.platform,
             creative_type: cat?.type ?? null, thumbnail_url: cat?.thumbnail ?? null,
             permalink_url: cat?.permalink ?? null, headline: cat?.headline ?? null,
-            status: cat?.status ?? "", first_date: cat?.firstDate ?? "",
+            status: cat?.status ?? "", first_date: realFirstDate,
             impressions: c.impressions, clicks: c.clicks, spend: c.spend,
             leads: c.leads, ctr: c.ctr, cpl: c.cpl,
           };
@@ -186,7 +199,17 @@ export default function CriativosPage() {
 
   const campaigns = ["all", ...Array.from(new Set(data.map(c => c.campaign_name).filter(Boolean)))];
   const filteredCatalog = (campaign === "all" ? catalogData : catalogData.filter(c => c.campaign_name === campaign))
-    .sort((a, b) => b.leads - a.leads || b.spend - a.spend);
+    .sort((a, b) => {
+      // Sort by campaign first, then by spend within campaign
+      if (a.campaign_name !== b.campaign_name) return a.campaign_name.localeCompare(b.campaign_name);
+      return b.spend - a.spend;
+    });
+  // Group for display
+  const catalogByCampaign = new Map<string, CatalogItem[]>();
+  for (const c of filteredCatalog) {
+    if (!catalogByCampaign.has(c.campaign_name)) catalogByCampaign.set(c.campaign_name, []);
+    catalogByCampaign.get(c.campaign_name)!.push(c);
+  }
 
   function exportCatalogPDF() {
     const clientName = client === "all" ? "Todos os clientes" : client;
@@ -202,7 +225,20 @@ export default function CriativosPage() {
       return "#6A6A7A";
     };
 
-    const cardsHtml = items.map(c => `
+    // Group by campaign for PDF
+    const pdfByCampaign = new Map<string, CatalogItem[]>();
+    for (const c of items) {
+      if (!pdfByCampaign.has(c.campaign_name)) pdfByCampaign.set(c.campaign_name, []);
+      pdfByCampaign.get(c.campaign_name)!.push(c);
+    }
+
+    const cardsHtml = Array.from(pdfByCampaign.entries()).map(([camp, campItems]) => `
+      <div class="campaign-group">
+        <div class="campaign-title">
+          <span class="badge ${campItems[0]?.platform}">${campItems[0]?.platform === "meta" ? "Meta" : "Google"}</span>
+          ${camp} <span style="color:#6a6a7a;font-weight:400">· ${campItems.length} criativos</span>
+        </div>
+        ${campItems.map(c => `
       <div class="card">
         <div class="card-header">
           <div class="thumb">${c.thumbnail_url
@@ -230,6 +266,8 @@ export default function CriativosPage() {
         </div>
         ${c.permalink_url ? `<a class="link" href="${c.permalink_url}" target="_blank">Ver anúncio ↗</a>` : ""}
       </div>
+    `).join("")}
+      </div>
     `).join("");
 
     const html = `<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"/>
@@ -255,6 +293,8 @@ export default function CriativosPage() {
       .badge.google { color: #F59E0B; background: rgba(245,158,11,0.1); border: 1px solid rgba(245,158,11,0.3); }
       .status { font-size: 10px; font-weight: 600; }
       .date { font-size: 10px; color: #6a6a7a; }
+      .campaign-group { margin-bottom: 24px; }
+      .campaign-title { font-size: 14px; font-weight: 700; color: #CAFF04; border-left: 4px solid #CAFF04; padding-left: 12px; margin-bottom: 12px; }
       .metrics { display: flex; gap: 12px; }
       .metric { background: #0e1018; border-radius: 8px; padding: 8px 12px; text-align: center; flex: 1; }
       .metric-val { font-size: 15px; font-weight: 800; display: block; font-family: 'DM Mono', monospace; color: #f2f2f5; }
@@ -332,56 +372,59 @@ export default function CriativosPage() {
         ) : view === "list" ? (
           <DataTable<CreativeRow> columns={tableColumns} data={filtered} rowKey="ad_id" />
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-6">
             {filteredCatalog.length === 0 ? (
               <div className="text-text-muted text-sm text-center py-12">Nenhum criativo encontrado no período.</div>
-            ) : filteredCatalog.map(c => (
-              <div key={c.ad_id} className="bg-card border border-border rounded-xl p-4 flex gap-4 items-start hover:border-border-light transition-colors">
-                {/* Thumbnail */}
-                <div className="relative w-20 h-14 rounded-lg overflow-hidden bg-bg flex-shrink-0 border border-border">
-                  {c.thumbnail_url
-                    ? <Image src={c.thumbnail_url} alt={c.ad_name} fill className="object-cover" sizes="80px" unoptimized />
-                    : c.platform === "google"
-                      ? <div className="w-full h-full flex items-center justify-center text-gold text-[10px] font-bold">Search</div>
-                      : <div className="w-full h-full flex items-center justify-center text-text-muted text-[10px]">—</div>
-                  }
+            ) : Array.from(catalogByCampaign.entries()).map(([campName, items]) => (
+              <div key={campName}>
+                <div className="flex items-center gap-2 mb-3">
+                  <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md border ${
+                    items[0]?.platform === "meta" ? "text-blue border-blue/30 bg-blue/10" : "text-gold border-gold/30 bg-gold/10"
+                  }`}>{items[0]?.platform === "meta" ? "Meta" : "Google"}</span>
+                  <span className="text-sm font-semibold text-text-primary">{campName}</span>
+                  <span className="text-xs text-text-muted">· {items.length} criativos</span>
                 </div>
-
-                {/* Info */}
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md border ${
-                      c.platform === "meta" ? "text-blue border-blue/30 bg-blue/10" : "text-gold border-gold/30 bg-gold/10"
-                    }`}>{c.platform === "meta" ? "Meta" : "Google"}</span>
-                    <span className={`text-[10px] font-semibold ${
-                      (!c.status || c.status === "ACTIVE" || c.status === "ENABLED") ? "text-accent" : "text-gold"
-                    }`}>
-                      {(!c.status || c.status === "ACTIVE" || c.status === "ENABLED") ? "Ativo" : c.status === "PAUSED" ? "Pausado" : c.status}
-                    </span>
-                    {c.first_date && (
-                      <span className="text-[10px] text-text-muted">Desde {new Date(c.first_date + "T12:00:00").toLocaleDateString("pt-BR")}</span>
-                    )}
-                  </div>
-                  <div className="text-sm font-semibold text-text-primary truncate" title={c.ad_name}>{c.ad_name}</div>
-                  {c.headline && <div className="text-xs text-gold mt-0.5">{c.headline}</div>}
-                  <div className="text-xs text-text-muted mt-0.5">{c.campaign_name}</div>
-
-                  {/* Metrics row */}
-                  <div className="flex gap-4 mt-2 text-xs">
-                    <span><span className="text-accent font-mono font-semibold">{c.leads}</span> <span className="text-text-muted">leads</span></span>
-                    <span><span className="text-text-secondary font-mono">{c.ctr.toFixed(1)}%</span> <span className="text-text-muted">CTR</span></span>
-                    <span><span className="text-gold font-mono">{c.cpl > 0 ? `R$${c.cpl.toFixed(0)}` : "—"}</span> <span className="text-text-muted">CPL</span></span>
-                    <span><span className="text-blue font-mono">R${c.spend.toFixed(0)}</span> <span className="text-text-muted">gasto</span></span>
-                  </div>
+                <div className="space-y-2">
+                  {items.map(c => (
+                    <div key={c.ad_id} className="bg-card border border-border rounded-xl p-4 flex gap-4 items-start hover:border-border-light transition-colors">
+                      <div className="relative w-20 h-14 rounded-lg overflow-hidden bg-bg flex-shrink-0 border border-border">
+                        {c.thumbnail_url
+                          ? <Image src={c.thumbnail_url} alt={c.ad_name} fill className="object-cover" sizes="80px" unoptimized />
+                          : c.platform === "google"
+                            ? <div className="w-full h-full flex items-center justify-center text-gold text-[10px] font-bold">Search</div>
+                            : <div className="w-full h-full flex items-center justify-center text-text-muted text-[10px]">—</div>
+                        }
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-1 flex-wrap">
+                          <span className={`text-[10px] font-semibold ${
+                            (!c.status || c.status === "ACTIVE" || c.status === "ENABLED") ? "text-accent" : "text-gold"
+                          }`}>
+                            {(!c.status || c.status === "ACTIVE" || c.status === "ENABLED") ? "Ativo" : c.status === "PAUSED" ? "Pausado" : c.status}
+                          </span>
+                          {c.first_date && (
+                            <span className="text-[10px] text-text-muted">Desde {new Date(c.first_date + "T12:00:00").toLocaleDateString("pt-BR")}</span>
+                          )}
+                          {c.creative_type && <span className="text-[10px] text-text-dark">{c.creative_type}</span>}
+                        </div>
+                        <div className="text-sm font-semibold text-text-primary truncate" title={c.ad_name}>{c.ad_name}</div>
+                        {c.headline && <div className="text-xs text-gold mt-0.5">{c.headline}</div>}
+                        <div className="flex gap-4 mt-2 text-xs">
+                          <span><span className="text-accent font-mono font-semibold">{c.leads}</span> <span className="text-text-muted">leads</span></span>
+                          <span><span className="text-text-secondary font-mono">{c.ctr.toFixed(1)}%</span> <span className="text-text-muted">CTR</span></span>
+                          <span><span className="text-gold font-mono">{c.cpl > 0 ? `R$${c.cpl.toFixed(0)}` : "—"}</span> <span className="text-text-muted">CPL</span></span>
+                          <span><span className="text-blue font-mono">R${c.spend.toFixed(0)}</span> <span className="text-text-muted">gasto</span></span>
+                        </div>
+                      </div>
+                      {c.permalink_url && (
+                        <a href={c.permalink_url} target="_blank" rel="noopener noreferrer"
+                          className="flex-shrink-0 flex items-center gap-1 text-[11px] text-blue hover:text-accent transition-colors mt-1">
+                          <ExternalLink size={12} /> Ver
+                        </a>
+                      )}
+                    </div>
+                  ))}
                 </div>
-
-                {/* Link */}
-                {c.permalink_url && (
-                  <a href={c.permalink_url} target="_blank" rel="noopener noreferrer"
-                    className="flex-shrink-0 flex items-center gap-1 text-[11px] text-blue hover:text-accent transition-colors mt-1">
-                    <ExternalLink size={12} /> Ver
-                  </a>
-                )}
               </div>
             ))}
           </div>

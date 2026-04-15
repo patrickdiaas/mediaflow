@@ -128,9 +128,11 @@ export async function POST(req: NextRequest) {
         if (e.name === l.utm_term || fuzzyMatch(e.name, l.utm_term)) { e.leads++; break; }
       }
     }
-    const topCreatives = Array.from(creativeAgg.values())
+    // All creatives with spend (for report context - not just those with leads)
+    const allCreativesWithSpend = Array.from(creativeAgg.values())
       .map(c => ({ ...c, ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0, cpl: c.leads > 0 ? c.spend / c.leads : null }))
-      .filter(c => c.leads > 0).sort((a, b) => b.leads - a.leads).slice(0, 10);
+      .filter(c => c.spend > 0).sort((a, b) => b.leads - a.leads || b.spend - a.spend);
+    // topCreatives used in context below
 
     // Keywords by campaign
     const { data: kwData } = await supabase
@@ -174,15 +176,11 @@ export async function POST(req: NextRequest) {
     }
     const topPlacements = Array.from(plcAgg.entries()).map(([name, v]) => ({ name, ...v })).sort((a, b) => b.conversions - a.conversions).slice(0, 6);
 
-    // Criativos agrupados por campanha
-    const creativesByCampaign = new Map<string, typeof topCreatives>();
-    const allCreatives = Array.from(creativeAgg.values())
-      .map(c => ({ ...c, ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0, cpl: c.leads > 0 ? c.spend / c.leads : null }))
-      .sort((a, b) => b.leads - a.leads);
-    for (const c of allCreatives) {
+    // Criativos agrupados por campanha — ALL with spend (not just top 3)
+    const creativesByCampaign = new Map<string, typeof allCreativesWithSpend>();
+    for (const c of allCreativesWithSpend) {
       if (!creativesByCampaign.has(c.campaign)) creativesByCampaign.set(c.campaign, []);
-      const arr = creativesByCampaign.get(c.campaign)!;
-      if (arr.length < 3) arr.push(c);
+      creativesByCampaign.get(c.campaign)!.push(c);
     }
 
     // Formulários por campanha
@@ -243,7 +241,7 @@ ${metaCampaigns.filter(c => c.leads > 0 || c.spend > 50).map(c => {
     `    Gasto: R$${fmt(c.spend)} | Impressões: ${fmtInt(c.impressions)} | Cliques: ${fmtInt(c.clicks)} | CTR: ${c.ctr.toFixed(2)}%`,
     `    Leads: ${c.leads}${c.cpl ? ` | CPL: R$${fmt(c.cpl)}` : ""}`,
     formsStr ? `    Formulários: ${formsStr}` : "",
-    creatives.length > 0 ? `    Criativos:\n${creatives.map(cr => `      - ${cr.name} | ${cr.leads} leads | CTR ${cr.ctr.toFixed(2)}%${cr.cpl ? ` | CPL R$${fmt(cr.cpl)}` : ""}${cr.permalink ? ` | Link: ${cr.permalink}` : ""}`).join("\n")}` : "",
+    creatives.length > 0 ? `    Criativos (todos com gasto no período):\n${creatives.map(cr => `      - ${cr.name} | Gasto: R$${fmt(cr.spend)} | ${cr.leads} leads | CTR ${cr.ctr.toFixed(2)}%${cr.cpl ? ` | CPL R$${fmt(cr.cpl)}` : ""}${cr.permalink ? ` | Link: ${cr.permalink}` : ""}`).join("\n")}` : "",
   ].filter(Boolean).join("\n");
 }).join("\n\n")}
 ${topPlacements.length > 0 ? `\n  POSICIONAMENTOS:\n${topPlacements.map(p => `    ${p.name}: ${p.conversions} conv | ${fmtInt(p.clicks)} cliques | R$${fmt(p.spend)}`).join("\n")}` : ""}
@@ -295,7 +293,7 @@ Escreva o relatório EXATAMENTE neste formato:
 Números gerais: total de leads, investimento, CPL. Quebre por plataforma (Meta vs Google) com leads, investimento e CPL de cada. Liste os formulários que mais receberam leads. Seja direto com os números.
 
 **2. Meta Ads — Resultados por Campanha**
-${metaCampaigns.length > 0 ? "Para CADA campanha Meta, apresente: investimento, leads, CPL, CTR. Abaixo de cada campanha, liste os criativos que geraram leads com seus números e link do criativo (se disponível nos dados). Mencione posicionamentos que mais converteram (Feed, Stories, Reels). Se uma campanha gerou leads em formulários de outros produtos, destaque isso." : "Sem campanhas Meta no período."}
+${metaCampaigns.length > 0 ? "Para CADA campanha Meta, apresente: investimento, leads, CPL, CTR. Abaixo de cada campanha, liste TODOS os criativos que tiveram gasto no período (não apenas os que geraram leads) com: nome, gasto, leads, CTR, CPL e link. Mencione posicionamentos que mais converteram. Se o criativo teve gasto mas zero leads, apenas liste com os dados — não é necessário explicar." : "Sem campanhas Meta no período."}
 
 **3. Google Ads — Resultados por Campanha**
 ${googleCampaigns.length > 0 ? "Para CADA campanha Google, apresente: investimento, leads, CPL, CTR. Liste as top palavras-chave com cliques e conversões. Liste os termos de pesquisa mais relevantes — o que as pessoas realmente digitaram. Destaque termos com alta conversão e termos que gastam sem converter." : "Sem campanhas Google no período."}
