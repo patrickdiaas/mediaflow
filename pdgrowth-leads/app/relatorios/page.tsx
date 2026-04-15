@@ -106,8 +106,6 @@ const SECTION_CONFIG: Record<string, { icon: React.ElementType; color: string; t
   "2": { icon: Megaphone,   color: "bg-blue/5 text-blue",     title: "Meta Ads — Campanhas" },
   "3": { icon: Target,      color: "bg-gold/5 text-gold",     title: "Google Ads — Campanhas" },
   "4": { icon: Sparkles,    color: "bg-accent/5 text-accent", title: "Destaques e Pontos de Atenção" },
-  "5": { icon: Image,       color: "bg-blue/5 text-blue",     title: "Recomendações de Criativos" },
-  "6": { icon: Users,       color: "bg-gold/5 text-gold",     title: "Próximos Passos" },
 };
 
 function parseSections(text: string) {
@@ -504,24 +502,9 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
           <div className="space-y-4">
             {sections ? (
               <div className="space-y-4">
-                {/* Overview + Destaques side by side */}
-                <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                  {["1", "4"].map(num => {
-                    const cfg = SECTION_CONFIG[num];
-                    const content = sections[num];
-                    if (!cfg || !content) return null;
-                    return (
-                      <SectionCard key={num} icon={cfg.icon} color={cfg.color} title={cfg.title}>
-                        {renderMarkdown(content.replace(/^(?:\*\*|\#{1,3}\s*)\d+[\.\)]\s+.+?(?:\*\*|\n)/, ""))}
-                      </SectionCard>
-                    );
-                  })}
-                </div>
-                {/* Meta, Google, Criativos, Próximos passos — full width */}
-                {["2", "3", "5", "6"].map(num => {
-                  const cfg = SECTION_CONFIG[num];
+                {Object.entries(SECTION_CONFIG).map(([num, cfg]) => {
                   const content = sections[num];
-                  if (!cfg || !content) return null;
+                  if (!content) return null;
                   return (
                     <SectionCard key={num} icon={cfg.icon} color={cfg.color} title={cfg.title}>
                       {renderMarkdown(content.replace(/^(?:\*\*|\#{1,3}\s*)\d+[\.\)]\s+.+?(?:\*\*|\n)/, ""))}

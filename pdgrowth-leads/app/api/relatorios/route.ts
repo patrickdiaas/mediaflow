@@ -295,24 +295,7 @@ ${googleCampaigns.length > 0 ? "Para CADA campanha Google, apresente: investimen
 **4. Destaques e Pontos de Atenção**
 O que funcionou bem no período? O que precisa de atenção? Quais campanhas/criativos devem ser escalados e quais devem ser revisados? Use os dados para justificar.
 
-**5. Recomendações de Criativos**
-Sugira exatamente 6 novos criativos para o time de criação produzir, considerando o sistema Andromeda do Meta (que favorece diversidade de formatos e variações para alimentar a IA de entrega). Para cada criativo:
-- **Nome sugerido**: nome descritivo para o time identificar
-- **Formato**: vídeo curto (Reels/Stories), imagem estática, carrossel, ou UGC
-- **Conceito e mensagem principal**: o que comunicar e qual gancho usar
-- **Referência**: qual criativo atual inspirou (cite o nome e métricas)
-- **Posicionamento recomendado**: Feed, Stories, Reels, ou automático
-- **Plataforma**: Meta / Google / ambas
-- **Hipótese**: por que esse criativo deve funcionar baseado nos dados
-
-Priorize variações do que já funciona (testar novos visuais mantendo a mensagem do campeão), formatos de vídeo curto (Reels performa bem no Andromeda), e pelo menos 1 criativo em formato UGC ou depoimento.
-
-**6. Próximos Passos**
-Ações divididas por área:
-- **Tráfego**: ajustes de campanha, orçamento, segmentação, palavras-chave a negativar, lances a ajustar
-- **Criação**: checklist dos 6 criativos recomendados em ordem de prioridade, com nome e formato
-
-NÃO inclua seção de comercial ou insights para time comercial. O relatório é para tráfego e criação.
+NÃO inclua seções de recomendações de criativos, cronograma de produção ou próximos passos. O relatório termina na seção 4.
 
 IMPORTANTE sobre formatação:
 - Use ### para subtítulos dentro das seções (ex: ### O que funcionou bem)
