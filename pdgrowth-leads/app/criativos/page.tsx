@@ -116,7 +116,7 @@ export default function CriativosPage() {
     const qAds = metaSlug ? q1.eq("client_slug", metaSlug) : q1;
 
     const baseLeads = supabase.from("leads")
-      .select("utm_source, utm_term")
+      .select("utm_source, utm_term, utm_campaign")
       .not("utm_medium", "is", null)
       .not("utm_medium", "in", '(organic,"(none)",unknown,referral)')
       .gte("converted_at", leadSince)
@@ -170,13 +170,37 @@ export default function CriativosPage() {
             catMap.set(key, { status: r.status ?? "", firstDate: r.date ?? "", permalink: r.permalink_url ?? null, thumbnail: r.thumbnail_url ?? null, headline: r.headline ?? null, type: r.creative_type ?? null, campaign: r.campaign_name ?? "", platform: r.platform as Platform, impressions: r.impressions ?? 0, clicks: r.clicks ?? 0, spend: r.spend ?? 0 });
           }
         }
-        const mapped = Array.from(map.entries()).map(([key, c]) => {
-          let ld = byAdName.get(c.ad_name) ?? 0;
-          if (ld === 0) {
-            for (const [utmVal, count] of Array.from(byAdName.entries())) {
-              if (fuzzyMatch(c.ad_name, utmVal)) { ld += count; }
+        // Find dominant creative per campaign (most spend)
+        const allCreatives = Array.from(map.values());
+        const domCreativePerCamp = new Map<string, string>();
+        for (const cr of allCreatives) {
+          const cur = domCreativePerCamp.get(cr.campaign_name);
+          const curCr = cur ? allCreatives.find(x => x.ad_name === cur) : null;
+          if (!cur || cr.spend > (curCr?.spend ?? 0)) domCreativePerCamp.set(cr.campaign_name, cr.ad_name);
+        }
+
+        // Attribute leads: exact match first, fuzzy second, fallback to dominant creative
+        const leadCounts = new Map<string, number>();
+        const allAdNames = allCreatives.map(c => c.ad_name);
+        for (const l of leadsData) {
+          if (!l.utm_term) continue;
+          // Exact match
+          if (allAdNames.includes(l.utm_term)) { leadCounts.set(l.utm_term, (leadCounts.get(l.utm_term) ?? 0) + 1); continue; }
+          // Fuzzy match
+          const fuzzy = allAdNames.find(n => fuzzyMatch(n, l.utm_term));
+          if (fuzzy) { leadCounts.set(fuzzy, (leadCounts.get(fuzzy) ?? 0) + 1); continue; }
+          // Fallback: dominant creative of matching campaign
+          if (l.utm_campaign) {
+            const campMatch = allCreatives.find(cr => cr.campaign_name === l.utm_campaign || fuzzyMatch(cr.campaign_name, l.utm_campaign));
+            if (campMatch) {
+              const domName = domCreativePerCamp.get(campMatch.campaign_name);
+              if (domName) leadCounts.set(domName, (leadCounts.get(domName) ?? 0) + 1);
             }
           }
+        }
+
+        const mapped = Array.from(map.entries()).map(([key, c]) => {
+          const ld = leadCounts.get(c.ad_name) ?? 0;
           return { ...c, ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0, cpm: c.impressions > 0 ? (c.spend / c.impressions) * 1000 : 0, leads: ld, cpl: ld > 0 ? c.spend / ld : 0, _key: key };
         });
         setData(mapped);

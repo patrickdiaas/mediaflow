@@ -122,10 +122,35 @@ export async function POST(req: NextRequest) {
       e.spend += Number(c.spend); e.impressions += Number(c.impressions); e.clicks += Number(c.clicks);
       creativeAgg.set(c.ad_id, e);
     }
+    // Build campaign→dominant creative map (creative with most spend per campaign)
+    const dominantCreative = new Map<string, string>(); // campaign → ad_name
+    const spendByCreative = new Map<string, { campaign: string; spend: number }>();
+    for (const [, c] of Array.from(creativeAgg.entries())) {
+      const existing = spendByCreative.get(c.campaign);
+      if (!existing || c.spend > existing.spend) spendByCreative.set(c.campaign, { campaign: c.campaign, spend: c.spend });
+      // Track name of top spender per campaign
+      const currentDom = dominantCreative.get(c.campaign);
+      const currentDomEntry = currentDom ? Array.from(creativeAgg.values()).find(x => x.name === currentDom) : null;
+      if (!currentDom || c.spend > (currentDomEntry?.spend ?? 0)) dominantCreative.set(c.campaign, c.name);
+    }
+
     for (const l of leads) {
       if (!l.utm_term) continue;
+      let matched = false;
       for (const [, e] of Array.from(creativeAgg.entries())) {
-        if (e.name === l.utm_term || fuzzyMatch(e.name, l.utm_term)) { e.leads++; break; }
+        if (e.name === l.utm_term || fuzzyMatch(e.name, l.utm_term)) { e.leads++; matched = true; break; }
+      }
+      // Fallback: attribute to dominant creative of the same campaign
+      if (!matched && l.utm_campaign) {
+        // Find campaign name that matches this lead's utm_campaign
+        const campName = campNames.find(n => n === l.utm_campaign || fuzzyMatch(n, l.utm_campaign)) ?? campIdToName.get(l.utm_campaign);
+        if (campName) {
+          const domName = dominantCreative.get(campName);
+          if (domName) {
+            const domCreative = Array.from(creativeAgg.values()).find(c => c.name === domName);
+            if (domCreative) domCreative.leads++;
+          }
+        }
       }
     }
     // All creatives with spend (for report context - not just those with leads)
