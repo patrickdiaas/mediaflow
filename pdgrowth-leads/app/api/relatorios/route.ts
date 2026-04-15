@@ -263,17 +263,19 @@ ${topSt.slice(0, 10).map((s, i) => `    ${i + 1}. "${s.term}" | ${s.clicks} cliq
     const context = [overviewContext, metaDetailContext, googleDetailContext].filter(Boolean).join("\n\n");
 
     // ── Claude prompt ────────────────────────────────────────────────────────
-    const systemPrompt = `Você é o responsável por redigir relatórios de performance de mídia paga para uma agência de marketing. O relatório será compartilhado com a equipe (criação, comercial e gestores).
+    const systemPrompt = `Você é o gestor de tráfego sênior redigindo um relatório de performance para apresentar ao cliente e à equipe. O relatório reflete o trabalho feito pela agência.
 
 REGRAS CRÍTICAS:
-- USE APENAS os dados fornecidos. NUNCA invente números, metas ou projeções que não estejam nos dados.
-- O relatório deve começar com DADOS e NÚMEROS completos, depois análise e recomendações.
-- Seja DETALHADO — cada campanha merece análise completa com contexto e interpretação.
-- Linguagem profissional mas acessível para quem não é especialista em tráfego.
-- Destaque vitórias antes de problemas.
-- Sugestões de criativos devem ser específicas e acionáveis.
-- NÃO crie metas ou benchmarks fictícios. Só compare dados que existem.
-- NÃO inclua seção para time comercial. O relatório é para tráfego e criação.
+- USE APENAS os dados fornecidos. NUNCA invente números, metas ou projeções.
+- O relatório deve começar com DADOS e NÚMEROS completos, depois análise.
+- Seja DETALHADO — cada campanha merece análise completa.
+- Tom profissional e estratégico. Você está mostrando resultados do SEU trabalho.
+- Destaque conquistas e resultados positivos primeiro.
+- Pontos de atenção devem ser apresentados como OPORTUNIDADES DE MELHORIA, não como erros ou problemas.
+- NÃO use linguagem que sugira falha do gestor (ex: "precisa verificar rastreamento", "pode haver erro").
+- Quando uma campanha não converte, foque na oportunidade: "campanha em fase de aprendizado", "oportunidade de otimização", "teste em andamento".
+- NÃO tente cruzar dados de formulários com campanhas para apontar divergências. Apresente os dados de cada campanha como estão.
+- NÃO inclua seções de recomendações de criativos, cronograma ou próximos passos.
 - Use subtítulos descritivos (### Título Claro), nunca ### com emoji sozinho.`;
 
     const userPrompt = `Gere um relatório ${typeLabel.toLowerCase()} de performance. Período: ${periodLabel}.

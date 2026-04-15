@@ -527,13 +527,13 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
                 </div>
                 <div className="px-5 py-4">
                   <p className="text-xs text-text-muted mb-3">
-                    Informe correções ou contexto adicional e o relatório será regenerado completo com os ajustes.
+                    Informe correções, contexto adicional ou ações realizadas no período. O relatório será regenerado completo com os ajustes.
                   </p>
                   <div className="space-y-2">
                     <textarea
                       value={followUpInput}
                       onChange={e => setFollowUpInput(e.target.value)}
-                      placeholder={"Ex:\n- A campanha institucional Google teve 8 conversões pelo pixel, considere no relatório\n- Remover a análise do criativo ad02, já foi pausado"}
+                      placeholder={"Ex:\n- A campanha institucional teve 5 conversões pelo pixel do Google\n- Nesta semana foram criados 3 novos criativos para YouLaser\n- Ajustamos as UTMs de todas as campanhas Google\n- Pausamos o criativo estatico-02 por baixo desempenho"}
                       disabled={followUpLoading}
                       rows={4}
                       className="w-full bg-bg border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-dark focus:outline-none focus:border-accent/40 disabled:opacity-50 resize-y"
