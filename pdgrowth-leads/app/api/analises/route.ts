@@ -70,6 +70,12 @@ REGRAS:
     const dateSince = period_from.slice(0, 10);
     const dateUntil = period_to.slice(0, 10);
 
+    // BRT adjustment for leads
+    const leadSince = `${dateSince}T03:00:00`;
+    const untilDate = new Date(dateUntil + "T00:00:00Z");
+    untilDate.setUTCDate(untilDate.getUTCDate() + 1);
+    const leadUntil = `${untilDate.toISOString().split("T")[0]}T02:59:59`;
+
     // ── 1. Leads no período ──────────────────────────────────────────────────
     const { data: leadsRaw } = await supabase
       .from("leads")
@@ -77,8 +83,8 @@ REGRAS:
       .eq("client_slug", client)
       .not("utm_medium", "is", null)
       .not("utm_medium", "in", '(organic,"(none)",unknown,referral)')
-      .gte("converted_at", period_from)
-      .lte("converted_at", period_to);
+      .gte("converted_at", leadSince)
+      .lte("converted_at", leadUntil);
 
     const leads = leadsRaw ?? [];
 
