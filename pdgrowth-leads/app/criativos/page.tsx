@@ -5,7 +5,7 @@ import CreativeCard from "@/components/creative-card";
 import DataTable, { Column } from "@/components/data-table";
 
 function extractWords(s: string): string[] {
-  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter(w => w.length > 1 && !/^\d{1,2}$/.test(w));
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim().split(/\s+/).filter(w => w.length > 1);
 }
 function fuzzyMatch(a: string, b: string): boolean {
   if (a === b) return true;
