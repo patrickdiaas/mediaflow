@@ -74,6 +74,14 @@ export async function POST(req: NextRequest) {
     // Normaliza medium: ignora "unknown"
     const normalizedMedium = utmMedium && utmMedium !== "unknown" ? utmMedium.toLowerCase() : null;
 
+    // Normaliza Lead Ads campaign: formulário name → campaign name real
+    const LEAD_ADS_CAMPAIGN_MAP: Record<string, string> = {
+      "[BEAUTYSYSTEMS] [MPT] [LEAD ADS] [OUT.2025]": "BTS MPT LEAD ADS",
+    };
+    const normalizedCampaign = utmCampaign
+      ? (LEAD_ADS_CAMPAIGN_MAP[utmCampaign] ?? utmCampaign)
+      : null;
+
     // Conversion identifier: conv.source (ex: "volformer-cotacao-lp") ou content.identificador
     const conversionEvent = conv.content?.conversion_identifier
       ?? conv.content?.identificador
@@ -103,7 +111,7 @@ export async function POST(req: NextRequest) {
       clientSlug, email, conversionEvent,
       utm_source: normalizedSource,
       utm_medium: normalizedMedium,
-      utm_campaign: utmCampaign,
+      utm_campaign: normalizedCampaign,
       utm_content: utmContent,
       utm_term: utmTerm,
       source,
@@ -120,7 +128,7 @@ export async function POST(req: NextRequest) {
       landing_page:     landingPage,
       utm_source:       normalizedSource,
       utm_medium:       normalizedMedium,
-      utm_campaign:     utmCampaign,
+      utm_campaign:     normalizedCampaign,
       utm_content:      utmContent,
       utm_term:         utmTerm,
       converted_at:     convertedAt,
