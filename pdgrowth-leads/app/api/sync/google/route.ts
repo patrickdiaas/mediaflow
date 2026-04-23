@@ -148,7 +148,13 @@ export async function POST(request: Request) {
     .filter(([, r]) => r.error)
     .map(([slug, r]) => ({ slug, error: r.error }))
 
-  return NextResponse.json({
+  if (errors.length > 0) {
+    for (const { slug, error } of errors) {
+      console.error(`[sync/google] FAILED client=${slug} since=${since} until=${until}: ${error}`)
+    }
+  }
+
+  const body = {
     success: errors.length === 0,
     since,
     until,
@@ -156,5 +162,6 @@ export async function POST(request: Request) {
     total,
     per_client: results,
     ...(errors.length > 0 && { errors }),
-  })
+  }
+  return NextResponse.json(body, { status: errors.length > 0 ? 500 : 200 })
 }

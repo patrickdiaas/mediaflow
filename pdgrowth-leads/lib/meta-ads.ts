@@ -243,10 +243,13 @@ async function fetchCampaignList(accountId: string, token: string): Promise<Meta
 }
 
 async function fetchAdList(accountId: string, token: string): Promise<MetaAdInfo[]> {
+  // limit=100 e somente ACTIVE evita erro "Please reduce the amount of data"
+  // em contas com muito histórico de ads pausados. Ads pausados aparecem em
+  // insights mesmo sem estar neste list — perdemos apenas o enrichment de creative.
   const url = buildUrl(`/${accountId}/ads`, {
     fields: 'id,name,status,adset_id,campaign_id,effective_object_story_id,creative{object_type,thumbnail_url,image_url,title,body,instagram_permalink_url}',
-    effective_status: '["ACTIVE","PAUSED"]',
-    limit: '500',
+    effective_status: '["ACTIVE"]',
+    limit: '100',
   }, token)
   return fetchAllPages<MetaAdInfo>(url)
 }
@@ -364,16 +367,34 @@ export async function syncAccountData(
   const normalizedId = normalizeAccountId(accountId)
   const timeRange = JSON.stringify({ since, until })
 
-  // Fetch all data in parallel to minimize latency
-  const [campaignList, campaignInsights, adSetInsights, adList, adInsights, regionInsights, placementInsights] = await Promise.all([
-    fetchCampaignList(normalizedId, token),
-    fetchInsights(normalizedId, 'campaign', timeRange, token),
-    fetchInsights(normalizedId, 'adset', timeRange, token),
-    fetchAdList(normalizedId, token),
-    fetchInsights(normalizedId, 'ad', timeRange, token),
-    fetchRegionInsights(normalizedId, timeRange, token),
-    fetchPlacementInsights(normalizedId, timeRange, token),
+  // Fetch all data in parallel. Usamos allSettled para que falhas em chamadas
+  // "opcionais" (ad list, breakdowns) não inviabilizem o sync inteiro da conta.
+  // Os insights principais (campaign/adset/ad) são críticos e lançam se falharem.
+  const settled = await Promise.allSettled([
+    fetchCampaignList(normalizedId, token),                        // 0 — opcional (enrich status/objective)
+    fetchInsights(normalizedId, 'campaign', timeRange, token),     // 1 — crítico
+    fetchInsights(normalizedId, 'adset', timeRange, token),        // 2 — crítico
+    fetchAdList(normalizedId, token),                              // 3 — opcional (enrich creative)
+    fetchInsights(normalizedId, 'ad', timeRange, token),           // 4 — crítico
+    fetchRegionInsights(normalizedId, timeRange, token),           // 5 — opcional (breakdown)
+    fetchPlacementInsights(normalizedId, timeRange, token),        // 6 — opcional (breakdown)
   ])
+
+  const unwrap = <T>(i: number, critical: boolean, fallback: T): T => {
+    const r = settled[i]
+    if (r.status === 'fulfilled') return r.value as T
+    if (critical) throw r.reason
+    console.warn(`[meta-ads] optional fetch #${i} failed for ${clientSlug} (${accountId}):`, r.reason instanceof Error ? r.reason.message : r.reason)
+    return fallback
+  }
+
+  const campaignList     = unwrap<MetaCampaignInfo[]>(0, false, [])
+  const campaignInsights = unwrap<MetaInsightRow[]>(1, true, [])
+  const adSetInsights    = unwrap<MetaInsightRow[]>(2, true, [])
+  const adList           = unwrap<MetaAdInfo[]>(3, false, [])
+  const adInsights       = unwrap<MetaInsightRow[]>(4, true, [])
+  const regionInsights   = unwrap<MetaRegionInsightRow[]>(5, false, [])
+  const placementInsights = unwrap<MetaPlacementInsightRow[]>(6, false, [])
 
   const campaignMap = new Map(campaignList.map(c => [c.id, c]))
   const adMap = new Map(adList.map(ad => [ad.id, ad]))
