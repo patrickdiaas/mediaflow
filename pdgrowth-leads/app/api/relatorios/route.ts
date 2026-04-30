@@ -209,22 +209,19 @@ export async function POST(req: NextRequest) {
       spend: (monthCurStats.spend / monthCur.daysElapsed) * monthCur.daysInMonth,
     } : { leads: 0, spend: 0 };
 
-    // ── Período principal (todas as semanas combinadas) ─────────────────────
+    // ── Período principal (= range escolhido pelo usuário; é o período do detalhamento) ──
     const mainStats = computeRangeStats(allLeads, allAdCampaigns, periodFrom, periodTo);
+    const mainLeads = allLeads.filter((l: any) => inRange(l._brt_date, periodFrom, periodTo));
+    const mainAds = allAdCampaigns.filter((a: any) => inRange(a.date, periodFrom, periodTo));
 
-    // Recorte da semana mais recente para detalhamento profundo
-    const lastWeek = weeks[weeks.length - 1];
-    const lastWeekLeads = allLeads.filter((l: any) => inRange(l._brt_date, lastWeek.since, lastWeek.until));
-    const lastWeekAds = allAdCampaigns.filter((a: any) => inRange(a.date, lastWeek.since, lastWeek.until));
-
-    // Forms da última semana
+    // Forms do período
     const formMap = new Map<string, number>();
-    for (const l of lastWeekLeads) formMap.set(l.conversion_event ?? "desconhecido", (formMap.get(l.conversion_event ?? "desconhecido") ?? 0) + 1);
+    for (const l of mainLeads) formMap.set(l.conversion_event ?? "desconhecido", (formMap.get(l.conversion_event ?? "desconhecido") ?? 0) + 1);
     const topForms = Array.from(formMap.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10);
 
-    // Aggregate de campanhas (última semana)
+    // Aggregate de campanhas (período principal)
     const campAgg = new Map<string, { name: string; platform: string; campaignIds: Set<string>; spend: number; impressions: number; clicks: number; reach: number; leads: number }>();
-    for (const c of lastWeekAds) {
+    for (const c of mainAds) {
       const key = c.campaign_name;
       const e = campAgg.get(key) ?? { name: c.campaign_name, platform: c.platform, campaignIds: new Set(), spend: 0, impressions: 0, clicks: 0, reach: 0, leads: 0 };
       e.spend += Number(c.spend); e.impressions += Number(c.impressions); e.clicks += Number(c.clicks); e.reach += Number(c.reach);
@@ -239,7 +236,7 @@ export async function POST(req: NextRequest) {
 
     // Atribui leads à campanha + identifica leads "sem match"
     const unmatchedLeadsMap = new Map<string, { utm_campaign: string; utm_source: string | null; utm_content: string | null; count: number }>();
-    for (const l of lastWeekLeads) {
+    for (const l of mainLeads) {
       const result = attributeLead(l.utm_campaign, campIndex);
       if (result.campaign_name) {
         campAgg.get(result.campaign_name)!.leads++;
@@ -255,13 +252,13 @@ export async function POST(req: NextRequest) {
       .map(c => ({ ...c, ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0, cpl: c.leads > 0 ? c.spend / c.leads : null }))
       .sort((a, b) => (b.leads || 0) - (a.leads || 0));
 
-    // ── Criativos da última semana ──────────────────────────────────────────
+    // ── Criativos do período principal ──────────────────────────────────────
     const { data: adCreativesRaw } = await supabase
       .from("ad_creatives")
       .select("ad_id, ad_name, campaign_name, platform, creative_type, headline, permalink_url, impressions, clicks, spend")
       .eq("client_slug", client)
-      .gte("date", lastWeek.since)
-      .lte("date", lastWeek.until);
+      .gte("date", periodFrom)
+      .lte("date", periodTo);
     const adCreatives = adCreativesRaw ?? [];
 
     const creativeAgg = new Map<string, { name: string; campaign: string; platform: string; type: string | null; headline: string | null; permalink: string | null; spend: number; impressions: number; clicks: number; leads: number }>();
@@ -276,7 +273,7 @@ export async function POST(req: NextRequest) {
       const curEntry = cur ? Array.from(creativeAgg.values()).find(x => x.name === cur) : null;
       if (!cur || c.spend > (curEntry?.spend ?? 0)) dominantCreative.set(c.campaign, c.name);
     }
-    for (const l of lastWeekLeads) {
+    for (const l of mainLeads) {
       if (!l.utm_term) continue;
       let matched = false;
       for (const [, e] of Array.from(creativeAgg.entries())) {
@@ -302,10 +299,10 @@ export async function POST(req: NextRequest) {
       creativesByCampaign.get(c.campaign)!.push(c);
     }
 
-    // ── Keywords + search terms da última semana ────────────────────────────
+    // ── Keywords + search terms do período principal ────────────────────────
     const { data: kwData } = await supabase
       .from("keywords").select("keyword_text, campaign_name, match_type, impressions, clicks, spend, conversions")
-      .eq("client_slug", client).gte("date", lastWeek.since).lte("date", lastWeek.until);
+      .eq("client_slug", client).gte("date", periodFrom).lte("date", periodTo);
     const kwAgg = new Map<string, { campaign: string; matchType: string; clicks: number; spend: number; conversions: number }>();
     for (const k of (kwData ?? [])) {
       if (!k.keyword_text) continue;
@@ -317,7 +314,7 @@ export async function POST(req: NextRequest) {
 
     const { data: stData } = await supabase
       .from("search_terms").select("search_term, campaign_name, impressions, clicks, spend, conversions")
-      .eq("client_slug", client).gte("date", lastWeek.since).lte("date", lastWeek.until);
+      .eq("client_slug", client).gte("date", periodFrom).lte("date", periodTo);
     const stAgg = new Map<string, { campaign: string; clicks: number; spend: number; conversions: number }>();
     for (const s of (stData ?? [])) {
       if (!s.search_term) continue;
@@ -327,10 +324,10 @@ export async function POST(req: NextRequest) {
     }
     const topSt = Array.from(stAgg.entries()).map(([term, v]) => ({ term, ...v })).sort((a, b) => b.conversions - a.conversions || b.clicks - a.clicks).slice(0, 15);
 
-    // Placements da última semana
+    // Placements do período principal
     const { data: plcData } = await supabase
       .from("ad_placements").select("placement, impressions, clicks, spend, conversions")
-      .eq("client_slug", client).gte("date", lastWeek.since).lte("date", lastWeek.until);
+      .eq("client_slug", client).gte("date", periodFrom).lte("date", periodTo);
     const plcAgg = new Map<string, { impressions: number; clicks: number; spend: number; conversions: number }>();
     for (const p of (plcData ?? [])) {
       const e = plcAgg.get(p.placement) ?? { impressions: 0, clicks: 0, spend: 0, conversions: 0 };
@@ -341,7 +338,7 @@ export async function POST(req: NextRequest) {
 
     // Formulários por campanha (última semana)
     const formsByCampaign = new Map<string, Map<string, number>>();
-    for (const l of lastWeekLeads) {
+    for (const l of mainLeads) {
       const camp = l.utm_campaign ?? "(sem campanha)";
       const form = l.conversion_event ?? "desconhecido";
       if (!formsByCampaign.has(camp)) formsByCampaign.set(camp, new Map());
@@ -392,21 +389,25 @@ MÊS CORRENTE — ${brDateFull(monthCur.since)} a ${brDateFull(monthCur.until)} 
 
 MÊS ANTERIOR (mesmo intervalo) — ${brDateFull(monthPrev.since)} a ${brDateFull(monthPrev.until)}:
 - TOTAL:  Leads ${monthPrevStats.leads} | Invest R$${fmt(monthPrevStats.spend)} | CPL ${monthPrevStats.cpl > 0 ? `R$${fmt(monthPrevStats.cpl)}` : "—"} | CTR ${pct(monthPrevStats.ctr)}
+- META:   ${monthPrevStats.metaLeads} leads | R$${fmt(monthPrevStats.metaSpend)} | CPL ${monthPrevStats.metaCpl > 0 ? `R$${fmt(monthPrevStats.metaCpl)}` : "—"}
+- GOOGLE: ${monthPrevStats.googleLeads} leads | R$${fmt(monthPrevStats.googleSpend)} | CPL ${monthPrevStats.googleCpl > 0 ? `R$${fmt(monthPrevStats.googleCpl)}` : "—"}
 
 VARIAÇÃO MÊS A MÊS (corrente vs anterior — mesmo intervalo de dias):
-- Leads: ${deltaPct(monthCurStats.leads, monthPrevStats.leads)} | Invest: ${deltaPct(monthCurStats.spend, monthPrevStats.spend)} | CPL: ${deltaPct(monthCurStats.cpl, monthPrevStats.cpl)}
+- TOTAL  → Leads: ${deltaPct(monthCurStats.leads, monthPrevStats.leads)} | Invest: ${deltaPct(monthCurStats.spend, monthPrevStats.spend)} | CPL: ${deltaPct(monthCurStats.cpl, monthPrevStats.cpl)} | CTR: ${deltaPct(monthCurStats.ctr, monthPrevStats.ctr)}
+- META   → Leads: ${deltaPct(monthCurStats.metaLeads, monthPrevStats.metaLeads)} | Invest: ${deltaPct(monthCurStats.metaSpend, monthPrevStats.metaSpend)} | CPL: ${deltaPct(monthCurStats.metaCpl, monthPrevStats.metaCpl)}
+- GOOGLE → Leads: ${deltaPct(monthCurStats.googleLeads, monthPrevStats.googleLeads)} | Invest: ${deltaPct(monthCurStats.googleSpend, monthPrevStats.googleSpend)} | CPL: ${deltaPct(monthCurStats.googleCpl, monthPrevStats.googleCpl)}
 
 PROJEÇÃO DO MÊS (run-rate, ritmo atual extrapolado para ${monthCur.daysInMonth} dias):
 - Leads projetados: ${runRate.leads} | Investimento projetado: R$${fmt(runRate.spend)}
 `.trim();
 
-    // Bloco 3: detalhamento da semana mais recente
+    // Bloco 3: detalhamento do PERÍODO PRINCIPAL (range escolhido pelo usuário)
     const metaCampaigns = campaignRows.filter(c => c.platform === "meta");
     const googleCampaigns = campaignRows.filter(c => c.platform === "google");
 
-    const lastWeekDetailContext = `
-SEMANA MAIS RECENTE (${lastWeek.label}) — DETALHAMENTO:
-- Total: ${lastWeekLeads.length} leads | R$${fmt(lastWeekAds.reduce((s, a) => s + Number(a.spend), 0))} invest
+    const mainDetailContext = `
+DETALHAMENTO DO PERÍODO (${brDateFull(periodFrom)} a ${brDateFull(periodTo)}):
+- Total: ${mainLeads.length} leads | R$${fmt(mainAds.reduce((s, a) => s + Number(a.spend), 0))} invest
 - Formulários (top 10): ${topForms.map(([f, n]) => `${f} (${n})`).join(", ")}
 
 ${metaCampaigns.length > 0 ? `META ADS — POR CAMPANHA:
@@ -439,12 +440,12 @@ ${topSt.slice(0, 10).map((s, i) => `    ${i + 1}. "${s.term}" | ${s.clicks} cliq
 
     // Bloco 4: leads pagos sem campanha atribuída
     const unmatchedContext = unmatchedLeads.length > 0 ? `
-LEADS PAGOS SEM CAMPANHA ATRIBUÍDA (semana mais recente):
+LEADS PAGOS SEM CAMPANHA ATRIBUÍDA (período principal):
 ${unmatchedLeads.map(u => `  - utm_campaign="${u.utm_campaign}" | source=${u.utm_source ?? "?"} | content=${u.utm_content ?? "?"} | ${u.count} lead(s)`).join("\n")}
-Total: ${unmatchedLeads.reduce((s, u) => s + u.count, 0)} leads pagos não conseguiram ser atribuídos a nenhuma campanha do Meta/Google sincronizada (UTMs divergentes ou tráfego institucional).
+Total: ${unmatchedLeads.reduce((s, u) => s + u.count, 0)} leads pagos não conseguiram ser atribuídos a nenhuma campanha do Meta/Google sincronizada (UTMs divergentes ou tráfego institucional). Cadastre aliases em Configurações para resolver.
 `.trim() : "";
 
-    const context = [weeklyTableContext, monthlyContext, lastWeekDetailContext, unmatchedContext].filter(Boolean).join("\n\n");
+    const context = [weeklyTableContext, monthlyContext, mainDetailContext, unmatchedContext].filter(Boolean).join("\n\n");
 
     // ── Prompts ──────────────────────────────────────────────────────────────
     const systemPrompt = `Você é o gestor de tráfego sênior redigindo um relatório de performance para apresentar ao cliente e à equipe na reunião semanal.
@@ -484,13 +485,17 @@ Resumo direto com números gerais do período: total de leads, investimento, CPL
 ${weeks.length > 1 ? "Apresente UMA tabela com TODAS as semanas no formato: Semana | Período | Leads | Δ% | Invest | Δ% | CPL | Δ% | CTR | Δ% (a primeira semana não tem Δ). Logo abaixo, repita o exercício com sub-tabelas por plataforma (Meta e Google). Após as tabelas, em 3-4 frases, comente as principais variações entre semanas — onde houve aceleração, onde houve atenção." : "Período principal cabe em uma única semana. Apresente os números agregados sem tabela comparativa entre semanas."}
 
 **3. Mês Corrente e Projeção**
-Apresente o acumulado do mês corrente até a data de fechamento e a comparação com o MESMO INTERVALO do mês anterior (ex: 01-28/abr vs 01-28/mar). Inclua a projeção (run-rate) para o fechamento do mês. Tabela com TOTAL, META e GOOGLE; coluna de Δ% vs mês anterior; linha de projeção. Comente em 2-3 frases se está no ritmo, abaixo ou acima.
+Apresente o acumulado do mês corrente até a data de fechamento e a comparação com o MESMO INTERVALO do mês anterior (ex: 01-28/abr vs 01-28/mar). Inclua a projeção (run-rate) para o fechamento do mês.
 
-**4. Meta Ads — Resultados da Semana Mais Recente por Campanha**
-${metaCampaigns.length > 0 ? "Para CADA campanha Meta da semana mais recente, apresente: investimento, leads, CPL, CTR. Abaixo de cada campanha, liste TODOS os criativos com gasto no período (mesmo os com zero leads) com: nome, gasto, leads, CTR, CPL e link. Mencione posicionamentos que mais converteram." : "Sem campanhas Meta na semana mais recente."}
+Use TABELA com colunas: Plataforma | Leads ABR | Leads MAR | Δ Leads | Invest ABR | Invest MAR | Δ Invest | CPL ABR | CPL MAR | Δ CPL. Linhas: TOTAL, Meta, Google. TODAS as linhas DEVEM ter os valores do mês anterior preenchidos (estão em "MÊS ANTERIOR" no contexto e nas linhas TOTAL/META/GOOGLE da seção VARIAÇÃO MÊS A MÊS). Não deixe Meta ou Google com "—" no MAR — sempre busque os números no contexto.
 
-**5. Google Ads — Resultados da Semana Mais Recente por Campanha**
-${googleCampaigns.length > 0 ? "Para CADA campanha Google da semana mais recente, apresente: investimento, leads, CPL, CTR. Liste as top palavras-chave com cliques e conversões. Liste os termos de pesquisa mais relevantes. Destaque termos com alta conversão e termos que gastam sem converter." : "Sem campanhas Google na semana mais recente."}
+Após a tabela, mostre a projeção (run-rate). Comente em 2-3 frases se o ritmo do mês está acima ou abaixo do mês anterior.
+
+**4. Meta Ads — Resultados por Campanha (período ${brDateFull(periodFrom)} a ${brDateFull(periodTo)})**
+${metaCampaigns.length > 0 ? "Para CADA campanha Meta com investimento ou leads no período selecionado, apresente: investimento, leads, CPL, CTR. Abaixo de cada campanha, liste TODOS os criativos com gasto (mesmo os com zero leads) com: nome, gasto, leads, CTR, CPL e link. Mencione posicionamentos que mais converteram. Os números devem refletir TODO o período selecionado, não apenas a semana mais recente." : "Sem campanhas Meta no período."}
+
+**5. Google Ads — Resultados por Campanha (período ${brDateFull(periodFrom)} a ${brDateFull(periodTo)})**
+${googleCampaigns.length > 0 ? "Para CADA campanha Google com investimento ou leads no período selecionado, apresente: investimento, leads, CPL, CTR. Liste as top palavras-chave com cliques e conversões. Liste os termos de pesquisa mais relevantes. Destaque termos com alta conversão e termos que gastam sem converter. Os números devem refletir TODO o período selecionado, não apenas a semana mais recente." : "Sem campanhas Google no período."}
 
 ${unmatchedLeads.length > 0 ? "**6. Leads Pagos Sem Campanha Atribuída**\nApresente uma tabela curta com os utm_campaign que não casaram com nenhuma campanha Meta/Google sincronizada (max 10 linhas). Para cada um, mostre: utm_campaign, source, content, quantidade. Em 2 frases, sugira ações: revisar tagueamento de tráfego institucional, conferir UTMs no RD, etc.\n\n" : ""}**${unmatchedLeads.length > 0 ? "7" : "6"}. Destaques e Pontos de Atenção**
 O que funcionou bem? O que precisa de atenção? Quais campanhas/criativos devem ser escalados e quais devem ser revisados? Use os dados das semanas e do mês para justificar.
