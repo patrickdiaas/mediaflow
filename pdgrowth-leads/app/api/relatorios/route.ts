@@ -31,26 +31,34 @@ function parseYmd(s: string) { return new Date(s + "T12:00:00"); }
 function brDate(s: string) { const d = parseYmd(s); return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`; }
 function brDateFull(s: string) { const d = parseYmd(s); return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`; }
 
-// Buckets de 6 dias (qui→ter no fluxo do usuário, mas funciona pra qualquer
-// `until`). Volta a partir de `periodTo` em janelas de 7 dias até cobrir
-// `periodFrom`. Última semana pode ser truncada se range não bate certinho.
+// Buckets qui→ter (6 dias inclusivos). O fluxo do usuário é fechar a semana
+// na terça (reunião na quinta, quarta para preparar). Algoritmo:
+//   1. Encontra a terça mais recente <= periodTo (ancora os buckets)
+//   2. Volta 7 dias por vez gerando buckets qui→ter
+//   3. Para quando o início (quinta) ficaria antes de periodFrom
+// Buckets parciais (qua sozinha, ou semana incompleta no início/fim) são
+// descartados — o mês acumulado em outro bloco já cobre o período inteiro.
 function buildWeekBuckets(periodFrom: string, periodTo: string): { since: string; until: string; label: string }[] {
   const fromD = parseYmd(periodFrom), toD = parseYmd(periodTo);
+  // Snap: última terça <= periodTo
+  const lastTue = new Date(toD);
+  while (lastTue.getDay() !== 2) lastTue.setDate(lastTue.getDate() - 1);
+
   const buckets: { since: string; until: string; label: string }[] = [];
-  const cursor = new Date(toD);
-  while (cursor >= fromD) {
+  const cursor = new Date(lastTue);
+  while (true) {
     const until = new Date(cursor);
     const since = new Date(cursor);
-    since.setDate(since.getDate() - 5); // janela de 6 dias inclusiva
-    const sinceClamped = since < fromD ? new Date(fromD) : since;
+    since.setDate(since.getDate() - 5); // qui = ter - 5
+    if (since < fromD) break;
     buckets.push({
-      since: ymd(sinceClamped),
+      since: ymd(since),
       until: ymd(until),
-      label: `${brDate(ymd(sinceClamped))} a ${brDate(ymd(until))}`,
+      label: `${brDate(ymd(since))} a ${brDate(ymd(until))}`,
     });
     cursor.setDate(cursor.getDate() - 7);
   }
-  return buckets.reverse(); // mais antiga → mais recente
+  return buckets.reverse();
 }
 
 function monthBoundary(untilStr: string): { since: string; until: string; daysInMonth: number; daysElapsed: number } {
