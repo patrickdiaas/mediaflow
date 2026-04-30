@@ -162,6 +162,22 @@ create table if not exists campaign_aliases (
   unique (client_slug, alias_utm_campaign)
 );
 
+-- ─── Report Actions ──────────────────────────────────────────────────────────
+-- Ações realizadas pelo gestor (novos criativos, otimizações, pausas, etc).
+-- São automaticamente injetadas no relatório de qualquer período que cubra
+-- a `action_date`, evitando que o gestor tenha que rebuscar e redigitar.
+create table if not exists report_actions (
+  id            uuid primary key default gen_random_uuid(),
+  client_slug   text not null references clients(slug),
+  action_date   date not null,                            -- dia em que a ação foi executada
+  platform      text,                                     -- meta | google | null (geral)
+  campaign_name text,                                     -- opcional, pra ações específicas
+  title         text not null,                            -- ex: "Reforço criativo"
+  description   text not null,                            -- texto livre que vira bullet no relatório
+  created_at    timestamptz default now()
+);
+create index if not exists idx_report_actions_client_date on report_actions (client_slug, action_date);
+
 -- ─── Keywords (Google Ads) ───────────────────────────────────────────────────
 create table if not exists keywords (
   id              uuid primary key default gen_random_uuid(),

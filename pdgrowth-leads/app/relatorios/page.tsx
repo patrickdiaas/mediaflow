@@ -1,14 +1,27 @@
 "use client";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import Sidebar from "@/components/sidebar";
 import Header from "@/components/header";
 import { useDashboard } from "@/lib/dashboard-context";
 import {
   FileBarChart2, RefreshCw, AlertCircle, Download, Send,
   TrendingUp, Megaphone, Image, Sparkles, Users, Target, MessageSquare,
+  ListChecks, Plus, Trash2, ChevronDown, ChevronRight,
 } from "lucide-react";
+import { supabase } from "@/lib/supabase";
 
 type ReportType = "semanal" | "quinzenal" | "mensal";
+
+interface ReportAction {
+  id: string;
+  client_slug: string;
+  action_date: string;
+  platform: string | null;
+  campaign_name: string | null;
+  title: string;
+  description: string;
+  created_at: string;
+}
 
 const REPORT_TYPES: { value: ReportType; label: string; desc: string }[] = [
   { value: "semanal",    label: "Semanal",    desc: "Resultados da semana + criativos para próxima" },
@@ -121,6 +134,25 @@ function parseSections(text: string) {
   return sections;
 }
 
+// Calcula o intervalo (since/until) baseado em reportType + custom inputs.
+function computePeriod(reportType: ReportType, customSince: string, customUntil: string): { since: string; until: string } {
+  if (customSince && customUntil) return { since: customSince, until: customUntil };
+  const today = new Date(); today.setHours(0, 0, 0, 0);
+  if (reportType === "mensal") {
+    const s = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const u = new Date(today.getFullYear(), today.getMonth(), 0);
+    return { since: s.toISOString().split("T")[0], until: u.toISOString().split("T")[0] };
+  }
+  if (reportType === "quinzenal") {
+    const u = new Date(today); u.setDate(u.getDate() - 1);
+    const s = new Date(u); s.setDate(s.getDate() - 14);
+    return { since: s.toISOString().split("T")[0], until: u.toISOString().split("T")[0] };
+  }
+  const u = new Date(today); u.setDate(u.getDate() - 1);
+  const s = new Date(u); s.setDate(s.getDate() - 6);
+  return { since: s.toISOString().split("T")[0], until: u.toISOString().split("T")[0] };
+}
+
 // ─── Page ──────────────────────────────────────────────────────────────────
 export default function RelatoriosPage() {
   const { client } = useDashboard();
@@ -136,6 +168,72 @@ export default function RelatoriosPage() {
   const [savedContext, setSavedContext] = useState<{ context: string; systemPrompt: string } | null>(null);
   const [followUpInput, setFollowUpInput] = useState("");
   const [followUpLoading, setFollowUpLoading] = useState(false);
+
+  // Ações realizadas pelo gestor — persistidas e injetadas no contexto.
+  const [actions, setActions] = useState<ReportAction[]>([]);
+  const [actionsExpanded, setActionsExpanded] = useState(false);
+  const [campaignNames, setCampaignNames] = useState<string[]>([]);
+  const [newActionDate, setNewActionDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [newActionPlatform, setNewActionPlatform] = useState<"meta" | "google" | "geral">("meta");
+  const [newActionCampaign, setNewActionCampaign] = useState("");
+  const [newActionTitle, setNewActionTitle] = useState("");
+  const [newActionDesc, setNewActionDesc] = useState("");
+  const [savingAction, setSavingAction] = useState(false);
+
+  const period = computePeriod(reportType, customSince, customUntil);
+
+  async function fetchActions() {
+    if (client === "all") { setActions([]); return; }
+    const url = `/api/admin/actions?client=${encodeURIComponent(client)}&since=${period.since}&until=${period.until}`;
+    const res = await fetch(url);
+    const json = await res.json();
+    if (res.ok) setActions(json.data ?? []);
+  }
+
+  async function fetchCampaignNames() {
+    if (client === "all") { setCampaignNames([]); return; }
+    const since = new Date(); since.setDate(since.getDate() - 90);
+    const { data } = await supabase
+      .from("ad_campaigns")
+      .select("campaign_name")
+      .eq("client_slug", client)
+      .gte("date", since.toISOString().slice(0, 10));
+    const names = Array.from(new Set((data ?? []).map((c: any) => c.campaign_name).filter(Boolean))).sort() as string[];
+    setCampaignNames(names);
+  }
+
+  useEffect(() => { fetchActions(); fetchCampaignNames(); }, [client, reportType, customSince, customUntil]);
+
+  async function addAction() {
+    if (!newActionTitle.trim() || !newActionDesc.trim() || client === "all") return;
+    setSavingAction(true);
+    const res = await fetch("/api/admin/actions", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_slug: client,
+        action_date: newActionDate,
+        platform: newActionPlatform === "geral" ? null : newActionPlatform,
+        campaign_name: newActionCampaign.trim() || null,
+        title: newActionTitle.trim(),
+        description: newActionDesc.trim(),
+      }),
+    });
+    if (res.ok) {
+      setNewActionTitle(""); setNewActionDesc(""); setNewActionCampaign("");
+      fetchActions();
+    } else {
+      const j = await res.json().catch(() => ({}));
+      alert("Erro ao salvar ação: " + (j.error ?? "desconhecido"));
+    }
+    setSavingAction(false);
+  }
+
+  async function deleteAction(id: string) {
+    if (!confirm("Remover esta ação?")) return;
+    const res = await fetch(`/api/admin/actions?id=${id}`, { method: "DELETE" });
+    if (res.ok) fetchActions();
+  }
 
   async function generateReport() {
     setLoading(true);
@@ -469,6 +567,116 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
             </div>
           </div>
         </div>
+
+        {/* Ações realizadas pelo gestor — persiste e injeta no relatório */}
+        {client !== "all" && (
+          <div className="mb-6 bg-card border border-border rounded-xl overflow-hidden">
+            <button
+              onClick={() => setActionsExpanded(v => !v)}
+              className="w-full flex items-center gap-2 px-5 py-3 hover:bg-bg/50 transition-colors text-left"
+            >
+              {actionsExpanded ? <ChevronDown size={14} className="text-text-muted" /> : <ChevronRight size={14} className="text-text-muted" />}
+              <ListChecks size={14} className="text-accent" />
+              <span className="text-sm font-semibold text-text-primary">Ações realizadas no período</span>
+              <span className="text-xs text-text-muted ml-2">
+                {actions.length === 0 ? "nenhuma cadastrada" : `${actions.length} ação${actions.length > 1 ? "ões" : ""}`}
+              </span>
+              <span className="text-[10px] text-text-dark ml-auto">
+                {period.since} a {period.until} · entram automaticamente no relatório
+              </span>
+            </button>
+
+            {actionsExpanded && (
+              <div className="border-t border-border p-5 space-y-4">
+                {/* Form */}
+                <div className="space-y-2">
+                  <div className="grid grid-cols-1 md:grid-cols-3 gap-2">
+                    <input
+                      type="date"
+                      value={newActionDate}
+                      onChange={e => setNewActionDate(e.target.value)}
+                      className="bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-accent/40"
+                    />
+                    <select
+                      value={newActionPlatform}
+                      onChange={e => setNewActionPlatform(e.target.value as any)}
+                      className="bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-accent/40"
+                    >
+                      <option value="meta">Meta</option>
+                      <option value="google">Google</option>
+                      <option value="geral">Geral</option>
+                    </select>
+                    <input
+                      type="text"
+                      list="rep-action-camp-list"
+                      value={newActionCampaign}
+                      onChange={e => setNewActionCampaign(e.target.value)}
+                      placeholder="Campanha (opcional)"
+                      className="bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary font-mono focus:outline-none focus:border-accent/40"
+                    />
+                    <datalist id="rep-action-camp-list">
+                      {campaignNames.map(n => <option key={n} value={n} />)}
+                    </datalist>
+                  </div>
+                  <input
+                    type="text"
+                    value={newActionTitle}
+                    onChange={e => setNewActionTitle(e.target.value)}
+                    placeholder="Título (ex: Reforço criativo)"
+                    className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-accent/40"
+                  />
+                  <textarea
+                    value={newActionDesc}
+                    onChange={e => setNewActionDesc(e.target.value)}
+                    placeholder="Descrição (ex: 3 criativos novos — 2 vídeos + 1 estático)"
+                    rows={2}
+                    className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-accent/40 resize-y"
+                  />
+                  <div className="flex justify-end">
+                    <button
+                      onClick={addAction}
+                      disabled={savingAction || !newActionTitle.trim() || !newActionDesc.trim()}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-accent/10 border border-accent/30 text-accent hover:bg-accent/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <Plus size={12} />
+                      {savingAction ? "Salvando..." : "Adicionar ação"}
+                    </button>
+                  </div>
+                </div>
+
+                {/* Lista */}
+                {actions.length > 0 && (
+                  <div className="border-t border-border pt-3 space-y-1.5">
+                    {actions.map(a => {
+                      const platLabel = a.platform === "meta" ? "Meta" : a.platform === "google" ? "Google" : "Geral";
+                      const platColor = a.platform === "meta" ? "text-blue border-blue/30 bg-blue/10" : a.platform === "google" ? "text-gold border-gold/30 bg-gold/10" : "text-text-muted border-border bg-bg";
+                      return (
+                        <div key={a.id} className="flex items-start gap-2 py-1.5">
+                          <span className="text-[10px] font-mono text-text-muted flex-shrink-0 mt-0.5 w-16">{a.action_date.slice(5).replace("-", "/")}</span>
+                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md border flex-shrink-0 ${platColor}`}>{platLabel}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs text-text-primary">
+                              <span className="font-semibold">{a.title}</span>
+                              {a.campaign_name && <span className="text-text-muted font-mono ml-2">· {a.campaign_name}</span>}
+                            </div>
+                            <div className="text-xs text-text-secondary leading-relaxed">{a.description}</div>
+                          </div>
+                          <button
+                            onClick={() => deleteAction(a.id)}
+                            className="text-text-muted hover:text-red transition-colors flex-shrink-0 mt-1"
+                            title="Remover"
+                          >
+                            <Trash2 size={12} />
+                          </button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* KPI Cards */}
         {kpis && !loading && (

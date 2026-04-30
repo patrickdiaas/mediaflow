@@ -198,6 +198,16 @@ export async function POST(req: NextRequest) {
     // ── Aliases cadastrados pelo gestor ────────────────────────────────────
     const aliases = await fetchAliases(supabase, client);
 
+    // ── Ações do gestor no período (criativos novos, otimizações, pausas) ──
+    const { data: actionsRaw } = await supabase
+      .from("report_actions")
+      .select("action_date, platform, campaign_name, title, description")
+      .eq("client_slug", client)
+      .gte("action_date", periodFrom)
+      .lte("action_date", periodTo)
+      .order("action_date", { ascending: true });
+    const reportActions = actionsRaw ?? [];
+
     // ── Stats por janela ────────────────────────────────────────────────────
     const weekStats = weeks.map(w => ({ ...w, stats: computeRangeStats(allLeads, allAdCampaigns, w.since, w.until) }));
     const monthCurStats = computeRangeStats(allLeads, allAdCampaigns, monthCur.since, monthCur.until);
@@ -445,7 +455,17 @@ ${unmatchedLeads.map(u => `  - utm_campaign="${u.utm_campaign}" | source=${u.utm
 Total: ${unmatchedLeads.reduce((s, u) => s + u.count, 0)} leads pagos não conseguiram ser atribuídos a nenhuma campanha do Meta/Google sincronizada (UTMs divergentes ou tráfego institucional). Cadastre aliases em Configurações para resolver.
 `.trim() : "";
 
-    const context = [weeklyTableContext, monthlyContext, mainDetailContext, unmatchedContext].filter(Boolean).join("\n\n");
+    // Bloco 5: ações realizadas pelo gestor no período (cadastradas previamente)
+    const actionsContext = reportActions.length > 0 ? `
+AÇÕES REALIZADAS PELO GESTOR NO PERÍODO (cadastradas previamente, devem entrar como seção dedicada):
+${reportActions.map((a: any) => {
+  const platLabel = a.platform === "meta" ? "Meta" : a.platform === "google" ? "Google" : "Geral";
+  const camp = a.campaign_name ? ` | ${a.campaign_name}` : "";
+  return `  - ${a.action_date} | ${platLabel}${camp} | ${a.title}: ${a.description}`;
+}).join("\n")}
+`.trim() : "";
+
+    const context = [weeklyTableContext, monthlyContext, mainDetailContext, unmatchedContext, actionsContext].filter(Boolean).join("\n\n");
 
     // ── Prompts ──────────────────────────────────────────────────────────────
     const systemPrompt = `Você é o gestor de tráfego sênior redigindo um relatório de performance para apresentar ao cliente e à equipe na reunião semanal.
@@ -497,7 +517,10 @@ ${metaCampaigns.length > 0 ? "Para CADA campanha Meta com investimento ou leads 
 **5. Google Ads — Resultados por Campanha (período ${brDateFull(periodFrom)} a ${brDateFull(periodTo)})**
 ${googleCampaigns.length > 0 ? "Para CADA campanha Google com investimento ou leads no período selecionado, apresente: investimento, leads, CPL, CTR. Liste as top palavras-chave com cliques e conversões. Liste os termos de pesquisa mais relevantes. Destaque termos com alta conversão e termos que gastam sem converter. Os números devem refletir TODO o período selecionado, não apenas a semana mais recente." : "Sem campanhas Google no período."}
 
-${unmatchedLeads.length > 0 ? "**6. Leads Pagos Sem Campanha Atribuída**\nApresente uma tabela curta com os utm_campaign que não casaram com nenhuma campanha Meta/Google sincronizada (max 10 linhas). Para cada um, mostre: utm_campaign, source, content, quantidade. Em 2 frases, sugira ações: revisar tagueamento de tráfego institucional, conferir UTMs no RD, etc.\n\n" : ""}**${unmatchedLeads.length > 0 ? "7" : "6"}. Destaques e Pontos de Atenção**
+${unmatchedLeads.length > 0 ? "**6. Leads Pagos Sem Campanha Atribuída**\nApresente uma tabela curta com os utm_campaign que não casaram com nenhuma campanha Meta/Google sincronizada (max 10 linhas). Para cada um, mostre: utm_campaign, source, content, quantidade. Em 2 frases, sugira ações: revisar tagueamento de tráfego institucional, conferir UTMs no RD, etc.\n\n" : ""}${reportActions.length > 0 ? `**${unmatchedLeads.length > 0 ? "7" : "6"}. Ações Realizadas pelo Gestor no Período**
+Liste as ações cadastradas no contexto, agrupadas por plataforma (Meta primeiro, depois Google, depois Geral). Para cada ação, mostre data, campanha (se houver) e descrição. Use tabela ou bullets organizados. NÃO invente ações além das listadas no contexto.
+
+` : ""}**${[unmatchedLeads.length > 0, reportActions.length > 0].filter(Boolean).length === 2 ? "8" : [unmatchedLeads.length > 0, reportActions.length > 0].filter(Boolean).length === 1 ? "7" : "6"}. Destaques e Pontos de Atenção**
 O que funcionou bem? O que precisa de atenção? Quais campanhas/criativos devem ser escalados e quais devem ser revisados? Use os dados das semanas e do mês para justificar.
 
 NÃO inclua seções de recomendações de criativos, cronograma de produção ou próximos passos.
