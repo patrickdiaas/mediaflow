@@ -21,6 +21,7 @@ import { useDashboard } from "@/lib/dashboard-context";
 import type { CreativeRow, Platform } from "@/lib/types";
 import { supabase } from "@/lib/supabase";
 import { getPeriodDates, getLeadDates } from "@/lib/period";
+import { filterCampaignLeads } from "@/lib/leads-filter";
 import { LayoutGrid, List, ArrowUpDown, Download, ExternalLink, BookOpen } from "lucide-react";
 import Image from "next/image";
 
@@ -117,11 +118,10 @@ export default function CriativosPage() {
 
     const baseLeads = supabase.from("leads")
       .select("utm_source, utm_term, utm_campaign")
-      .not("utm_medium", "is", null)
-      .not("utm_medium", "in", '(organic,"(none)",unknown,referral)')
       .gte("converted_at", leadSince)
       .lte("converted_at", leadUntil);
-    const qLeads = metaSlug ? baseLeads.eq("client_slug", metaSlug) : baseLeads;
+    const filteredLeads = filterCampaignLeads(baseLeads);
+    const qLeads = metaSlug ? filteredLeads.eq("client_slug", metaSlug) : filteredLeads;
 
     // Query for real first date of each creative (no period filter)
     const baseFirstDate = supabase.from("ad_creatives")

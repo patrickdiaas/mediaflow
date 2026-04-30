@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
+import { filterCampaignLeads } from "@/lib/leads-filter";
 
 export const maxDuration = 300; // 5 min — Vercel Pro
 
@@ -77,14 +78,13 @@ REGRAS:
     const leadUntil = `${untilDate.toISOString().split("T")[0]}T02:59:59`;
 
     // ── 1. Leads no período ──────────────────────────────────────────────────
-    const { data: leadsRaw } = await supabase
+    const leadsBase = supabase
       .from("leads")
       .select("id, converted_at, source, lead_email, lead_name, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, utm_term")
       .eq("client_slug", client)
-      .not("utm_medium", "is", null)
-      .not("utm_medium", "in", '(organic,"(none)",unknown,referral)')
       .gte("converted_at", leadSince)
       .lte("converted_at", leadUntil);
+    const { data: leadsRaw } = await filterCampaignLeads(leadsBase);
 
     const leads = leadsRaw ?? [];
 
@@ -93,11 +93,11 @@ REGRAS:
     }
 
     // Leads por plataforma
-    const metaLeads = leads.filter(l => {
+    const metaLeads = leads.filter((l: any) => {
       const src = (l.utm_source ?? "").toLowerCase();
       return src === "facebook" || src === "fb" || src === "instagram" || src === "ig" || src === "facebook ads";
     });
-    const googleLeads = leads.filter(l => (l.utm_source ?? "").toLowerCase() === "google");
+    const googleLeads = leads.filter((l: any) => (l.utm_source ?? "").toLowerCase() === "google");
 
     // Leads por formulário
     const formMap = new Map<string, number>();

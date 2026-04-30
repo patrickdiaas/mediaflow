@@ -23,6 +23,7 @@ function fuzzyMatch(a: string, b: string): boolean {
 import { useDashboard } from "@/lib/dashboard-context";
 import type { CampaignRow, AdSetRow, CreativeRow, Platform, FunnelStep } from "@/lib/types";
 import { supabase } from "@/lib/supabase";
+import { filterCampaignLeads } from "@/lib/leads-filter";
 import { getPeriodDates, getLeadDates } from "@/lib/period";
 import Funnel from "@/components/funnel";
 import Image from "next/image";
@@ -125,8 +126,9 @@ export default function CampanhasPage() {
     const qSets = metaSlug ? (platform !== "all" ? baseSets.eq("platform", platform) : baseSets).eq("client_slug", metaSlug) : (platform !== "all" ? baseSets.eq("platform", platform) : baseSets);
     const qAds  = metaSlug ? (platform !== "all" ? baseAds.eq("platform", platform) : baseAds).eq("client_slug", metaSlug) : (platform !== "all" ? baseAds.eq("platform", platform) : baseAds);
 
-    const baseLeads = supabase.from("leads").select("id, utm_source, utm_medium, utm_campaign, utm_content, utm_term").not("utm_medium", "is", null).not("utm_medium", "in", '(organic,"(none)",unknown,referral)').gte("converted_at", leadSince).lte("converted_at", leadUntil);
-    const qLeads = metaSlug ? baseLeads.eq("client_slug", metaSlug) : baseLeads;
+    const baseLeads = supabase.from("leads").select("id, utm_source, utm_medium, utm_campaign, utm_content, utm_term").gte("converted_at", leadSince).lte("converted_at", leadUntil);
+    const filteredLeads = filterCampaignLeads(baseLeads);
+    const qLeads = metaSlug ? filteredLeads.eq("client_slug", metaSlug) : filteredLeads;
 
     Promise.all([qCamp, qSets, qAds, qLeads]).then(([campRes, setsRes, adsRes, leadsRes]) => {
       const allLeadsData = leadsRes.data ?? [];

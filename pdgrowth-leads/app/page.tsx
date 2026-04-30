@@ -10,6 +10,7 @@ import Funnel from "@/components/funnel";
 import { useDashboard } from "@/lib/dashboard-context";
 import { supabase } from "@/lib/supabase";
 import { getPeriodDates, getLeadDates, toBRTDate } from "@/lib/period";
+import { filterCampaignLeads, isCampaignLead } from "@/lib/leads-filter";
 import type { Platform, KPIData, DonutSlice, HorizontalBarItem, TrendPoint, RegionRow, FunnelStep } from "@/lib/types";
 import { RefreshCw, Calendar, Building2, Menu, Megaphone, Trophy, CalendarDays, CalendarRange } from "lucide-react";
 
@@ -235,18 +236,17 @@ export default function OverviewPage() {
     const { since: leadSince, until: leadUntil } = getLeadDates(period);
     const metaSlug = client === "all" ? null : client;
 
-    // Leads no período (BRT) — só leads de campanha (com utm_medium)
-    const leadsQ = supabase
+    // Leads no período (BRT) — só leads de campanha (whitelist utm_medium + exclui eventos do RD CRM)
+    const leadsBase = supabase
       .from("leads")
       .select("id, lead_email, lead_name, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, converted_at, source")
-      .not("utm_medium", "is", null)
-      .not("utm_medium", "in", '(organic,"(none)",unknown,referral)')
       .gte("converted_at", leadSince)
       .lte("converted_at", leadUntil);
+    const leadsQ = filterCampaignLeads(leadsBase);
     if (metaSlug) leadsQ.eq("client_slug", metaSlug);
     const { data: leadsData } = await leadsQ;
     // Filtra leads por plataforma: facebook/instagram = meta, google = google
-    const allLeads = leadsData ?? [];
+    const allLeads = (leadsData ?? []).filter(isCampaignLead);
     const platformLeads = platform === "all" ? allLeads : allLeads.filter((l: any) => {
       const src = (l.utm_source ?? "").toLowerCase();
       if (platform === "meta") return src === "facebook" || src === "fb" || src === "instagram" || src === "ig";
