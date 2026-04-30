@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
 import { filterCampaignLeads } from "@/lib/leads-filter";
+import { buildAttributionIndex, attributeLead, fetchAliases } from "@/lib/campaign-attribution";
 
 export const maxDuration = 300; // 5 min — Vercel Pro
 
@@ -136,21 +137,15 @@ REGRAS:
       campAgg.set(key, e);
     }
 
-    // Atribuir leads a campanhas (mesmo algoritmo do overview)
-    const campNames = Array.from(campAgg.keys());
-    const campIdToName = new Map<string, string>();
-    for (const [name, data] of Array.from(campAgg.entries())) {
-      for (const cid of Array.from(data.campaignIds)) campIdToName.set(cid, name);
-    }
+    // Atribuir leads a campanhas (exato → id → alias → fuzzy)
+    const aliases = await fetchAliases(supabase, client);
+    const campIndex = buildAttributionIndex(
+      Array.from(campAgg.values()).map(c => ({ campaign_name: c.name, campaign_ids: c.campaignIds })),
+      aliases,
+    );
     for (const l of leads) {
-      if (!l.utm_campaign) continue;
-      const utmCamp = l.utm_campaign;
-      const exact = campNames.find(n => n === utmCamp);
-      if (exact) { const c = campAgg.get(exact)!; c.leads++; continue; }
-      const byId = campIdToName.get(utmCamp);
-      if (byId) { const c = campAgg.get(byId)!; c.leads++; continue; }
-      const fuzzy = campNames.find(n => fuzzyMatch(n, utmCamp));
-      if (fuzzy) { const c = campAgg.get(fuzzy)!; c.leads++; }
+      const r = attributeLead(l.utm_campaign, campIndex);
+      if (r.campaign_name) campAgg.get(r.campaign_name)!.leads++;
     }
 
     const campaignRows = Array.from(campAgg.values())

@@ -148,6 +148,20 @@ create table if not exists tracked_forms (
   unique (client_slug, source, conversion_event)
 );
 
+-- ─── Campaign Aliases ────────────────────────────────────────────────────────
+-- Mapeia utm_campaign "antigos" ou divergentes para a campanha real em ad_campaigns.
+-- Resolve casos como "Search_MPT" → "medical-search-mpt", evitando que leads
+-- caiam órfãos no ranking só porque a UTM ficou desatualizada na LP/anúncio.
+create table if not exists campaign_aliases (
+  id                    uuid primary key default gen_random_uuid(),
+  client_slug           text not null references clients(slug),
+  alias_utm_campaign    text not null,             -- valor exato do utm_campaign que vem no lead
+  target_campaign_name  text not null,             -- nome da campanha real em ad_campaigns
+  notes                 text,
+  created_at            timestamptz default now(),
+  unique (client_slug, alias_utm_campaign)
+);
+
 -- ─── Keywords (Google Ads) ───────────────────────────────────────────────────
 create table if not exists keywords (
   id              uuid primary key default gen_random_uuid(),

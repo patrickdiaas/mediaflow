@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
 import { filterCampaignLeads, isCampaignLead } from "@/lib/leads-filter";
+import { buildAttributionIndex, attributeLead, fetchAliases } from "@/lib/campaign-attribution";
 
 export const maxDuration = 60;
 
@@ -156,7 +157,9 @@ export async function POST(req: NextRequest) {
     // Janelas auxiliares
     const monthCur = monthBoundary(periodTo);
     const monthPrev = previousMonthSameWindow(monthCur.since, monthCur.until);
-    const weeks = buildWeekBuckets(periodFrom, periodTo);
+    // Comparativo semanal SEMPRE cobre do dia 1 do mês até `until`
+    // (independente de period_from, que define só o foco do detalhamento).
+    const weeks = buildWeekBuckets(monthCur.since, periodTo);
 
     // Range mais antigo necessário para uma única busca
     const fetchSince = [periodFrom, monthCur.since, monthPrev.since].sort()[0];
@@ -192,6 +195,9 @@ export async function POST(req: NextRequest) {
       .lte("date", fetchUntil);
     const allAdCampaigns = adCampaignsRaw ?? [];
 
+    // ── Aliases cadastrados pelo gestor ────────────────────────────────────
+    const aliases = await fetchAliases(supabase, client);
+
     // ── Stats por janela ────────────────────────────────────────────────────
     const weekStats = weeks.map(w => ({ ...w, stats: computeRangeStats(allLeads, allAdCampaigns, w.since, w.until) }));
     const monthCurStats = computeRangeStats(allLeads, allAdCampaigns, monthCur.since, monthCur.until);
@@ -225,31 +231,23 @@ export async function POST(req: NextRequest) {
       if (c.campaign_id) e.campaignIds.add(c.campaign_id);
       campAgg.set(key, e);
     }
-    const campNames = Array.from(campAgg.keys());
-    const campIdToName = new Map<string, string>();
-    for (const [name, data] of Array.from(campAgg.entries())) {
-      for (const cid of Array.from(data.campaignIds)) campIdToName.set(cid, name);
-    }
+    // Constrói índice de atribuição (exato → id → alias → fuzzy)
+    const campIndex = buildAttributionIndex(
+      Array.from(campAgg.values()).map(c => ({ campaign_name: c.name, campaign_ids: c.campaignIds })),
+      aliases,
+    );
 
     // Atribui leads à campanha + identifica leads "sem match"
     const unmatchedLeadsMap = new Map<string, { utm_campaign: string; utm_source: string | null; utm_content: string | null; count: number }>();
     for (const l of lastWeekLeads) {
-      if (!l.utm_campaign) {
-        const key = "(sem utm_campaign)";
-        const ex = unmatchedLeadsMap.get(key) ?? { utm_campaign: key, utm_source: l.utm_source, utm_content: l.utm_content, count: 0 };
-        ex.count++; unmatchedLeadsMap.set(key, ex);
+      const result = attributeLead(l.utm_campaign, campIndex);
+      if (result.campaign_name) {
+        campAgg.get(result.campaign_name)!.leads++;
         continue;
       }
-      const utmCamp = l.utm_campaign;
-      const exact = campNames.find(n => n === utmCamp);
-      if (exact) { campAgg.get(exact)!.leads++; continue; }
-      const byId = campIdToName.get(utmCamp);
-      if (byId) { campAgg.get(byId)!.leads++; continue; }
-      const fuzzy = campNames.find(n => fuzzyMatch(n, utmCamp));
-      if (fuzzy) { campAgg.get(fuzzy)!.leads++; continue; }
-      // sem match
-      const ex = unmatchedLeadsMap.get(utmCamp) ?? { utm_campaign: utmCamp, utm_source: l.utm_source, utm_content: l.utm_content, count: 0 };
-      ex.count++; unmatchedLeadsMap.set(utmCamp, ex);
+      const key = l.utm_campaign ?? "(sem utm_campaign)";
+      const ex = unmatchedLeadsMap.get(key) ?? { utm_campaign: key, utm_source: l.utm_source, utm_content: l.utm_content, count: 0 };
+      ex.count++; unmatchedLeadsMap.set(key, ex);
     }
     const unmatchedLeads = Array.from(unmatchedLeadsMap.values()).sort((a, b) => b.count - a.count).slice(0, 15);
 
@@ -285,9 +283,9 @@ export async function POST(req: NextRequest) {
         if (e.name === l.utm_term || fuzzyMatch(e.name, l.utm_term)) { e.leads++; matched = true; break; }
       }
       if (!matched && l.utm_campaign) {
-        const campName = campNames.find(n => n === l.utm_campaign || fuzzyMatch(n, l.utm_campaign)) ?? campIdToName.get(l.utm_campaign);
-        if (campName) {
-          const domName = dominantCreative.get(campName);
+        const r = attributeLead(l.utm_campaign, campIndex);
+        if (r.campaign_name) {
+          const domName = dominantCreative.get(r.campaign_name);
           if (domName) {
             const dom = Array.from(creativeAgg.values()).find(c => c.name === domName);
             if (dom) dom.leads++;

@@ -4,7 +4,16 @@ import Sidebar from "@/components/sidebar";
 import Header from "@/components/header";
 import { supabase } from "@/lib/supabase";
 import { useDashboard } from "@/lib/dashboard-context";
-import { RefreshCw, FileText, FileSpreadsheet, Check } from "lucide-react";
+import { RefreshCw, FileText, FileSpreadsheet, Check, Link2, Plus, Trash2 } from "lucide-react";
+
+interface CampaignAliasRow {
+  id: string;
+  client_slug: string;
+  alias_utm_campaign: string;
+  target_campaign_name: string;
+  notes: string | null;
+  created_at: string;
+}
 
 interface TrackedForm {
   id: string;
@@ -35,6 +44,15 @@ export default function ConfiguracoesPage() {
   const [savingSheet, setSavingSheet] = useState<string | null>(null);
   const [error, setError]           = useState<string | null>(null);
 
+  // Aliases
+  const [aliases, setAliases] = useState<CampaignAliasRow[]>([]);
+  const [aliasesLoading, setAliasesLoading] = useState(true);
+  const [adCampaignNames, setAdCampaignNames] = useState<string[]>([]);
+  const [newAliasUtm, setNewAliasUtm] = useState("");
+  const [newAliasTarget, setNewAliasTarget] = useState("");
+  const [newAliasNotes, setNewAliasNotes] = useState("");
+  const [savingAlias, setSavingAlias] = useState(false);
+
   async function fetchForms() {
     setLoading(true);
     setError(null);
@@ -49,7 +67,57 @@ export default function ConfiguracoesPage() {
     setLoading(false);
   }
 
-  useEffect(() => { fetchForms(); }, [client]);
+  async function fetchAliases() {
+    setAliasesLoading(true);
+    const url = client === "all" ? "/api/admin/aliases" : `/api/admin/aliases?client=${encodeURIComponent(client)}`;
+    const res = await fetch(url);
+    const json = await res.json();
+    if (res.ok) setAliases(json.data ?? []);
+    setAliasesLoading(false);
+  }
+
+  async function fetchCampaignNames() {
+    if (client === "all") { setAdCampaignNames([]); return; }
+    const since = new Date(); since.setDate(since.getDate() - 90);
+    const { data } = await supabase
+      .from("ad_campaigns")
+      .select("campaign_name")
+      .eq("client_slug", client)
+      .gte("date", since.toISOString().slice(0, 10));
+    const names = Array.from(new Set((data ?? []).map((c: any) => c.campaign_name).filter(Boolean))).sort() as string[];
+    setAdCampaignNames(names);
+  }
+
+  async function addAlias() {
+    if (!newAliasUtm.trim() || !newAliasTarget.trim() || client === "all") return;
+    setSavingAlias(true);
+    setError(null);
+    const res = await fetch("/api/admin/aliases", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_slug: client,
+        alias_utm_campaign: newAliasUtm.trim(),
+        target_campaign_name: newAliasTarget.trim(),
+        notes: newAliasNotes.trim() || null,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) setError("Erro ao salvar alias: " + (json.error ?? "desconhecido"));
+    else {
+      setNewAliasUtm(""); setNewAliasTarget(""); setNewAliasNotes("");
+      fetchAliases();
+    }
+    setSavingAlias(false);
+  }
+
+  async function deleteAlias(id: string) {
+    if (!confirm("Remover este alias?")) return;
+    const res = await fetch(`/api/admin/aliases?id=${id}`, { method: "DELETE" });
+    if (res.ok) fetchAliases();
+  }
+
+  useEffect(() => { fetchForms(); fetchAliases(); fetchCampaignNames(); }, [client]);
 
   async function saveSheetId(form: TrackedForm, sheetId: string) {
     setSavingSheet(form.id);
@@ -93,7 +161,100 @@ export default function ConfiguracoesPage() {
     <div className="flex h-screen bg-bg">
       <Sidebar />
       <main className="flex-1 min-h-0 p-4 md:p-6 overflow-y-auto">
-        <Header title="Configurações" subtitle="Gerencie quais formulários aparecem no dashboard" />
+        <Header title="Configurações" subtitle="Gerencie formulários e atribuição de leads a campanhas" />
+
+        {/* ─── Aliases de campanha ─── */}
+        <section className="mb-8">
+          <div className="flex items-center gap-2 mb-3">
+            <Link2 size={14} className="text-accent" />
+            <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-widest">Aliases de Campanha</h2>
+          </div>
+          <p className="text-xs text-text-muted mb-3 leading-relaxed">
+            Mapeie utm_campaign antigas ou divergentes para a campanha real. Exemplo: <span className="font-mono text-text-secondary">Search_MPT</span> → <span className="font-mono text-text-secondary">medical-search-mpt</span>. Resolve leads órfãos de uma vez.
+          </p>
+
+          {client === "all" ? (
+            <div className="bg-card border border-border rounded-xl p-4 text-xs text-text-muted">
+              Selecione um cliente específico no topo para gerenciar aliases.
+            </div>
+          ) : (
+            <>
+              {/* Form para adicionar */}
+              <div className="bg-card border border-border rounded-xl p-4 mb-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+                  <input
+                    type="text"
+                    value={newAliasUtm}
+                    onChange={e => setNewAliasUtm(e.target.value)}
+                    placeholder="utm_campaign que vem no lead (ex: Search_MPT)"
+                    className="bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary font-mono placeholder:text-text-dark focus:outline-none focus:border-accent/40"
+                  />
+                  <input
+                    type="text"
+                    list="campaign-name-list"
+                    value={newAliasTarget}
+                    onChange={e => setNewAliasTarget(e.target.value)}
+                    placeholder="Campanha real (ex: medical-search-mpt)"
+                    className="bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary font-mono placeholder:text-text-dark focus:outline-none focus:border-accent/40"
+                  />
+                  <datalist id="campaign-name-list">
+                    {adCampaignNames.map(n => <option key={n} value={n} />)}
+                  </datalist>
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newAliasNotes}
+                    onChange={e => setNewAliasNotes(e.target.value)}
+                    placeholder="Notas (opcional, ex: 'UTM antiga da LP X')"
+                    className="flex-1 bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary placeholder:text-text-dark focus:outline-none focus:border-accent/40"
+                  />
+                  <button
+                    onClick={addAlias}
+                    disabled={savingAlias || !newAliasUtm.trim() || !newAliasTarget.trim()}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-accent/10 border border-accent/30 text-accent hover:bg-accent/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Plus size={12} />
+                    {savingAlias ? "Salvando..." : "Adicionar"}
+                  </button>
+                </div>
+              </div>
+
+              {/* Lista */}
+              {aliasesLoading ? (
+                <div className="text-xs text-text-muted">Carregando...</div>
+              ) : aliases.length === 0 ? (
+                <div className="bg-card border border-border rounded-xl p-4 text-xs text-text-muted">
+                  Nenhum alias cadastrado. Adicione um acima quando encontrar utm_campaign que não bate.
+                </div>
+              ) : (
+                <div className="bg-card border border-border rounded-xl overflow-hidden">
+                  {aliases.map((a, i) => (
+                    <div key={a.id} className={`px-4 py-3 flex items-center gap-3 ${i < aliases.length - 1 ? "border-b border-border" : ""}`}>
+                      <code className="text-xs text-blue font-mono px-2 py-0.5 bg-blue/5 rounded">{a.alias_utm_campaign}</code>
+                      <span className="text-text-muted text-xs">→</span>
+                      <code className="text-xs text-accent font-mono px-2 py-0.5 bg-accent/5 rounded">{a.target_campaign_name}</code>
+                      {a.notes && <span className="text-xs text-text-muted truncate flex-1">{a.notes}</span>}
+                      <button
+                        onClick={() => deleteAlias(a.id)}
+                        className="ml-auto text-text-muted hover:text-red transition-colors"
+                        title="Remover"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </section>
+
+        {/* ─── Formulários ─── */}
+        <div className="flex items-center gap-2 mb-3">
+          <FileText size={14} className="text-text-secondary" />
+          <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-widest">Formulários Rastreados</h2>
+        </div>
 
         <div className="flex items-center justify-between mb-5">
           <div className="flex gap-4 text-sm">

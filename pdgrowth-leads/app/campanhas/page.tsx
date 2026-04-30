@@ -24,6 +24,7 @@ import { useDashboard } from "@/lib/dashboard-context";
 import type { CampaignRow, AdSetRow, CreativeRow, Platform, FunnelStep } from "@/lib/types";
 import { supabase } from "@/lib/supabase";
 import { filterCampaignLeads } from "@/lib/leads-filter";
+import { buildAttributionIndex, attributeLead, type CampaignAlias } from "@/lib/campaign-attribution";
 import { getPeriodDates, getLeadDates } from "@/lib/period";
 import Funnel from "@/components/funnel";
 import Image from "next/image";
@@ -130,7 +131,13 @@ export default function CampanhasPage() {
     const filteredLeads = filterCampaignLeads(baseLeads);
     const qLeads = metaSlug ? filteredLeads.eq("client_slug", metaSlug) : filteredLeads;
 
-    Promise.all([qCamp, qSets, qAds, qLeads]).then(([campRes, setsRes, adsRes, leadsRes]) => {
+    // Aliases cadastrados pelo gestor (UTMs antigas → campanha real)
+    const aliasQ = metaSlug
+      ? supabase.from("campaign_aliases").select("alias_utm_campaign, target_campaign_name").eq("client_slug", metaSlug)
+      : supabase.from("campaign_aliases").select("alias_utm_campaign, target_campaign_name");
+
+    Promise.all([qCamp, qSets, qAds, qLeads, aliasQ]).then(([campRes, setsRes, adsRes, leadsRes, aliasRes]) => {
+      const aliases = (aliasRes.data ?? []) as CampaignAlias[];
       const allLeadsData = leadsRes.data ?? [];
       // Filtra leads pela plataforma selecionada
       const leadsData = platform === "all" ? allLeadsData : allLeadsData.filter((l: any) => {
@@ -166,21 +173,16 @@ export default function CampanhasPage() {
           if (ex) { ex.impressions += r.impressions ?? 0; ex.clicks += r.clicks ?? 0; ex.spend += r.spend ?? 0; }
           else { map.set(key, { campaign_id: r.campaign_id, campaign_name: r.campaign_name, platform: r.platform as Platform, status: r.status ?? "", impressions: r.impressions ?? 0, clicks: r.clicks ?? 0, spend: r.spend ?? 0, leads: 0, cpl: 0, ctr: 0 }); }
         }
-        // Atribui cada lead a no máximo 1 campanha
+        // Atribui cada lead a no máximo 1 campanha (exato → id → alias → fuzzy)
         const campRows = Array.from(map.values());
-        const campNames = campRows.map(c => c.campaign_name);
-        const campIdToName = new Map<string, string>();
-        for (const c of campRows) campIdToName.set(c.campaign_id, c.campaign_name);
+        const campIndex = buildAttributionIndex(
+          campRows.map(c => ({ campaign_name: c.campaign_name, campaign_id: c.campaign_id })),
+          aliases,
+        );
         const leadsPerCamp = new Map<string, number>();
         for (const l of leadsData) {
-          if (!l.utm_campaign) continue;
-          const utmCamp = l.utm_campaign;
-          const exact = campNames.find(n => n === utmCamp);
-          if (exact) { leadsPerCamp.set(exact, (leadsPerCamp.get(exact) ?? 0) + 1); continue; }
-          const byId = campIdToName.get(utmCamp);
-          if (byId) { leadsPerCamp.set(byId, (leadsPerCamp.get(byId) ?? 0) + 1); continue; }
-          const fuzzy = campNames.find(n => fuzzyMatch(n, utmCamp));
-          if (fuzzy) { leadsPerCamp.set(fuzzy, (leadsPerCamp.get(fuzzy) ?? 0) + 1); }
+          const r = attributeLead(l.utm_campaign, campIndex);
+          if (r.campaign_name) leadsPerCamp.set(r.campaign_name, (leadsPerCamp.get(r.campaign_name) ?? 0) + 1);
         }
         setCampaigns(campRows.map(c => {
           const ld = leadsPerCamp.get(c.campaign_name) ?? 0;

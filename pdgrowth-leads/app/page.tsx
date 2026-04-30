@@ -11,6 +11,7 @@ import { useDashboard } from "@/lib/dashboard-context";
 import { supabase } from "@/lib/supabase";
 import { getPeriodDates, getLeadDates, toBRTDate } from "@/lib/period";
 import { filterCampaignLeads, isCampaignLead } from "@/lib/leads-filter";
+import { buildAttributionIndex, attributeLead, fetchAliases, type CampaignAlias } from "@/lib/campaign-attribution";
 import type { Platform, KPIData, DonutSlice, HorizontalBarItem, TrendPoint, RegionRow, FunnelStep } from "@/lib/types";
 import { RefreshCw, Calendar, Building2, Menu, Megaphone, Trophy, CalendarDays, CalendarRange } from "lucide-react";
 
@@ -313,29 +314,16 @@ export default function OverviewPage() {
       if (ex) { ex.impressions += Number(r.impressions); ex.clicks += Number(r.clicks); ex.spend += Number(r.spend); if (r.campaign_id) ex.campaignIds.add(r.campaign_id); }
       else campMap.set(key, { platform: r.platform as Platform, campaignIds: new Set(r.campaign_id ? [r.campaign_id] : []), impressions: Number(r.impressions), clicks: Number(r.clicks), spend: Number(r.spend) });
     }
-    // Atribui cada lead a no máximo UMA campanha
-    // Google UTMs podem usar campaign_id numérico ou nome parcial
-    const adCampNames = Array.from(campMap.keys());
-    const campIdToName = new Map<string, string>();
-    for (const [name, data] of Array.from(campMap.entries())) {
-      for (const cid of Array.from(data.campaignIds)) campIdToName.set(cid, name);
-    }
+    // Atribui cada lead a no máximo UMA campanha (exato → id → alias → fuzzy)
+    const aliases = await fetchAliases(supabase, client);
+    const campIndex = buildAttributionIndex(
+      Array.from(campMap.entries()).map(([name, d]) => ({ campaign_name: name, campaign_ids: d.campaignIds })),
+      aliases as CampaignAlias[],
+    );
     const leadsPerCamp = new Map<string, number>();
     for (const l of platformLeads) {
-      if (!l.utm_campaign) continue;
-      const utmCamp = l.utm_campaign;
-      // 1. Match exato por nome
-      const exact = adCampNames.find(n => n === utmCamp);
-      if (exact) { leadsPerCamp.set(exact, (leadsPerCamp.get(exact) ?? 0) + 1); continue; }
-      // 2. Match por campaign_id (Google usa IDs numéricos como utm_campaign)
-      const byId = campIdToName.get(utmCamp);
-      if (byId) { leadsPerCamp.set(byId, (leadsPerCamp.get(byId) ?? 0) + 1); continue; }
-      // 3. Substring (includes)
-      const substr = adCampNames.find(n => n.toLowerCase().includes(utmCamp.toLowerCase()) || utmCamp.toLowerCase().includes(n.toLowerCase()));
-      if (substr) { leadsPerCamp.set(substr, (leadsPerCamp.get(substr) ?? 0) + 1); continue; }
-      // 4. Fuzzy (split por -)
-      const fuzzy = adCampNames.find(n => fuzzyMatch(n, utmCamp));
-      if (fuzzy) { leadsPerCamp.set(fuzzy, (leadsPerCamp.get(fuzzy) ?? 0) + 1); }
+      const r = attributeLead(l.utm_campaign, campIndex);
+      if (r.campaign_name) leadsPerCamp.set(r.campaign_name, (leadsPerCamp.get(r.campaign_name) ?? 0) + 1);
     }
     // Buscar conversões Google por campaign_id (keywords)
     const googleConvByCamp = new Map<string, number>();

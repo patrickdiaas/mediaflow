@@ -22,6 +22,7 @@ import type { CreativeRow, Platform } from "@/lib/types";
 import { supabase } from "@/lib/supabase";
 import { getPeriodDates, getLeadDates } from "@/lib/period";
 import { filterCampaignLeads } from "@/lib/leads-filter";
+import { buildAttributionIndex, attributeLead, type CampaignAlias } from "@/lib/campaign-attribution";
 import { LayoutGrid, List, ArrowUpDown, Download, ExternalLink, BookOpen } from "lucide-react";
 import Image from "next/image";
 
@@ -129,7 +130,12 @@ export default function CriativosPage() {
       .order("date", { ascending: true });
     const qFirstDate = metaSlug ? baseFirstDate.eq("client_slug", metaSlug) : baseFirstDate;
 
-    Promise.all([qAds, qLeads, qFirstDate]).then(([{ data: rows }, { data: rawLeads }, { data: firstDateRows }]) => {
+    const aliasQ = metaSlug
+      ? supabase.from("campaign_aliases").select("alias_utm_campaign, target_campaign_name").eq("client_slug", metaSlug)
+      : supabase.from("campaign_aliases").select("alias_utm_campaign, target_campaign_name");
+
+    Promise.all([qAds, qLeads, qFirstDate, aliasQ]).then(([{ data: rows }, { data: rawLeads }, { data: firstDateRows }, { data: aliasData }]) => {
+      const aliases = (aliasData ?? []) as CampaignAlias[];
       setLoading(false);
 
       // Build first date map (real start date, independent of period)
@@ -179,23 +185,23 @@ export default function CriativosPage() {
           if (!cur || cr.spend > (curCr?.spend ?? 0)) domCreativePerCamp.set(cr.campaign_name, cr.ad_name);
         }
 
-        // Attribute leads: exact match first, fuzzy second, fallback to dominant creative
+        // Attribute leads: utm_term exato/fuzzy → fallback dominant creative da campanha (com aliases)
         const leadCounts = new Map<string, number>();
         const allAdNames = allCreatives.map(c => c.ad_name);
+        const campIndex = buildAttributionIndex(
+          allCreatives.map(c => ({ campaign_name: c.campaign_name })),
+          aliases,
+        );
         for (const l of leadsData) {
           if (!l.utm_term) continue;
-          // Exact match
           if (allAdNames.includes(l.utm_term)) { leadCounts.set(l.utm_term, (leadCounts.get(l.utm_term) ?? 0) + 1); continue; }
-          // Fuzzy match
           const fuzzy = allAdNames.find(n => fuzzyMatch(n, l.utm_term));
           if (fuzzy) { leadCounts.set(fuzzy, (leadCounts.get(fuzzy) ?? 0) + 1); continue; }
-          // Fallback: dominant creative of matching campaign
-          if (l.utm_campaign) {
-            const campMatch = allCreatives.find(cr => cr.campaign_name === l.utm_campaign || fuzzyMatch(cr.campaign_name, l.utm_campaign));
-            if (campMatch) {
-              const domName = domCreativePerCamp.get(campMatch.campaign_name);
-              if (domName) leadCounts.set(domName, (leadCounts.get(domName) ?? 0) + 1);
-            }
+          // Fallback: dominant creative da campanha resolvida pelo helper
+          const r = attributeLead(l.utm_campaign, campIndex);
+          if (r.campaign_name) {
+            const domName = domCreativePerCamp.get(r.campaign_name);
+            if (domName) leadCounts.set(domName, (leadCounts.get(domName) ?? 0) + 1);
           }
         }
 
