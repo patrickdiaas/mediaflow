@@ -31,34 +31,48 @@ function parseYmd(s: string) { return new Date(s + "T12:00:00"); }
 function brDate(s: string) { const d = parseYmd(s); return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}`; }
 function brDateFull(s: string) { const d = parseYmd(s); return `${String(d.getDate()).padStart(2, "0")}/${String(d.getMonth() + 1).padStart(2, "0")}/${d.getFullYear()}`; }
 
-// Buckets qui→ter (6 dias inclusivos). O fluxo do usuário é fechar a semana
-// na terça (reunião na quinta, quarta para preparar). Algoritmo:
-//   1. Encontra a terça mais recente <= periodTo (ancora os buckets)
-//   2. Volta 7 dias por vez gerando buckets qui→ter
-//   3. Para quando o início (quinta) ficaria antes de periodFrom
-// Buckets parciais (qua sozinha, ou semana incompleta no início/fim) são
-// descartados — o mês acumulado em outro bloco já cobre o período inteiro.
-function buildWeekBuckets(periodFrom: string, periodTo: string): { since: string; until: string; label: string }[] {
+// Buckets do comparativo semanal mudam por tipo de relatório:
+// - "semanal": 1 bucket qui→ter (snap na última terça <= periodTo).
+// - "quinzenal" / "mensal": semanas COMPLETAS de 7 dias começando do
+//   periodFrom, contadas como "Sem 1, Sem 2, ..." do período. Cobre dia
+//   a dia sem buracos. O último bucket pode ser parcial (< 7 dias) e
+//   leva o sufixo "(parcial)" no label.
+function buildWeekBuckets(
+  periodFrom: string,
+  periodTo: string,
+  reportType: ReportType,
+): { since: string; until: string; label: string; partial?: boolean }[] {
   const fromD = parseYmd(periodFrom), toD = parseYmd(periodTo);
-  // Snap: última terça <= periodTo
-  const lastTue = new Date(toD);
-  while (lastTue.getDay() !== 2) lastTue.setDate(lastTue.getDate() - 1);
 
-  const buckets: { since: string; until: string; label: string }[] = [];
-  const cursor = new Date(lastTue);
-  while (true) {
-    const until = new Date(cursor);
+  if (reportType === "semanal") {
+    const lastTue = new Date(toD);
+    while (lastTue.getDay() !== 2) lastTue.setDate(lastTue.getDate() - 1);
+    const since = new Date(lastTue); since.setDate(since.getDate() - 5);
+    if (since < fromD) {
+      // Sem terça inteira no range — usa o range exato como bucket único.
+      return [{ since: periodFrom, until: periodTo, label: `${brDate(periodFrom)} a ${brDate(periodTo)}` }];
+    }
+    return [{ since: ymd(since), until: ymd(lastTue), label: `${brDate(ymd(since))} a ${brDate(ymd(lastTue))}` }];
+  }
+
+  // Mensal/quinzenal: 7 em 7 a partir de periodFrom, cobrindo todo o range.
+  const buckets: { since: string; until: string; label: string; partial?: boolean }[] = [];
+  const cursor = new Date(fromD);
+  while (cursor <= toD) {
     const since = new Date(cursor);
-    since.setDate(since.getDate() - 5); // qui = ter - 5
-    if (since < fromD) break;
+    const until = new Date(cursor);
+    until.setDate(until.getDate() + 6);
+    const partial = until > toD;
+    if (partial) until.setTime(toD.getTime());
     buckets.push({
       since: ymd(since),
       until: ymd(until),
-      label: `${brDate(ymd(since))} a ${brDate(ymd(until))}`,
+      label: `${brDate(ymd(since))} a ${brDate(ymd(until))}${partial ? " (parcial)" : ""}`,
+      partial,
     });
-    cursor.setDate(cursor.getDate() - 7);
+    cursor.setDate(cursor.getDate() + 7);
   }
-  return buckets.reverse();
+  return buckets;
 }
 
 function monthBoundary(untilStr: string): { since: string; until: string; daysInMonth: number; daysElapsed: number } {
@@ -165,9 +179,10 @@ export async function POST(req: NextRequest) {
     // Janelas auxiliares
     const monthCur = monthBoundary(periodTo);
     const monthPrev = previousMonthSameWindow(monthCur.since, monthCur.until);
-    // Comparativo semanal SEMPRE cobre do dia 1 do mês até `until`
-    // (independente de period_from, que define só o foco do detalhamento).
-    const weeks = buildWeekBuckets(monthCur.since, periodTo);
+    // Comparativo semanal: para semanal, 1 bucket qui→ter. Para mensal/
+    // quinzenal, sempre cobre do dia 1 do mês até `until`, contando
+    // semanas completas de 7 dias.
+    const weeks = buildWeekBuckets(monthCur.since, periodTo, reportType);
 
     // Range mais antigo necessário para uma única busca
     const fetchSince = [periodFrom, monthCur.since, monthPrev.since].sort()[0];
