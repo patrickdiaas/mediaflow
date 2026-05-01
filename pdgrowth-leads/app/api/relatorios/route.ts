@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
 import { filterCampaignLeads, isCampaignLead } from "@/lib/leads-filter";
 import { buildAttributionIndex, attributeLead, fetchAliases } from "@/lib/campaign-attribution";
+import { calcBudgetPacing, type BudgetPacingResult } from "@/lib/budget-pacing";
 
 export const maxDuration = 60;
 
@@ -242,6 +243,29 @@ export async function POST(req: NextRequest) {
       spend: (monthCurStats.spend / monthCur.daysElapsed) * monthCur.daysInMonth,
     } : { leads: 0, spend: 0 };
 
+    // ── Pacing de orçamento (mês corrente) ──────────────────────────────────
+    // Usa o YYYY-MM derivado de monthCur.until. Busca os budgets cadastrados
+    // pelo gestor (Total / Meta / Google) e calcula real × previsto.
+    const yearMonthKey = monthCur.until.slice(0, 7);
+    const { data: budgetsRaw } = await supabase
+      .from("client_budgets")
+      .select("platform, budget, front_half_pct")
+      .eq("client_slug", client)
+      .eq("year_month", yearMonthKey);
+    const pacingByPlatform: { total?: BudgetPacingResult; meta?: BudgetPacingResult; google?: BudgetPacingResult } = {};
+    for (const b of budgetsRaw ?? []) {
+      const plat = b.platform as "total" | "meta" | "google";
+      const realSpend = plat === "total" ? monthCurStats.spend : plat === "meta" ? monthCurStats.metaSpend : monthCurStats.googleSpend;
+      pacingByPlatform[plat] = calcBudgetPacing({
+        budget: Number(b.budget),
+        frontHalfPct: Number(b.front_half_pct),
+        daysInMonth: monthCur.daysInMonth,
+        dayOfMonth: monthCur.daysElapsed,
+        realSpend,
+      });
+    }
+    const hasPacing = Object.keys(pacingByPlatform).length > 0;
+
     // ── Período principal (= range escolhido pelo usuário; é o período do detalhamento) ──
     const mainStats = computeRangeStats(allLeads, allAdCampaigns, periodFrom, periodTo);
     const mainLeads = allLeads.filter((l: any) => inRange(l._brt_date, periodFrom, periodTo));
@@ -434,6 +458,28 @@ PROJEÇÃO DO MÊS (run-rate, ritmo atual extrapolado para ${monthCur.daysInMont
 - Leads projetados: ${runRate.leads} | Investimento projetado: R$${fmt(runRate.spend)}
 `.trim();
 
+    // Bloco 2.b: pacing de orçamento (só se houver budget cadastrado)
+    const pacingLabel = (s: string) =>
+      s === "over" ? "ACIMA DO RITMO (>20%)"
+      : s === "slightly_over" ? "Levemente acima (>10%)"
+      : s === "on_track" ? "No ritmo"
+      : s === "slightly_under" ? "Levemente abaixo (<10%)"
+      : "ATRASADO (<20%)";
+    const pacingContext = hasPacing ? `
+PACING DE ORÇAMENTO — ${yearMonthKey} (dia ${monthCur.daysElapsed} de ${monthCur.daysInMonth}):
+${(["total", "meta", "google"] as const)
+  .filter(k => pacingByPlatform[k])
+  .map(k => {
+    const p = pacingByPlatform[k]!;
+    const label = k === "total" ? "TOTAL " : k === "meta" ? "META  " : "GOOGLE";
+    const pctReal = p.expectedSpendByEom > 0 ? (p.realSpend / p.expectedSpendByEom) * 100 : 0;
+    return [
+      `- ${label}: R$${fmt(p.realSpend)} de R$${fmt(p.expectedSpendByEom)} (${pctReal.toFixed(1)}% do orçamento) — ${pacingLabel(p.status)}`,
+      `         Previsto até hoje pela estratégia: R$${fmt(p.expectedSpend)} | Restante: R$${fmt(p.remaining)} em ${p.daysRemaining}d | Recomendado/dia: R$${fmt(p.recommendedDailySpend)}`,
+    ].join("\n");
+  }).join("\n")}
+`.trim() : "";
+
     // Bloco 3: detalhamento do PERÍODO PRINCIPAL (range escolhido pelo usuário)
     const metaCampaigns = campaignRows.filter(c => c.platform === "meta");
     const googleCampaigns = campaignRows.filter(c => c.platform === "google");
@@ -488,7 +534,7 @@ ${reportActions.map((a: any) => {
 }).join("\n")}
 `.trim() : "";
 
-    const context = [weeklyTableContext, monthlyContext, mainDetailContext, unmatchedContext, actionsContext].filter(Boolean).join("\n\n");
+    const context = [weeklyTableContext, monthlyContext, pacingContext, mainDetailContext, unmatchedContext, actionsContext].filter(Boolean).join("\n\n");
 
     // ── Prompts ──────────────────────────────────────────────────────────────
     const systemPrompt = `Você é o gestor de tráfego sênior redigindo um relatório de performance para apresentar ao cliente e à equipe na reunião semanal.
@@ -514,6 +560,52 @@ QUANDO HOUVER MÊS CORRENTE vs ANTERIOR:
 - Apresente como bloco separado, com a comparação direta e a projeção do mês.
 - Cite explicitamente que o mês anterior foi truncado no mesmo dia para tornar o comparativo justo.`;
 
+    // Constrói as seções dinamicamente — opcionais entram só quando há dados.
+    const sections: [string, string][] = [
+      ["Overview do Período",
+        "Resumo direto com números gerais do período: total de leads, investimento, CPL geral. Quebra por plataforma (Meta vs Google) com leads/invest/CPL de cada. Liste os formulários que mais receberam leads."],
+      ["Comparativo Semanal",
+        weeks.length > 1
+          ? "Apresente UMA tabela com TODAS as semanas no formato: Semana | Período | Leads | Δ% | Invest | Δ% | CPL | Δ% | CTR | Δ% (a primeira semana não tem Δ). Logo abaixo, repita o exercício com sub-tabelas por plataforma (Meta e Google). Após as tabelas, em 3-4 frases, comente as principais variações entre semanas — onde houve aceleração, onde houve atenção."
+          : "Período principal cabe em uma única semana. Apresente os números agregados sem tabela comparativa entre semanas."],
+      ["Mês Corrente e Projeção",
+        `Apresente o acumulado do mês corrente até a data de fechamento e a comparação com o MESMO INTERVALO do mês anterior. Inclua a projeção (run-rate) para o fechamento do mês.
+
+Use TABELA com colunas: Plataforma | Leads (corrente) | Leads (anterior) | Δ Leads | Invest (corrente) | Invest (anterior) | Δ Invest | CPL (corrente) | CPL (anterior) | Δ CPL. Linhas: TOTAL, Meta, Google. TODAS as linhas DEVEM ter valores do mês anterior preenchidos — estão em "MÊS ANTERIOR" e em "VARIAÇÃO MÊS A MÊS". Não deixe Meta/Google com "—" no anterior.
+
+Após a tabela, mostre a projeção (run-rate). Comente em 2-3 frases se o ritmo está acima ou abaixo do mês anterior.`],
+    ];
+
+    if (hasPacing) {
+      sections.push(["Pacing do Orçamento",
+        `Os dados estão em "PACING DE ORÇAMENTO" no contexto. Apresente uma TABELA com colunas: Plataforma | Gasto Real | Orçamento | % Realizado | Previsto até hoje | Status | Recomendado/dia. Linhas devem ser exatamente as plataformas que aparecem no contexto (TOTAL/META/GOOGLE). Use os status como vieram (ex: "No ritmo", "Levemente acima", "ATRASADO"). Após a tabela, comente em 2-3 frases se o cliente está no ritmo da estratégia ou se precisa ajustar (acelerar/conter). Cite o "Recomendado/dia" como guia prático para os dias restantes do mês. NÃO recomende mudar o orçamento — só apontar a velocidade.`]);
+    }
+
+    sections.push(["Meta Ads — Resultados por Campanha (período " + brDateFull(periodFrom) + " a " + brDateFull(periodTo) + ")",
+      metaCampaigns.length > 0
+        ? "Para CADA campanha Meta com investimento ou leads no período selecionado, apresente: investimento, leads, CPL, CTR. Abaixo de cada campanha, liste TODOS os criativos com gasto (mesmo os com zero leads) com: nome, gasto, leads, CTR, CPL e link. Mencione posicionamentos que mais converteram. Os números devem refletir TODO o período selecionado, não apenas a semana mais recente."
+        : "Sem campanhas Meta no período."]);
+
+    sections.push(["Google Ads — Resultados por Campanha (período " + brDateFull(periodFrom) + " a " + brDateFull(periodTo) + ")",
+      googleCampaigns.length > 0
+        ? "Para CADA campanha Google com investimento ou leads no período selecionado, apresente: investimento, leads, CPL, CTR. Liste as top palavras-chave com cliques e conversões. Liste os termos de pesquisa mais relevantes. Destaque termos com alta conversão e termos que gastam sem converter. Os números devem refletir TODO o período selecionado, não apenas a semana mais recente."
+        : "Sem campanhas Google no período."]);
+
+    if (unmatchedLeads.length > 0) {
+      sections.push(["Leads Pagos Sem Campanha Atribuída",
+        "Apresente uma tabela curta com os utm_campaign que não casaram com nenhuma campanha Meta/Google sincronizada (max 10 linhas). Para cada um, mostre: utm_campaign, source, content, quantidade. Em 2 frases, sugira ações: revisar tagueamento de tráfego institucional, conferir UTMs no RD, etc."]);
+    }
+
+    if (reportActions.length > 0) {
+      sections.push(["Ações Realizadas pelo Gestor no Período",
+        "Liste as ações cadastradas no contexto, agrupadas por plataforma (Meta primeiro, depois Google, depois Geral). Para cada ação, mostre data, campanha (se houver) e descrição. Use tabela ou bullets organizados. NÃO invente ações além das listadas no contexto."]);
+    }
+
+    sections.push(["Destaques e Pontos de Atenção",
+      "O que funcionou bem? O que precisa de atenção? Quais campanhas/criativos devem ser escalados e quais devem ser revisados? Use os dados das semanas e do mês para justificar."]);
+
+    const sectionsBlock = sections.map(([title, instr], i) => `**${i + 1}. ${title}**\n${instr}`).join("\n\n");
+
     const userPrompt = `Gere um relatório ${typeLabel.toLowerCase()} de performance para reunião com cliente. Período principal: ${periodLabel}.
 
 DADOS:
@@ -521,30 +613,7 @@ ${context}
 
 Escreva o relatório EXATAMENTE neste formato:
 
-**1. Overview do Período**
-Resumo direto com números gerais do período: total de leads, investimento, CPL geral. Quebra por plataforma (Meta vs Google) com leads/invest/CPL de cada. Liste os formulários que mais receberam leads.
-
-**2. Comparativo Semanal**
-${weeks.length > 1 ? "Apresente UMA tabela com TODAS as semanas no formato: Semana | Período | Leads | Δ% | Invest | Δ% | CPL | Δ% | CTR | Δ% (a primeira semana não tem Δ). Logo abaixo, repita o exercício com sub-tabelas por plataforma (Meta e Google). Após as tabelas, em 3-4 frases, comente as principais variações entre semanas — onde houve aceleração, onde houve atenção." : "Período principal cabe em uma única semana. Apresente os números agregados sem tabela comparativa entre semanas."}
-
-**3. Mês Corrente e Projeção**
-Apresente o acumulado do mês corrente até a data de fechamento e a comparação com o MESMO INTERVALO do mês anterior (ex: 01-28/abr vs 01-28/mar). Inclua a projeção (run-rate) para o fechamento do mês.
-
-Use TABELA com colunas: Plataforma | Leads ABR | Leads MAR | Δ Leads | Invest ABR | Invest MAR | Δ Invest | CPL ABR | CPL MAR | Δ CPL. Linhas: TOTAL, Meta, Google. TODAS as linhas DEVEM ter os valores do mês anterior preenchidos (estão em "MÊS ANTERIOR" no contexto e nas linhas TOTAL/META/GOOGLE da seção VARIAÇÃO MÊS A MÊS). Não deixe Meta ou Google com "—" no MAR — sempre busque os números no contexto.
-
-Após a tabela, mostre a projeção (run-rate). Comente em 2-3 frases se o ritmo do mês está acima ou abaixo do mês anterior.
-
-**4. Meta Ads — Resultados por Campanha (período ${brDateFull(periodFrom)} a ${brDateFull(periodTo)})**
-${metaCampaigns.length > 0 ? "Para CADA campanha Meta com investimento ou leads no período selecionado, apresente: investimento, leads, CPL, CTR. Abaixo de cada campanha, liste TODOS os criativos com gasto (mesmo os com zero leads) com: nome, gasto, leads, CTR, CPL e link. Mencione posicionamentos que mais converteram. Os números devem refletir TODO o período selecionado, não apenas a semana mais recente." : "Sem campanhas Meta no período."}
-
-**5. Google Ads — Resultados por Campanha (período ${brDateFull(periodFrom)} a ${brDateFull(periodTo)})**
-${googleCampaigns.length > 0 ? "Para CADA campanha Google com investimento ou leads no período selecionado, apresente: investimento, leads, CPL, CTR. Liste as top palavras-chave com cliques e conversões. Liste os termos de pesquisa mais relevantes. Destaque termos com alta conversão e termos que gastam sem converter. Os números devem refletir TODO o período selecionado, não apenas a semana mais recente." : "Sem campanhas Google no período."}
-
-${unmatchedLeads.length > 0 ? "**6. Leads Pagos Sem Campanha Atribuída**\nApresente uma tabela curta com os utm_campaign que não casaram com nenhuma campanha Meta/Google sincronizada (max 10 linhas). Para cada um, mostre: utm_campaign, source, content, quantidade. Em 2 frases, sugira ações: revisar tagueamento de tráfego institucional, conferir UTMs no RD, etc.\n\n" : ""}${reportActions.length > 0 ? `**${unmatchedLeads.length > 0 ? "7" : "6"}. Ações Realizadas pelo Gestor no Período**
-Liste as ações cadastradas no contexto, agrupadas por plataforma (Meta primeiro, depois Google, depois Geral). Para cada ação, mostre data, campanha (se houver) e descrição. Use tabela ou bullets organizados. NÃO invente ações além das listadas no contexto.
-
-` : ""}**${[unmatchedLeads.length > 0, reportActions.length > 0].filter(Boolean).length === 2 ? "8" : [unmatchedLeads.length > 0, reportActions.length > 0].filter(Boolean).length === 1 ? "7" : "6"}. Destaques e Pontos de Atenção**
-O que funcionou bem? O que precisa de atenção? Quais campanhas/criativos devem ser escalados e quais devem ser revisados? Use os dados das semanas e do mês para justificar.
+${sectionsBlock}
 
 NÃO inclua seções de recomendações de criativos, cronograma de produção ou próximos passos.
 
