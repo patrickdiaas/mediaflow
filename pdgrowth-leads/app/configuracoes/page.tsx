@@ -4,7 +4,19 @@ import Sidebar from "@/components/sidebar";
 import Header from "@/components/header";
 import { supabase } from "@/lib/supabase";
 import { useDashboard } from "@/lib/dashboard-context";
-import { RefreshCw, FileText, FileSpreadsheet, Check, Link2, Plus, Trash2 } from "lucide-react";
+import { RefreshCw, FileText, FileSpreadsheet, Check, Link2, Plus, Trash2, Wallet } from "lucide-react";
+import { calcBudgetPacing, getMonthInfo } from "@/lib/budget-pacing";
+
+interface BudgetRow {
+  id: string;
+  client_slug: string;
+  year_month: string;
+  platform: "meta" | "google" | "total";
+  budget: number;
+  front_half_pct: number;
+  notes: string | null;
+  updated_at: string;
+}
 
 interface CampaignAliasRow {
   id: string;
@@ -52,6 +64,15 @@ export default function ConfiguracoesPage() {
   const [newAliasTarget, setNewAliasTarget] = useState("");
   const [newAliasNotes, setNewAliasNotes] = useState("");
   const [savingAlias, setSavingAlias] = useState(false);
+
+  // Budgets
+  const [budgets, setBudgets] = useState<BudgetRow[]>([]);
+  const [bdgYearMonth, setBdgYearMonth] = useState(() => getMonthInfo().yearMonth);
+  const [bdgPlatform, setBdgPlatform] = useState<"meta" | "google" | "total">("total");
+  const [bdgValue, setBdgValue] = useState("");
+  const [bdgFrontPct, setBdgFrontPct] = useState("50");
+  const [bdgNotes, setBdgNotes] = useState("");
+  const [savingBudget, setSavingBudget] = useState(false);
 
   async function fetchForms() {
     setLoading(true);
@@ -117,7 +138,45 @@ export default function ConfiguracoesPage() {
     if (res.ok) fetchAliases();
   }
 
-  useEffect(() => { fetchForms(); fetchAliases(); fetchCampaignNames(); }, [client]);
+  async function fetchBudgets() {
+    if (client === "all") { setBudgets([]); return; }
+    const res = await fetch(`/api/admin/budgets?client=${encodeURIComponent(client)}`);
+    const json = await res.json();
+    if (res.ok) setBudgets(json.data ?? []);
+  }
+
+  async function saveBudget() {
+    if (!bdgValue || client === "all") return;
+    setSavingBudget(true);
+    setError(null);
+    const res = await fetch("/api/admin/budgets", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_slug: client,
+        year_month: bdgYearMonth,
+        platform: bdgPlatform,
+        budget: Number(bdgValue),
+        front_half_pct: Number(bdgFrontPct),
+        notes: bdgNotes.trim() || null,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) setError("Erro ao salvar orçamento: " + (json.error ?? "desconhecido"));
+    else {
+      setBdgValue(""); setBdgNotes("");
+      fetchBudgets();
+    }
+    setSavingBudget(false);
+  }
+
+  async function deleteBudget(id: string) {
+    if (!confirm("Remover este orçamento?")) return;
+    const res = await fetch(`/api/admin/budgets?id=${id}`, { method: "DELETE" });
+    if (res.ok) fetchBudgets();
+  }
+
+  useEffect(() => { fetchForms(); fetchAliases(); fetchCampaignNames(); fetchBudgets(); }, [client]);
 
   async function saveSheetId(form: TrackedForm, sheetId: string) {
     setSavingSheet(form.id);
@@ -162,6 +221,134 @@ export default function ConfiguracoesPage() {
       <Sidebar />
       <main className="flex-1 min-h-0 p-4 md:p-6 overflow-y-auto">
         <Header title="Configurações" subtitle="Gerencie formulários e atribuição de leads a campanhas" />
+
+        {/* ─── Orçamento mensal ─── */}
+        <section className="mb-8">
+          <div className="flex items-center gap-2 mb-3">
+            <Wallet size={14} className="text-accent" />
+            <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-widest">Orçamento Mensal</h2>
+          </div>
+          <p className="text-xs text-text-muted mb-3 leading-relaxed">
+            Define o orçamento por mês e a estratégia de distribuição. <span className="font-mono text-text-secondary">% nas primeiras 2 semanas</span>: 50 = linear, 55 = front-loaded leve, 70 = front-loaded forte, 40 = back-loaded.
+          </p>
+
+          {client === "all" ? (
+            <div className="bg-card border border-border rounded-xl p-4 text-xs text-text-muted">
+              Selecione um cliente específico no topo para gerenciar o orçamento.
+            </div>
+          ) : (
+            <>
+              <div className="bg-card border border-border rounded-xl p-4 mb-4">
+                <div className="grid grid-cols-1 md:grid-cols-5 gap-2 mb-2">
+                  <input
+                    type="month"
+                    value={bdgYearMonth}
+                    onChange={e => setBdgYearMonth(e.target.value)}
+                    className="bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-accent/40"
+                  />
+                  <select
+                    value={bdgPlatform}
+                    onChange={e => setBdgPlatform(e.target.value as any)}
+                    className="bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-accent/40"
+                  >
+                    <option value="total">Total</option>
+                    <option value="meta">Meta</option>
+                    <option value="google">Google</option>
+                  </select>
+                  <input
+                    type="number"
+                    step="0.01"
+                    value={bdgValue}
+                    onChange={e => setBdgValue(e.target.value)}
+                    placeholder="Orçamento R$"
+                    className="bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary font-mono focus:outline-none focus:border-accent/40"
+                  />
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="1"
+                    value={bdgFrontPct}
+                    onChange={e => setBdgFrontPct(e.target.value)}
+                    placeholder="% primeiras 2 semanas"
+                    className="bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary font-mono focus:outline-none focus:border-accent/40"
+                  />
+                  <button
+                    onClick={saveBudget}
+                    disabled={savingBudget || !bdgValue}
+                    className="flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-accent/10 border border-accent/30 text-accent hover:bg-accent/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Plus size={12} />
+                    {savingBudget ? "Salvando..." : "Salvar"}
+                  </button>
+                </div>
+                <input
+                  type="text"
+                  value={bdgNotes}
+                  onChange={e => setBdgNotes(e.target.value)}
+                  placeholder="Notas (opcional)"
+                  className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary placeholder:text-text-dark focus:outline-none focus:border-accent/40"
+                />
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  <span className="text-[10px] text-text-muted self-center mr-1">Presets:</span>
+                  {[
+                    { label: "Linear (50/50)", v: "50" },
+                    { label: "Front leve (55/45)", v: "55" },
+                    { label: "Front forte (70/30)", v: "70" },
+                    { label: "Back-loaded (40/60)", v: "40" },
+                  ].map(p => (
+                    <button
+                      key={p.v}
+                      onClick={() => setBdgFrontPct(p.v)}
+                      className={`text-[10px] px-2 py-1 rounded-md border transition-colors ${
+                        bdgFrontPct === p.v
+                          ? "bg-accent/10 border-accent/30 text-accent"
+                          : "bg-bg border-border text-text-secondary hover:text-text-primary"
+                      }`}
+                    >
+                      {p.label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {budgets.length === 0 ? (
+                <div className="bg-card border border-border rounded-xl p-4 text-xs text-text-muted">
+                  Nenhum orçamento cadastrado.
+                </div>
+              ) : (
+                <div className="bg-card border border-border rounded-xl overflow-hidden">
+                  <div className="grid grid-cols-12 gap-2 px-4 py-2 bg-bg/30 border-b border-border text-[10px] font-semibold text-text-muted uppercase tracking-wider">
+                    <div className="col-span-2">Mês</div>
+                    <div className="col-span-2">Plataforma</div>
+                    <div className="col-span-3 text-right">Orçamento</div>
+                    <div className="col-span-2 text-right">% 1ª metade</div>
+                    <div className="col-span-2">Notas</div>
+                    <div className="col-span-1"></div>
+                  </div>
+                  {budgets.map((b, i) => (
+                    <div key={b.id} className={`grid grid-cols-12 gap-2 px-4 py-3 items-center text-xs ${i < budgets.length - 1 ? "border-b border-border" : ""}`}>
+                      <div className="col-span-2 font-mono text-text-primary">{b.year_month}</div>
+                      <div className="col-span-2">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-md border ${b.platform === "meta" ? "text-blue border-blue/30 bg-blue/10" : b.platform === "google" ? "text-gold border-gold/30 bg-gold/10" : "text-accent border-accent/30 bg-accent/10"}`}>
+                          {b.platform === "meta" ? "Meta" : b.platform === "google" ? "Google" : "Total"}
+                        </span>
+                      </div>
+                      <div className="col-span-3 text-right font-mono text-text-primary">R$ {Number(b.budget).toLocaleString("pt-BR", { minimumFractionDigits: 2 })}</div>
+                      <div className="col-span-2 text-right font-mono text-text-secondary">{Number(b.front_half_pct).toFixed(0)}%</div>
+                      <div className="col-span-2 text-text-muted truncate">{b.notes ?? "—"}</div>
+                      <div className="col-span-1 flex justify-end">
+                        <button onClick={() => deleteBudget(b.id)} className="text-text-muted hover:text-red transition-colors" title="Remover">
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </section>
 
         {/* ─── Aliases de campanha ─── */}
         <section className="mb-8">

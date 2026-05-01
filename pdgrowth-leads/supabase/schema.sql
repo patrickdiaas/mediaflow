@@ -162,6 +162,30 @@ create table if not exists campaign_aliases (
   unique (client_slug, alias_utm_campaign)
 );
 
+-- ─── Client Budgets ──────────────────────────────────────────────────────────
+-- Orçamento mensal por cliente + plataforma + estratégia de distribuição.
+-- Usado para o "Pacing do mês" no Overview: compara gasto real com o
+-- previsto pela estratégia (linear, front-loaded, back-loaded).
+--   front_half_pct: % do orçamento alocado nos primeiros 15 dias do mês.
+--     50  = linear        (50/50)
+--     55  = front-loaded leve
+--     70  = front-loaded forte
+--     40  = back-loaded
+--     N   = customizado
+-- platform: meta | google | total (null/total = orçamento agregado)
+create table if not exists client_budgets (
+  id              uuid primary key default gen_random_uuid(),
+  client_slug     text not null references clients(slug),
+  year_month      text not null,                       -- 'YYYY-MM'
+  platform        text not null default 'total',       -- meta | google | total
+  budget          numeric(10,2) not null,
+  front_half_pct  numeric(5,2) not null default 50,
+  notes           text,
+  created_at      timestamptz default now(),
+  updated_at      timestamptz default now(),
+  unique (client_slug, year_month, platform)
+);
+
 -- ─── Report Actions ──────────────────────────────────────────────────────────
 -- Ações realizadas pelo gestor (novos criativos, otimizações, pausas, etc).
 -- São automaticamente injetadas no relatório de qualquer período que cubra

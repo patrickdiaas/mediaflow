@@ -12,8 +12,9 @@ import { supabase } from "@/lib/supabase";
 import { getPeriodDates, getLeadDates, toBRTDate } from "@/lib/period";
 import { filterCampaignLeads, isCampaignLead } from "@/lib/leads-filter";
 import { buildAttributionIndex, attributeLead, fetchAliases, type CampaignAlias } from "@/lib/campaign-attribution";
+import { calcBudgetPacing, getMonthInfo, type BudgetPacingResult } from "@/lib/budget-pacing";
 import type { Platform, KPIData, DonutSlice, HorizontalBarItem, TrendPoint, RegionRow, FunnelStep } from "@/lib/types";
-import { RefreshCw, Calendar, Building2, Menu, Megaphone, Trophy, CalendarDays, CalendarRange } from "lucide-react";
+import { RefreshCw, Calendar, Building2, Menu, Megaphone, Trophy, CalendarDays, CalendarRange, Wallet } from "lucide-react";
 
 // ─── Fuzzy match (same as campanhas/criativos) ─────────────────────────────
 // Extrai palavras significativas de um nome (remove pontuação, lowercase)
@@ -223,6 +224,7 @@ export default function OverviewPage() {
   const [campaignRank,  setCampaignRank]  = useState<CampaignRank[]>([]);
   const [dailyRows,     setDailyRows]     = useState<DailyRow[]>([]);
   const [weeklyRows,    setWeeklyRows]    = useState<WeeklyRow[]>([]);
+  const [pacing,        setPacing]        = useState<{ total?: BudgetPacingResult; meta?: BudgetPacingResult; google?: BudgetPacingResult } | null>(null);
   const [loading,       setLoading]       = useState(true);
   const [updatedAt,     setUpdatedAt]     = useState("");
 
@@ -499,6 +501,43 @@ export default function OverviewPage() {
     setTrendData(trend);
     setRegions(regionRows);
     setPlacements(placementBars);
+
+    // ── Pacing do mês corrente ──
+    if (metaSlug) {
+      const mi = getMonthInfo();
+      const monthStart = `${mi.yearMonth}-01`;
+      const monthEnd = `${mi.yearMonth}-${String(mi.daysInMonth).padStart(2, "0")}`;
+      const { data: monthAds } = await supabase.from("ad_campaigns")
+        .select("date, platform, spend")
+        .eq("client_slug", metaSlug)
+        .gte("date", monthStart).lte("date", monthEnd);
+      const realByPlat = { total: 0, meta: 0, google: 0 };
+      for (const r of monthAds ?? []) {
+        const v = Number(r.spend);
+        realByPlat.total += v;
+        if (r.platform === "meta")   realByPlat.meta   += v;
+        if (r.platform === "google") realByPlat.google += v;
+      }
+      const { data: bdgs } = await supabase.from("client_budgets")
+        .select("platform, budget, front_half_pct")
+        .eq("client_slug", metaSlug)
+        .eq("year_month", mi.yearMonth);
+      const result: { total?: BudgetPacingResult; meta?: BudgetPacingResult; google?: BudgetPacingResult } = {};
+      for (const b of bdgs ?? []) {
+        const plat = b.platform as "total" | "meta" | "google";
+        result[plat] = calcBudgetPacing({
+          budget: Number(b.budget),
+          frontHalfPct: Number(b.front_half_pct),
+          daysInMonth: mi.daysInMonth,
+          dayOfMonth: mi.dayOfMonth,
+          realSpend: realByPlat[plat],
+        });
+      }
+      setPacing(Object.keys(result).length > 0 ? result : null);
+    } else {
+      setPacing(null);
+    }
+
     setUpdatedAt(new Date().toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit", second: "2-digit" }));
     setLoading(false);
   }
@@ -639,6 +678,9 @@ export default function OverviewPage() {
             {kpis.slice(5).map(kpi => <KPICard key={kpi.label} {...kpi} />)}
           </div>
 
+          {/* Pacing do mês */}
+          {pacing && <PacingCard pacing={pacing} />}
+
           {/* Funil + Gráfico de tendência */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
             {funnelSteps.length > 0 && (
@@ -711,6 +753,66 @@ export default function OverviewPage() {
           )}
         </div>
       </main>
+    </div>
+  );
+}
+
+// ─── Pacing Card ──────────────────────────────────────────────────────────────
+function PacingCard({ pacing }: { pacing: { total?: BudgetPacingResult; meta?: BudgetPacingResult; google?: BudgetPacingResult } }) {
+  const order: Array<{ key: "total" | "meta" | "google"; label: string }> = [
+    { key: "total", label: "Total" },
+    { key: "meta", label: "Meta" },
+    { key: "google", label: "Google" },
+  ];
+  const items = order.filter(o => pacing[o.key]);
+  if (items.length === 0) return null;
+  const fmt = (n: number) => `R$ ${n.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  const statusColor = (s: string) =>
+    s === "over" ? "text-red border-red/30 bg-red/10"
+    : s === "slightly_over" ? "text-gold border-gold/30 bg-gold/10"
+    : s === "on_track" ? "text-accent border-accent/30 bg-accent/10"
+    : s === "slightly_under" ? "text-gold border-gold/30 bg-gold/10"
+    : "text-blue border-blue/30 bg-blue/10";
+  const barColor = (s: string) =>
+    s === "over" ? "bg-red"
+    : s === "slightly_over" || s === "slightly_under" ? "bg-gold"
+    : s === "on_track" ? "bg-accent"
+    : "bg-blue";
+
+  return (
+    <div className="bg-card border border-border rounded-xl p-5">
+      <div className="flex items-center gap-2 mb-4">
+        <Wallet size={14} className="text-accent" />
+        <span className="text-sm font-semibold text-text-primary">Pacing do mês</span>
+        <span className="text-xs text-text-muted ml-auto">orçamento × gasto real</span>
+      </div>
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+        {items.map(({ key, label }) => {
+          const p = pacing[key]!;
+          const pctReal = Math.min(120, (p.realSpend / p.expectedSpendByEom) * 100);
+          const pctExpected = Math.min(120, (p.expectedSpend / p.expectedSpendByEom) * 100);
+          return (
+            <div key={key} className="bg-bg/50 border border-border rounded-lg p-4">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">{label}</span>
+                <span className={`text-[10px] px-1.5 py-0.5 rounded-md border ${statusColor(p.status)}`}>{p.statusLabel}</span>
+              </div>
+              <div className="text-xs text-text-muted mb-1">
+                <span className="font-mono text-text-primary">{fmt(p.realSpend)}</span> / {fmt(p.expectedSpendByEom)}
+              </div>
+              <div className="h-2 bg-border rounded-full overflow-hidden mb-2 relative">
+                <div className={`h-full ${barColor(p.status)} transition-all`} style={{ width: `${pctReal}%` }} />
+                <div className="absolute top-0 h-full w-0.5 bg-text-primary/60" style={{ left: `${pctExpected}%` }} title="Previsto até hoje" />
+              </div>
+              <div className="text-[10px] text-text-muted leading-relaxed">
+                Previsto até hoje: <span className="font-mono text-text-secondary">{fmt(p.expectedSpend)}</span><br />
+                Restante: <span className="font-mono text-text-secondary">{fmt(p.remaining)}</span> em {p.daysRemaining}d<br />
+                Gasto recomendado/dia: <span className="font-mono text-text-secondary">{fmt(p.recommendedDailySpend)}</span>
+              </div>
+            </div>
+          );
+        })}
+      </div>
     </div>
   );
 }
