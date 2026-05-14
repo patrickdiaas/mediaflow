@@ -255,25 +255,54 @@ export default function OverviewPage() {
     const { data: leadsData } = await leadsQ;
     // Filtra leads por plataforma: facebook/instagram = meta, google = google
     const allLeads = (leadsData ?? []).filter((l: any) => isCampaignLead(l, mappedEventsSet));
-    const platformLeads = platform === "all" ? allLeads : allLeads.filter((l: any) => {
+    // Campanhas (spend, impressions, clicks, reach) — carregado ANTES de filtrar plataforma
+    // porque precisamos do mapa nome→plataforma pra inferir a plataforma de leads
+    // sem utm_source válido (atribuídos via event_map ou alias).
+    const adQ = supabase.from("ad_campaigns")
+      .select("campaign_id, campaign_name, date, spend, impressions, clicks, reach, landing_page_views, lead_form_submissions, platform")
+      .gte("date", since).lte("date", until);
+    if (metaSlug) adQ.eq("client_slug", metaSlug);
+    const { data: adData } = await adQ;
+    const allAdsUnfiltered = adData ?? [];
+
+    // Mapa nome → plataforma + index global pra inferência de plataforma
+    const campNameToPlatform = new Map<string, "meta" | "google">();
+    const campNameToIds = new Map<string, Set<string>>();
+    for (const c of allAdsUnfiltered) {
+      if (c.platform === "meta" || c.platform === "google") campNameToPlatform.set(c.campaign_name, c.platform);
+      if (c.campaign_id) {
+        const s = campNameToIds.get(c.campaign_name) ?? new Set<string>();
+        s.add(c.campaign_id);
+        campNameToIds.set(c.campaign_name, s);
+      }
+    }
+    const aliasesForPlat = await fetchAliases(supabase, client);
+    const globalIdx = buildAttributionIndex(
+      Array.from(campNameToPlatform.keys()).map(name => ({ campaign_name: name, campaign_ids: campNameToIds.get(name) ?? new Set() })),
+      aliasesForPlat as CampaignAlias[],
+      eventMaps as EventToCampaign[],
+    );
+    for (const l of allLeads as any[]) {
       const src = (l.utm_source ?? "").toLowerCase();
-      if (platform === "meta") return src === "facebook" || src === "fb" || src === "instagram" || src === "ig";
-      if (platform === "google") return src === "google";
-      return true;
-    });
+      if (src === "facebook" || src === "fb" || src === "instagram" || src === "ig" || src === "facebook ads") l._platform = "meta";
+      else if (src === "google") l._platform = "google";
+      else {
+        const r = attributeLead(l.utm_campaign, globalIdx, l.conversion_event);
+        if (r.campaign_name) {
+          const p = campNameToPlatform.get(r.campaign_name);
+          if (p) l._platform = p;
+        }
+      }
+    }
+
+    const platformLeads = platform === "all" ? allLeads : allLeads.filter((l: any) => l._platform === platform);
 
     // Filtra leads pela campanha selecionada
     const leads = campaign === "all" ? platformLeads : platformLeads.filter((l: any) => {
       return l.utm_campaign && fuzzyMatch(l.utm_campaign, campaign);
     });
 
-    // Campanhas (spend, impressions, clicks, reach)
-    const adQ = supabase.from("ad_campaigns")
-      .select("campaign_id, campaign_name, date, spend, impressions, clicks, reach, landing_page_views, lead_form_submissions, platform")
-      .gte("date", since).lte("date", until);
-    if (metaSlug) adQ.eq("client_slug", metaSlug);
-    const { data: adData } = await adQ;
-    const allAds = (adData ?? []).filter((a: any) => platform === "all" || a.platform === platform);
+    const allAds = allAdsUnfiltered.filter((a: any) => platform === "all" || a.platform === platform);
 
     // Extrair nomes de campanhas para o seletor
     const campNames = Array.from(new Set(allAds.map((a: any) => a.campaign_name).filter(Boolean))).sort();
@@ -322,10 +351,10 @@ export default function OverviewPage() {
       else campMap.set(key, { platform: r.platform as Platform, campaignIds: new Set(r.campaign_id ? [r.campaign_id] : []), impressions: Number(r.impressions), clicks: Number(r.clicks), spend: Number(r.spend) });
     }
     // Atribui cada lead a no máximo UMA campanha (exato → id → alias → fuzzy → event)
-    const aliases = await fetchAliases(supabase, client);
+    // Reusa aliasesForPlat (já carregado pra inferência de plataforma).
     const campIndex = buildAttributionIndex(
       Array.from(campMap.entries()).map(([name, d]) => ({ campaign_name: name, campaign_ids: d.campaignIds })),
-      aliases as CampaignAlias[],
+      aliasesForPlat as CampaignAlias[],
       eventMaps as EventToCampaign[],
     );
     const leadsPerCamp = new Map<string, number>();

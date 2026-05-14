@@ -133,11 +133,10 @@ function computeRangeStats(
   });
   const adsInRange = ads.filter(a => inRange(a.date, since, until));
 
-  const metaLeads = leadsInRange.filter(l => {
-    const s = (l.utm_source ?? "").toLowerCase();
-    return s === "facebook" || s === "fb" || s === "instagram" || s === "ig" || s === "facebook ads";
-  });
-  const googleLeads = leadsInRange.filter(l => (l.utm_source ?? "").toLowerCase() === "google");
+  // Cada lead vem com _platform pré-calculado (utm_source OU plataforma da
+  // campanha atribuída via event_map/alias quando utm_source não bate).
+  const metaLeads = leadsInRange.filter(l => l._platform === "meta");
+  const googleLeads = leadsInRange.filter(l => l._platform === "google");
 
   const totalSpend = adsInRange.reduce((s, r) => s + Number(r.spend), 0);
   const totalImp = adsInRange.reduce((s, r) => s + Number(r.impressions), 0);
@@ -225,6 +224,39 @@ export async function POST(req: NextRequest) {
 
     // ── Aliases cadastrados pelo gestor ────────────────────────────────────
     const aliases = await fetchAliases(supabase, client);
+
+    // ── Inferir plataforma de cada lead ────────────────────────────────────
+    // Quando utm_source não bate com facebook/google (caso de event_map ou UTM perdida),
+    // usamos a plataforma da campanha que o lead foi atribuído.
+    const campNameToPlatform = new Map<string, "meta" | "google">();
+    const campNameToIds = new Map<string, Set<string>>();
+    for (const c of allAdCampaigns) {
+      if (c.platform === "meta" || c.platform === "google") campNameToPlatform.set(c.campaign_name, c.platform);
+      if (c.campaign_id) {
+        const s = campNameToIds.get(c.campaign_name) ?? new Set<string>();
+        s.add(c.campaign_id);
+        campNameToIds.set(c.campaign_name, s);
+      }
+    }
+    const globalIndex = buildAttributionIndex(
+      Array.from(campNameToPlatform.keys()).map(name => ({ campaign_name: name, campaign_ids: campNameToIds.get(name) ?? new Set() })),
+      aliases,
+      eventMaps,
+    );
+    for (const l of allLeads) {
+      const s = (l.utm_source ?? "").toLowerCase();
+      if (s === "facebook" || s === "fb" || s === "instagram" || s === "ig" || s === "facebook ads") {
+        (l as any)._platform = "meta";
+      } else if (s === "google") {
+        (l as any)._platform = "google";
+      } else {
+        const r = attributeLead(l.utm_campaign, globalIndex, l.conversion_event);
+        if (r.campaign_name) {
+          const p = campNameToPlatform.get(r.campaign_name);
+          if (p) (l as any)._platform = p;
+        }
+      }
+    }
 
     // ── Ações do gestor no período (criativos novos, otimizações, pausas) ──
     const { data: actionsRaw } = await supabase
