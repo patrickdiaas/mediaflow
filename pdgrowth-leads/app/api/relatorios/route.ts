@@ -368,11 +368,15 @@ export async function POST(req: NextRequest) {
       if (!cur || c.spend > (curEntry?.spend ?? 0)) dominantCreative.set(c.campaign, c.name);
     }
     for (const l of mainLeads) {
-      if (!l.utm_term) continue;
       let matched = false;
-      for (const [, e] of Array.from(creativeAgg.entries())) {
-        if (e.name === l.utm_term || fuzzyMatch(e.name, l.utm_term)) { e.leads++; matched = true; break; }
+      // Tenta primeiro por utm_term (nome do criativo)
+      if (l.utm_term) {
+        for (const [, e] of Array.from(creativeAgg.entries())) {
+          if (e.name === l.utm_term || fuzzyMatch(e.name, l.utm_term)) { e.leads++; matched = true; break; }
+        }
       }
+      // Fallback: criativo dominante da campanha atribuída (inclui leads sem utm_term,
+      // recuperados via event_map/alias). Garante que soma dos criativos = total da campanha.
       if (!matched) {
         const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event);
         if (r.campaign_name) {
