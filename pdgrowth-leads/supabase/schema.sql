@@ -162,6 +162,25 @@ create table if not exists campaign_aliases (
   unique (client_slug, alias_utm_campaign)
 );
 
+-- ─── RLS policies (admin tables lidas pelo frontend anon) ───────────────────
+-- Frontend usa anon key. Sem policy, anon não consegue ler — quebra
+-- atribuição de leads, pacing, ações no relatório. Writes só via API
+-- com service_role.
+alter table public.campaign_aliases   enable row level security;
+alter table public.client_budgets     enable row level security;
+alter table public.report_actions     enable row level security;
+alter table public.event_to_campaign  enable row level security;
+
+drop policy if exists "anon read" on public.campaign_aliases;
+drop policy if exists "anon read" on public.client_budgets;
+drop policy if exists "anon read" on public.report_actions;
+drop policy if exists "anon read" on public.event_to_campaign;
+
+create policy "anon read" on public.campaign_aliases   for select using (true);
+create policy "anon read" on public.client_budgets     for select using (true);
+create policy "anon read" on public.report_actions     for select using (true);
+create policy "anon read" on public.event_to_campaign  for select using (true);
+
 -- ─── Event → Campaign Mapping ────────────────────────────────────────────────
 -- Quando um lead chega numa LP de campanha SEM utm_source/utm_medium válidos
 -- (link compartilhado via WhatsApp, cookie blocker, UTM perdida), esse
