@@ -329,18 +329,22 @@ export async function POST(req: NextRequest) {
     );
 
     // Atribui leads à campanha + identifica leads "sem match"
-    const unmatchedLeadsMap = new Map<string, { utm_campaign: string; utm_source: string | null; utm_content: string | null; count: number }>();
+    // Agrupa por (utm_campaign + conversion_event) pra que leads sem utm_campaign
+    // ainda apareçam separados por formulário/LP de origem (identificação útil).
+    const unmatchedLeadsMap = new Map<string, { utm_campaign: string; conversion_event: string; utm_source: string | null; utm_content: string | null; count: number }>();
     for (const l of mainLeads) {
       const result = attributeLead(l.utm_campaign, campIndex, l.conversion_event);
       if (result.campaign_name) {
         campAgg.get(result.campaign_name)!.leads++;
         continue;
       }
-      const key = l.utm_campaign ?? "(sem utm_campaign)";
-      const ex = unmatchedLeadsMap.get(key) ?? { utm_campaign: key, utm_source: l.utm_source, utm_content: l.utm_content, count: 0 };
+      const ev = l.conversion_event ?? "(sem evento)";
+      const camp = l.utm_campaign ?? "(sem utm_campaign)";
+      const key = `${camp}::${ev}`;
+      const ex = unmatchedLeadsMap.get(key) ?? { utm_campaign: camp, conversion_event: ev, utm_source: l.utm_source, utm_content: l.utm_content, count: 0 };
       ex.count++; unmatchedLeadsMap.set(key, ex);
     }
-    const unmatchedLeads = Array.from(unmatchedLeadsMap.values()).sort((a, b) => b.count - a.count).slice(0, 15);
+    const unmatchedLeads = Array.from(unmatchedLeadsMap.values()).sort((a, b) => b.count - a.count).slice(0, 20);
 
     const campaignRows = Array.from(campAgg.values())
       .map(c => ({ ...c, ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0, cpl: c.leads > 0 ? c.spend / c.leads : null }))
@@ -561,7 +565,7 @@ ${topSt.slice(0, 10).map((s, i) => `    ${i + 1}. "${s.term}" | ${s.clicks} cliq
     // Bloco 4: leads pagos sem campanha atribuída
     const unmatchedContext = unmatchedLeads.length > 0 ? `
 LEADS PAGOS SEM CAMPANHA ATRIBUÍDA (período principal):
-${unmatchedLeads.map(u => `  - utm_campaign="${u.utm_campaign}" | source=${u.utm_source ?? "?"} | content=${u.utm_content ?? "?"} | ${u.count} lead(s)`).join("\n")}
+${unmatchedLeads.map(u => `  - formulário="${u.conversion_event}" | utm_campaign="${u.utm_campaign}" | source=${u.utm_source ?? "?"} | content=${u.utm_content ?? "?"} | ${u.count} lead(s)`).join("\n")}
 Total: ${unmatchedLeads.reduce((s, u) => s + u.count, 0)} leads pagos não conseguiram ser atribuídos a nenhuma campanha do Meta/Google sincronizada (UTMs divergentes ou tráfego institucional). Cadastre aliases em Configurações para resolver.
 `.trim() : "";
 
@@ -634,7 +638,7 @@ Após a tabela, mostre a projeção (run-rate). Comente em 2-3 frases se o ritmo
 
     if (unmatchedLeads.length > 0) {
       sections.push(["Leads Pagos Sem Campanha Atribuída",
-        "Apresente uma tabela curta com os utm_campaign que não casaram com nenhuma campanha Meta/Google sincronizada (max 10 linhas). Para cada um, mostre: utm_campaign, source, content, quantidade. Em 2 frases, sugira ações: revisar tagueamento de tráfego institucional, conferir UTMs no RD, etc."]);
+        "Apresente uma TABELA com colunas: Formulário | utm_campaign | Source | Quantidade. Use os dados do bloco 'LEADS PAGOS SEM CAMPANHA ATRIBUÍDA' do contexto. A coluna Formulário deve mostrar o conversion_event (que identifica a LP/formulário de origem). Max 15 linhas. Em 2 frases, sugira ações: cadastrar mapeamento LP→Campanha em Configurações para LPs de conteúdo (resolve retroativamente), revisar tagueamento das origens onde a UTM se perde, conferir UTMs no RD."]);
     }
 
     if (reportActions.length > 0) {
