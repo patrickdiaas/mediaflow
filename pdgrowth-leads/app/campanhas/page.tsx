@@ -24,7 +24,7 @@ import { useDashboard } from "@/lib/dashboard-context";
 import type { CampaignRow, AdSetRow, CreativeRow, Platform, FunnelStep } from "@/lib/types";
 import { supabase } from "@/lib/supabase";
 import { filterCampaignLeads } from "@/lib/leads-filter";
-import { buildAttributionIndex, attributeLead, type CampaignAlias } from "@/lib/campaign-attribution";
+import { buildAttributionIndex, attributeLead, type CampaignAlias, type EventToCampaign } from "@/lib/campaign-attribution";
 import { getPeriodDates, getLeadDates } from "@/lib/period";
 import Funnel from "@/components/funnel";
 import Image from "next/image";
@@ -114,30 +114,40 @@ export default function CampanhasPage() {
   const [allLeadsRef, setAllLeadsRef] = useState<any[]>([]);
 
   useEffect(() => {
-    const { since, until } = getPeriodDates(period);
-    const { since: leadSince, until: leadUntil } = getLeadDates(period);
-    setLoading(true);
-    const metaSlug = client !== "all" ? client : null;
+    let cancelled = false;
+    (async () => {
+      const { since, until } = getPeriodDates(period);
+      const { since: leadSince, until: leadUntil } = getLeadDates(period);
+      setLoading(true);
+      const metaSlug = client !== "all" ? client : null;
 
-    const baseCamp = supabase.from("ad_campaigns").select("campaign_id,campaign_name,platform,status,impressions,clicks,spend,landing_page_views,lead_form_submissions").gte("date", since).lte("date", until);
-    const baseSets = supabase.from("ad_sets").select("ad_set_id,ad_set_name,campaign_name,platform,status,impressions,clicks,spend").gte("date", since).lte("date", until);
-    const baseAds  = supabase.from("ad_creatives").select("ad_id,ad_name,campaign_name,platform,status,creative_type,thumbnail_url,video_url,permalink_url,headline,impressions,clicks,spend,frequency,placement").gte("date", since).lte("date", until);
+      // Busca event maps primeiro pra incluir leads sem UTM com event mapeado
+      const evMapQ = metaSlug
+        ? supabase.from("event_to_campaign").select("conversion_event, target_campaign_name").eq("client_slug", metaSlug)
+        : supabase.from("event_to_campaign").select("conversion_event, target_campaign_name");
+      const { data: evMapData } = await evMapQ;
+      const eventMaps = (evMapData ?? []) as EventToCampaign[];
+      const eventList = eventMaps.map(e => e.conversion_event);
 
-    const qCamp = metaSlug ? (platform !== "all" ? baseCamp.eq("platform", platform) : baseCamp).eq("client_slug", metaSlug) : (platform !== "all" ? baseCamp.eq("platform", platform) : baseCamp);
-    const qSets = metaSlug ? (platform !== "all" ? baseSets.eq("platform", platform) : baseSets).eq("client_slug", metaSlug) : (platform !== "all" ? baseSets.eq("platform", platform) : baseSets);
-    const qAds  = metaSlug ? (platform !== "all" ? baseAds.eq("platform", platform) : baseAds).eq("client_slug", metaSlug) : (platform !== "all" ? baseAds.eq("platform", platform) : baseAds);
+      const baseCamp = supabase.from("ad_campaigns").select("campaign_id,campaign_name,platform,status,impressions,clicks,spend,landing_page_views,lead_form_submissions").gte("date", since).lte("date", until);
+      const baseSets = supabase.from("ad_sets").select("ad_set_id,ad_set_name,campaign_name,platform,status,impressions,clicks,spend").gte("date", since).lte("date", until);
+      const baseAds  = supabase.from("ad_creatives").select("ad_id,ad_name,campaign_name,platform,status,creative_type,thumbnail_url,video_url,permalink_url,headline,impressions,clicks,spend,frequency,placement").gte("date", since).lte("date", until);
 
-    const baseLeads = supabase.from("leads").select("id, utm_source, utm_medium, utm_campaign, utm_content, utm_term").gte("converted_at", leadSince).lte("converted_at", leadUntil);
-    const filteredLeads = filterCampaignLeads(baseLeads);
-    const qLeads = metaSlug ? filteredLeads.eq("client_slug", metaSlug) : filteredLeads;
+      const qCamp = metaSlug ? (platform !== "all" ? baseCamp.eq("platform", platform) : baseCamp).eq("client_slug", metaSlug) : (platform !== "all" ? baseCamp.eq("platform", platform) : baseCamp);
+      const qSets = metaSlug ? (platform !== "all" ? baseSets.eq("platform", platform) : baseSets).eq("client_slug", metaSlug) : (platform !== "all" ? baseSets.eq("platform", platform) : baseSets);
+      const qAds  = metaSlug ? (platform !== "all" ? baseAds.eq("platform", platform) : baseAds).eq("client_slug", metaSlug) : (platform !== "all" ? baseAds.eq("platform", platform) : baseAds);
 
-    // Aliases cadastrados pelo gestor (UTMs antigas → campanha real)
-    const aliasQ = metaSlug
-      ? supabase.from("campaign_aliases").select("alias_utm_campaign, target_campaign_name").eq("client_slug", metaSlug)
-      : supabase.from("campaign_aliases").select("alias_utm_campaign, target_campaign_name");
+      const baseLeads = supabase.from("leads").select("id, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, utm_term").gte("converted_at", leadSince).lte("converted_at", leadUntil);
+      const filteredLeads = filterCampaignLeads(baseLeads, eventList);
+      const qLeads = metaSlug ? filteredLeads.eq("client_slug", metaSlug) : filteredLeads;
 
-    Promise.all([qCamp, qSets, qAds, qLeads, aliasQ]).then(([campRes, setsRes, adsRes, leadsRes, aliasRes]) => {
-      const aliases = (aliasRes.data ?? []) as CampaignAlias[];
+      const aliasQ = metaSlug
+        ? supabase.from("campaign_aliases").select("alias_utm_campaign, target_campaign_name").eq("client_slug", metaSlug)
+        : supabase.from("campaign_aliases").select("alias_utm_campaign, target_campaign_name");
+
+      Promise.all([qCamp, qSets, qAds, qLeads, aliasQ]).then(([campRes, setsRes, adsRes, leadsRes, aliasRes]) => {
+        if (cancelled) return;
+        const aliases = (aliasRes.data ?? []) as CampaignAlias[];
       const allLeadsData = leadsRes.data ?? [];
       // Filtra leads pela plataforma selecionada
       const leadsData = platform === "all" ? allLeadsData : allLeadsData.filter((l: any) => {
@@ -173,15 +183,16 @@ export default function CampanhasPage() {
           if (ex) { ex.impressions += r.impressions ?? 0; ex.clicks += r.clicks ?? 0; ex.spend += r.spend ?? 0; }
           else { map.set(key, { campaign_id: r.campaign_id, campaign_name: r.campaign_name, platform: r.platform as Platform, status: r.status ?? "", impressions: r.impressions ?? 0, clicks: r.clicks ?? 0, spend: r.spend ?? 0, leads: 0, cpl: 0, ctr: 0 }); }
         }
-        // Atribui cada lead a no máximo 1 campanha (exato → id → alias → fuzzy)
+        // Atribui cada lead a no máximo 1 campanha (exato → id → alias → fuzzy → event)
         const campRows = Array.from(map.values());
         const campIndex = buildAttributionIndex(
           campRows.map(c => ({ campaign_name: c.campaign_name, campaign_id: c.campaign_id })),
           aliases,
+          eventMaps,
         );
         const leadsPerCamp = new Map<string, number>();
         for (const l of leadsData) {
-          const r = attributeLead(l.utm_campaign, campIndex);
+          const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event);
           if (r.campaign_name) leadsPerCamp.set(r.campaign_name, (leadsPerCamp.get(r.campaign_name) ?? 0) + 1);
         }
         setCampaigns(campRows.map(c => {
@@ -229,7 +240,9 @@ export default function CampanhasPage() {
           return { ...c, ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0, cpm: c.impressions > 0 ? (c.spend / c.impressions) * 1000 : 0, leads: ld, cpl: ld > 0 ? c.spend / ld : 0 };
         }));
       } else { setAds([]); }
-    });
+      });
+    })();
+    return () => { cancelled = true; };
   }, [platform, period, client]);
 
   // Funil: Impressões → Cliques → View Página → Formulário → Leads

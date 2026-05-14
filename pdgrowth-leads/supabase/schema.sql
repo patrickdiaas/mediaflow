@@ -162,6 +162,23 @@ create table if not exists campaign_aliases (
   unique (client_slug, alias_utm_campaign)
 );
 
+-- ─── Event → Campaign Mapping ────────────────────────────────────────────────
+-- Quando um lead chega numa LP de campanha SEM utm_source/utm_medium válidos
+-- (link compartilhado via WhatsApp, cookie blocker, UTM perdida), esse
+-- mapeamento permite atribuí-lo à campanha correta via conversion_event
+-- (que é o slug da própria LP). Diferente de campaign_aliases (que corrige
+-- utm_campaign divergente), este mapa cobre o caso "lead sem UTM, mas LP
+-- pertence à campanha".
+create table if not exists event_to_campaign (
+  id                    uuid primary key default gen_random_uuid(),
+  client_slug           text not null references clients(slug),
+  conversion_event      text not null,             -- ex: 'cotacao-volnewmer-2026q2-lp'
+  target_campaign_name  text not null,             -- ex: 'medical-volnewmer-conversao-lp'
+  notes                 text,
+  created_at            timestamptz default now(),
+  unique (client_slug, conversion_event)
+);
+
 -- ─── Client Budgets ──────────────────────────────────────────────────────────
 -- Orçamento mensal por cliente + plataforma + estratégia de distribuição.
 -- Usado para o "Pacing do mês" no Overview: compara gasto real com o

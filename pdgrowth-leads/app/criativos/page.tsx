@@ -22,7 +22,7 @@ import type { CreativeRow, Platform } from "@/lib/types";
 import { supabase } from "@/lib/supabase";
 import { getPeriodDates, getLeadDates } from "@/lib/period";
 import { filterCampaignLeads } from "@/lib/leads-filter";
-import { buildAttributionIndex, attributeLead, type CampaignAlias } from "@/lib/campaign-attribution";
+import { buildAttributionIndex, attributeLead, type CampaignAlias, type EventToCampaign } from "@/lib/campaign-attribution";
 import { LayoutGrid, List, ArrowUpDown, Download, ExternalLink, BookOpen } from "lucide-react";
 import Image from "next/image";
 
@@ -106,10 +106,20 @@ export default function CriativosPage() {
   const [loading, setLoading]   = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
+    (async () => {
     const { since, until } = getPeriodDates(period);
     const { since: leadSince, until: leadUntil } = getLeadDates(period);
     setLoading(true);
     const metaSlug = client !== "all" ? client : null;
+
+    // Busca event maps primeiro pra incluir leads sem UTM com event mapeado
+    const evMapQ = metaSlug
+      ? supabase.from("event_to_campaign").select("conversion_event, target_campaign_name").eq("client_slug", metaSlug)
+      : supabase.from("event_to_campaign").select("conversion_event, target_campaign_name");
+    const { data: evMapData } = await evMapQ;
+    const eventMaps = (evMapData ?? []) as EventToCampaign[];
+    const eventList = eventMaps.map(e => e.conversion_event);
 
     const base = supabase.from("ad_creatives")
       .select("ad_id,ad_name,campaign_name,platform,creative_type,thumbnail_url,video_url,permalink_url,headline,status,impressions,clicks,spend,frequency,placement,date")
@@ -118,10 +128,10 @@ export default function CriativosPage() {
     const qAds = metaSlug ? q1.eq("client_slug", metaSlug) : q1;
 
     const baseLeads = supabase.from("leads")
-      .select("utm_source, utm_term, utm_campaign")
+      .select("utm_source, utm_term, utm_campaign, conversion_event")
       .gte("converted_at", leadSince)
       .lte("converted_at", leadUntil);
-    const filteredLeads = filterCampaignLeads(baseLeads);
+    const filteredLeads = filterCampaignLeads(baseLeads, eventList);
     const qLeads = metaSlug ? filteredLeads.eq("client_slug", metaSlug) : filteredLeads;
 
     // Query for real first date of each creative (no period filter)
@@ -135,6 +145,7 @@ export default function CriativosPage() {
       : supabase.from("campaign_aliases").select("alias_utm_campaign, target_campaign_name");
 
     Promise.all([qAds, qLeads, qFirstDate, aliasQ]).then(([{ data: rows }, { data: rawLeads }, { data: firstDateRows }, { data: aliasData }]) => {
+      if (cancelled) return;
       const aliases = (aliasData ?? []) as CampaignAlias[];
       setLoading(false);
 
@@ -185,20 +196,27 @@ export default function CriativosPage() {
           if (!cur || cr.spend > (curCr?.spend ?? 0)) domCreativePerCamp.set(cr.campaign_name, cr.ad_name);
         }
 
-        // Attribute leads: utm_term exato/fuzzy → fallback dominant creative da campanha (com aliases)
+        // Attribute leads: utm_term exato/fuzzy → fallback dominant creative da campanha (com aliases + event maps)
         const leadCounts = new Map<string, number>();
         const allAdNames = allCreatives.map(c => c.ad_name);
         const campIndex = buildAttributionIndex(
           allCreatives.map(c => ({ campaign_name: c.campaign_name })),
           aliases,
+          eventMaps,
         );
         for (const l of leadsData) {
-          if (!l.utm_term) continue;
-          if (allAdNames.includes(l.utm_term)) { leadCounts.set(l.utm_term, (leadCounts.get(l.utm_term) ?? 0) + 1); continue; }
-          const fuzzy = allAdNames.find(n => fuzzyMatch(n, l.utm_term));
-          if (fuzzy) { leadCounts.set(fuzzy, (leadCounts.get(fuzzy) ?? 0) + 1); continue; }
-          // Fallback: dominant creative da campanha resolvida pelo helper
-          const r = attributeLead(l.utm_campaign, campIndex);
+          // utm_term: tentativa de match exato/fuzzy primeiro
+          let matched = false;
+          if (l.utm_term) {
+            if (allAdNames.includes(l.utm_term)) { leadCounts.set(l.utm_term, (leadCounts.get(l.utm_term) ?? 0) + 1); matched = true; }
+            else {
+              const fuzzy = allAdNames.find(n => fuzzyMatch(n, l.utm_term));
+              if (fuzzy) { leadCounts.set(fuzzy, (leadCounts.get(fuzzy) ?? 0) + 1); matched = true; }
+            }
+          }
+          if (matched) continue;
+          // Fallback: dominant creative da campanha resolvida (incluindo via event map)
+          const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event);
           if (r.campaign_name) {
             const domName = domCreativePerCamp.get(r.campaign_name);
             if (domName) leadCounts.set(domName, (leadCounts.get(domName) ?? 0) + 1);
@@ -225,6 +243,8 @@ export default function CriativosPage() {
         }));
       } else { setData([]); setCatalogData([]); }
     });
+    })();
+    return () => { cancelled = true; };
   }, [platform, period, client]);
 
   const campaigns = ["all", ...Array.from(new Set(data.map(c => c.campaign_name).filter(Boolean)))];

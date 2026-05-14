@@ -4,7 +4,7 @@ import Sidebar from "@/components/sidebar";
 import Header from "@/components/header";
 import { supabase } from "@/lib/supabase";
 import { useDashboard } from "@/lib/dashboard-context";
-import { RefreshCw, FileText, FileSpreadsheet, Check, Link2, Plus, Trash2, Wallet } from "lucide-react";
+import { RefreshCw, FileText, FileSpreadsheet, Check, Link2, Plus, Trash2, Wallet, FileSearch } from "lucide-react";
 import { calcBudgetPacing, getMonthInfo } from "@/lib/budget-pacing";
 
 interface BudgetRow {
@@ -16,6 +16,15 @@ interface BudgetRow {
   front_half_pct: number;
   notes: string | null;
   updated_at: string;
+}
+
+interface EventCampaignRow {
+  id: string;
+  client_slug: string;
+  conversion_event: string;
+  target_campaign_name: string;
+  notes: string | null;
+  created_at: string;
 }
 
 interface CampaignAliasRow {
@@ -73,6 +82,13 @@ export default function ConfiguracoesPage() {
   const [bdgFrontPct, setBdgFrontPct] = useState("50");
   const [bdgNotes, setBdgNotes] = useState("");
   const [savingBudget, setSavingBudget] = useState(false);
+
+  // Event-to-campaign mappings (LP → campanha quando UTM perdida)
+  const [eventMaps, setEventMaps] = useState<EventCampaignRow[]>([]);
+  const [newEvent, setNewEvent] = useState("");
+  const [newEventTarget, setNewEventTarget] = useState("");
+  const [newEventNotes, setNewEventNotes] = useState("");
+  const [savingEvent, setSavingEvent] = useState(false);
 
   async function fetchForms() {
     setLoading(true);
@@ -176,7 +192,43 @@ export default function ConfiguracoesPage() {
     if (res.ok) fetchBudgets();
   }
 
-  useEffect(() => { fetchForms(); fetchAliases(); fetchCampaignNames(); fetchBudgets(); }, [client]);
+  async function fetchEventMaps() {
+    if (client === "all") { setEventMaps([]); return; }
+    const res = await fetch(`/api/admin/event-campaigns?client=${encodeURIComponent(client)}`);
+    const json = await res.json();
+    if (res.ok) setEventMaps(json.data ?? []);
+  }
+
+  async function addEventMap() {
+    if (!newEvent.trim() || !newEventTarget.trim() || client === "all") return;
+    setSavingEvent(true);
+    setError(null);
+    const res = await fetch("/api/admin/event-campaigns", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_slug: client,
+        conversion_event: newEvent.trim(),
+        target_campaign_name: newEventTarget.trim(),
+        notes: newEventNotes.trim() || null,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) setError("Erro ao salvar mapeamento: " + (json.error ?? "desconhecido"));
+    else {
+      setNewEvent(""); setNewEventTarget(""); setNewEventNotes("");
+      fetchEventMaps();
+    }
+    setSavingEvent(false);
+  }
+
+  async function deleteEventMap(id: string) {
+    if (!confirm("Remover este mapeamento?")) return;
+    const res = await fetch(`/api/admin/event-campaigns?id=${id}`, { method: "DELETE" });
+    if (res.ok) fetchEventMaps();
+  }
+
+  useEffect(() => { fetchForms(); fetchAliases(); fetchCampaignNames(); fetchBudgets(); fetchEventMaps(); }, [client]);
 
   async function saveSheetId(form: TrackedForm, sheetId: string) {
     setSavingSheet(form.id);
@@ -424,6 +476,86 @@ export default function ConfiguracoesPage() {
                       {a.notes && <span className="text-xs text-text-muted truncate flex-1">{a.notes}</span>}
                       <button
                         onClick={() => deleteAlias(a.id)}
+                        className="ml-auto text-text-muted hover:text-red transition-colors"
+                        title="Remover"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </section>
+
+        {/* ─── LP → Campanha (event-to-campaign) ─── */}
+        <section className="mb-8">
+          <div className="flex items-center gap-2 mb-3">
+            <FileSearch size={14} className="text-accent" />
+            <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-widest">Mapeamento LP → Campanha</h2>
+          </div>
+          <p className="text-xs text-text-muted mb-3 leading-relaxed">
+            Quando um lead chega numa LP de campanha mas <span className="font-mono text-text-secondary">sem UTM válida</span> (link compartilhado, cookie blocker, etc), o conversion_event aqui mapeia ele direto pra campanha correta. Diferente dos aliases (que corrige utm_campaign errado): aqui o lead nem tem UTM.
+          </p>
+
+          {client === "all" ? (
+            <div className="bg-card border border-border rounded-xl p-4 text-xs text-text-muted">
+              Selecione um cliente específico no topo para gerenciar mapeamentos.
+            </div>
+          ) : (
+            <>
+              <div className="bg-card border border-border rounded-xl p-4 mb-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+                  <input
+                    type="text"
+                    value={newEvent}
+                    onChange={e => setNewEvent(e.target.value)}
+                    placeholder="conversion_event (ex: cotacao-volnewmer-2026q2-lp)"
+                    className="bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary font-mono placeholder:text-text-dark focus:outline-none focus:border-accent/40"
+                  />
+                  <input
+                    type="text"
+                    list="campaign-name-list"
+                    value={newEventTarget}
+                    onChange={e => setNewEventTarget(e.target.value)}
+                    placeholder="Campanha real (ex: medical-volnewmer-conversao-lp)"
+                    className="bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary font-mono placeholder:text-text-dark focus:outline-none focus:border-accent/40"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newEventNotes}
+                    onChange={e => setNewEventNotes(e.target.value)}
+                    placeholder="Notas (opcional)"
+                    className="flex-1 bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary placeholder:text-text-dark focus:outline-none focus:border-accent/40"
+                  />
+                  <button
+                    onClick={addEventMap}
+                    disabled={savingEvent || !newEvent.trim() || !newEventTarget.trim()}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-accent/10 border border-accent/30 text-accent hover:bg-accent/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Plus size={12} />
+                    {savingEvent ? "Salvando..." : "Adicionar"}
+                  </button>
+                </div>
+              </div>
+
+              {eventMaps.length === 0 ? (
+                <div className="bg-card border border-border rounded-xl p-4 text-xs text-text-muted">
+                  Nenhum mapeamento cadastrado.
+                </div>
+              ) : (
+                <div className="bg-card border border-border rounded-xl overflow-hidden">
+                  {eventMaps.map((m, i) => (
+                    <div key={m.id} className={`px-4 py-3 flex items-center gap-3 ${i < eventMaps.length - 1 ? "border-b border-border" : ""}`}>
+                      <code className="text-xs text-blue font-mono px-2 py-0.5 bg-blue/5 rounded">{m.conversion_event}</code>
+                      <span className="text-text-muted text-xs">→</span>
+                      <code className="text-xs text-accent font-mono px-2 py-0.5 bg-accent/5 rounded">{m.target_campaign_name}</code>
+                      {m.notes && <span className="text-xs text-text-muted truncate flex-1">{m.notes}</span>}
+                      <button
+                        onClick={() => deleteEventMap(m.id)}
                         className="ml-auto text-text-muted hover:text-red transition-colors"
                         title="Remover"
                       >

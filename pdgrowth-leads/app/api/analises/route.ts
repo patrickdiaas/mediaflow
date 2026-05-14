@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
-import { filterCampaignLeads } from "@/lib/leads-filter";
-import { buildAttributionIndex, attributeLead, fetchAliases } from "@/lib/campaign-attribution";
+import { filterCampaignLeads, isCampaignLead } from "@/lib/leads-filter";
+import { buildAttributionIndex, attributeLead, fetchAliases, fetchEventMaps } from "@/lib/campaign-attribution";
 
 export const maxDuration = 300; // 5 min — Vercel Pro
 
@@ -78,14 +78,19 @@ REGRAS:
     untilDate.setUTCDate(untilDate.getUTCDate() + 1);
     const leadUntil = `${untilDate.toISOString().split("T")[0]}T02:59:59`;
 
-    // ── 1. Leads no período ──────────────────────────────────────────────────
+    // ── 1. Event maps + Leads no período ────────────────────────────────────
+    const eventMaps = await fetchEventMaps(supabase, client);
+    const mappedEventsSet = new Set(eventMaps.map(e => e.conversion_event));
+    const mappedEventsList = Array.from(mappedEventsSet);
+
     const leadsBase = supabase
       .from("leads")
       .select("id, converted_at, source, lead_email, lead_name, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, utm_term")
       .eq("client_slug", client)
       .gte("converted_at", leadSince)
       .lte("converted_at", leadUntil);
-    const { data: leadsRaw } = await filterCampaignLeads(leadsBase);
+    const { data: leadsRawAll } = await filterCampaignLeads(leadsBase, mappedEventsList);
+    const leadsRaw = (leadsRawAll ?? []).filter((l: any) => isCampaignLead(l, mappedEventsSet));
 
     const leads = leadsRaw ?? [];
 
@@ -137,14 +142,15 @@ REGRAS:
       campAgg.set(key, e);
     }
 
-    // Atribuir leads a campanhas (exato → id → alias → fuzzy)
+    // Atribuir leads a campanhas (exato → id → alias → fuzzy → event)
     const aliases = await fetchAliases(supabase, client);
     const campIndex = buildAttributionIndex(
       Array.from(campAgg.values()).map(c => ({ campaign_name: c.name, campaign_ids: c.campaignIds })),
       aliases,
+      eventMaps,
     );
     for (const l of leads) {
-      const r = attributeLead(l.utm_campaign, campIndex);
+      const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event);
       if (r.campaign_name) campAgg.get(r.campaign_name)!.leads++;
     }
 

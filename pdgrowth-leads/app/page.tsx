@@ -11,7 +11,7 @@ import { useDashboard } from "@/lib/dashboard-context";
 import { supabase } from "@/lib/supabase";
 import { getPeriodDates, getLeadDates, toBRTDate } from "@/lib/period";
 import { filterCampaignLeads, isCampaignLead } from "@/lib/leads-filter";
-import { buildAttributionIndex, attributeLead, fetchAliases, type CampaignAlias } from "@/lib/campaign-attribution";
+import { buildAttributionIndex, attributeLead, fetchAliases, fetchEventMaps, type CampaignAlias, type EventToCampaign } from "@/lib/campaign-attribution";
 import { calcBudgetPacing, getMonthInfo, type BudgetPacingResult } from "@/lib/budget-pacing";
 import type { Platform, KPIData, DonutSlice, HorizontalBarItem, TrendPoint, RegionRow, FunnelStep } from "@/lib/types";
 import { RefreshCw, Calendar, Building2, Menu, Megaphone, Trophy, CalendarDays, CalendarRange, Wallet } from "lucide-react";
@@ -239,17 +239,22 @@ export default function OverviewPage() {
     const { since: leadSince, until: leadUntil } = getLeadDates(period);
     const metaSlug = client === "all" ? null : client;
 
-    // Leads no período (BRT) — só leads de campanha (whitelist utm_medium + exclui eventos do RD CRM)
+    // Busca mapas LP→Campanha pra incluir leads sem UTM cujos conversion_events estão mapeados
+    const eventMaps = await fetchEventMaps(supabase, client);
+    const mappedEventsSet = new Set(eventMaps.map(e => e.conversion_event));
+    const mappedEventsList = Array.from(mappedEventsSet);
+
+    // Leads no período (BRT) — só leads de campanha (utm_medium whitelist OU event mapeado, exceto CRM)
     const leadsBase = supabase
       .from("leads")
       .select("id, lead_email, lead_name, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, converted_at, source")
       .gte("converted_at", leadSince)
       .lte("converted_at", leadUntil);
-    const leadsQ = filterCampaignLeads(leadsBase);
+    const leadsQ = filterCampaignLeads(leadsBase, mappedEventsList);
     if (metaSlug) leadsQ.eq("client_slug", metaSlug);
     const { data: leadsData } = await leadsQ;
     // Filtra leads por plataforma: facebook/instagram = meta, google = google
-    const allLeads = (leadsData ?? []).filter(isCampaignLead);
+    const allLeads = (leadsData ?? []).filter((l: any) => isCampaignLead(l, mappedEventsSet));
     const platformLeads = platform === "all" ? allLeads : allLeads.filter((l: any) => {
       const src = (l.utm_source ?? "").toLowerCase();
       if (platform === "meta") return src === "facebook" || src === "fb" || src === "instagram" || src === "ig";
@@ -316,15 +321,16 @@ export default function OverviewPage() {
       if (ex) { ex.impressions += Number(r.impressions); ex.clicks += Number(r.clicks); ex.spend += Number(r.spend); if (r.campaign_id) ex.campaignIds.add(r.campaign_id); }
       else campMap.set(key, { platform: r.platform as Platform, campaignIds: new Set(r.campaign_id ? [r.campaign_id] : []), impressions: Number(r.impressions), clicks: Number(r.clicks), spend: Number(r.spend) });
     }
-    // Atribui cada lead a no máximo UMA campanha (exato → id → alias → fuzzy)
+    // Atribui cada lead a no máximo UMA campanha (exato → id → alias → fuzzy → event)
     const aliases = await fetchAliases(supabase, client);
     const campIndex = buildAttributionIndex(
       Array.from(campMap.entries()).map(([name, d]) => ({ campaign_name: name, campaign_ids: d.campaignIds })),
       aliases as CampaignAlias[],
+      eventMaps as EventToCampaign[],
     );
     const leadsPerCamp = new Map<string, number>();
     for (const l of platformLeads) {
-      const r = attributeLead(l.utm_campaign, campIndex);
+      const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event);
       if (r.campaign_name) leadsPerCamp.set(r.campaign_name, (leadsPerCamp.get(r.campaign_name) ?? 0) + 1);
     }
     // Buscar conversões Google por campaign_id (keywords)

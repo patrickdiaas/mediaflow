@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
 import { filterCampaignLeads, isCampaignLead } from "@/lib/leads-filter";
-import { buildAttributionIndex, attributeLead, fetchAliases } from "@/lib/campaign-attribution";
+import { buildAttributionIndex, attributeLead, fetchAliases, fetchEventMaps } from "@/lib/campaign-attribution";
 import { calcBudgetPacing, type BudgetPacingResult } from "@/lib/budget-pacing";
 
 export const maxDuration = 60;
@@ -195,15 +195,19 @@ export async function POST(req: NextRequest) {
     fetchUntilNext.setUTCDate(fetchUntilNext.getUTCDate() + 1);
     const leadFetchUntil = `${fetchUntilNext.toISOString().split("T")[0]}T02:59:59`;
 
-    // ── Leads ───────────────────────────────────────────────────────────────
+    // ── Event maps + Leads ──────────────────────────────────────────────────
+    const eventMaps = await fetchEventMaps(supabase, client);
+    const mappedEventsSet = new Set(eventMaps.map(e => e.conversion_event));
+    const mappedEventsList = Array.from(mappedEventsSet);
+
     const leadsQ = supabase
       .from("leads")
       .select("id, converted_at, source, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, utm_term")
       .eq("client_slug", client)
       .gte("converted_at", leadFetchSince)
       .lte("converted_at", leadFetchUntil);
-    const { data: leadsRaw } = await filterCampaignLeads(leadsQ);
-    const allLeads = (leadsRaw ?? []).filter(isCampaignLead).map((l: any) => {
+    const { data: leadsRaw } = await filterCampaignLeads(leadsQ, mappedEventsList);
+    const allLeads = (leadsRaw ?? []).filter((l: any) => isCampaignLead(l, mappedEventsSet)).map((l: any) => {
       // Pré-calcula data BRT (YYYY-MM-DD)
       const u = new Date(l.converted_at);
       u.setUTCHours(u.getUTCHours() - 3);
@@ -285,16 +289,17 @@ export async function POST(req: NextRequest) {
       if (c.campaign_id) e.campaignIds.add(c.campaign_id);
       campAgg.set(key, e);
     }
-    // Constrói índice de atribuição (exato → id → alias → fuzzy)
+    // Constrói índice de atribuição (exato → id → alias → fuzzy → event)
     const campIndex = buildAttributionIndex(
       Array.from(campAgg.values()).map(c => ({ campaign_name: c.name, campaign_ids: c.campaignIds })),
       aliases,
+      eventMaps,
     );
 
     // Atribui leads à campanha + identifica leads "sem match"
     const unmatchedLeadsMap = new Map<string, { utm_campaign: string; utm_source: string | null; utm_content: string | null; count: number }>();
     for (const l of mainLeads) {
-      const result = attributeLead(l.utm_campaign, campIndex);
+      const result = attributeLead(l.utm_campaign, campIndex, l.conversion_event);
       if (result.campaign_name) {
         campAgg.get(result.campaign_name)!.leads++;
         continue;
@@ -336,8 +341,8 @@ export async function POST(req: NextRequest) {
       for (const [, e] of Array.from(creativeAgg.entries())) {
         if (e.name === l.utm_term || fuzzyMatch(e.name, l.utm_term)) { e.leads++; matched = true; break; }
       }
-      if (!matched && l.utm_campaign) {
-        const r = attributeLead(l.utm_campaign, campIndex);
+      if (!matched) {
+        const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event);
         if (r.campaign_name) {
           const domName = dominantCreative.get(r.campaign_name);
           if (domName) {
