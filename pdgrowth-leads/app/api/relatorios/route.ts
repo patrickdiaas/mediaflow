@@ -610,8 +610,11 @@ ${reportActions.map((a: any) => {
         });
       }
     }
-    // Atribui leads aos ads (mesmo loop usado abaixo): aproveita o leadCounts já em creativeAgg via leads
+    // Atribui leads aos ads. Filtramos só Meta — Google Ads não tem permalink
+    // público de anúncio (search/display sem link visível), então a seção fica
+    // dedicada a Meta como prestação de contas dos criativos rodados.
     const adsList = Array.from(adsAgg.values())
+      .filter(a => a.platform === "meta")
       .map(a => ({
         ...a,
         first_date: adFirstDate.get(a.ad_id) ?? a.last_date,
@@ -621,9 +624,9 @@ ${reportActions.map((a: any) => {
       .sort((a, b) => a.first_date.localeCompare(b.first_date) || a.ad_name.localeCompare(b.ad_name));
 
     const adsListContext = adsList.length > 0 ? `
-ANÚNCIOS QUE RODARAM NO PERÍODO (lista direta de ad_creatives sincronizados — mostrar como prestação de contas):
-${adsList.map(a => `  - ${a.ad_name} | ${a.platform === "meta" ? "Meta" : "Google"} | ${a.campaign_name} | início: ${a.first_date} | status: ${a.status || "—"} | R$${fmt(a.spend)} | ${a.leads} leads${a.permalink ? ` | link: ${a.permalink}` : ""}`).join("\n")}
-Total: ${adsList.length} anúncios.
+ANÚNCIOS META QUE RODARAM NO PERÍODO (lista direta de ad_creatives sincronizados — mostrar como prestação de contas):
+${adsList.map(a => `  - ${a.ad_name} | ${a.campaign_name} | início: ${a.first_date} | status: ${a.status || "—"} | R$${fmt(a.spend)} | ${a.leads} leads${a.permalink ? ` | link: ${a.permalink}` : ""}`).join("\n")}
+Total: ${adsList.length} anúncios Meta.
 `.trim() : "";
 
     const context = [weeklyTableContext, monthlyContext, pacingContext, mainDetailContext, unmatchedContext, actionsContext, adsListContext].filter(Boolean).join("\n\n");
@@ -694,8 +697,8 @@ Após a tabela, mostre a projeção (run-rate). Comente em 2-3 frases se o ritmo
     }
 
     if (adsList.length > 0) {
-      sections.push(["Anúncios do Período",
-        "Os dados estão em 'ANÚNCIOS QUE RODARAM NO PERÍODO' no contexto. Apresente TABELA com colunas: Anúncio | Campanha | Plataforma | Início | Status | Investimento | Leads | Link. Use a data 'início' do contexto (data da primeira veiculação histórica, pode ser anterior ao período se o anúncio já rodava antes). Coluna Link como hyperlink markdown (ex: [ver](url)). Ordene por data de início ascendente. Esta seção é uma prestação de contas da mídia rodada — NÃO comente performance aqui, apenas liste."]);
+      sections.push(["Anúncios Meta do Período",
+        "Os dados estão em 'ANÚNCIOS META QUE RODARAM NO PERÍODO' no contexto. Apresente TABELA com colunas: Anúncio | Campanha | Início | Status | Investimento | Leads | Link. Use a data 'início' do contexto (data da primeira veiculação histórica, pode ser anterior ao período se o anúncio já rodava antes). Coluna Link como hyperlink markdown (ex: [ver](url)). Ordene por data de início ascendente. Esta seção é uma prestação de contas da mídia rodada — NÃO comente performance aqui, apenas liste."]);
     }
 
     sections.push(["Destaques e Pontos de Atenção",
