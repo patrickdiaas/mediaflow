@@ -109,6 +109,7 @@ create table if not exists ad_creatives (
   frequency             numeric(6,2),
   video_3s_views        bigint,
   video_thruplay_views  bigint,
+  created_at_meta       timestamptz,             -- created_time vindo da Meta Ads API (quando o anúncio foi criado)
   created_at            timestamptz default now(),
   unique (platform, ad_id, date)
 );

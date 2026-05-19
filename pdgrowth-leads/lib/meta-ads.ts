@@ -27,6 +27,7 @@ interface MetaAdInfo {
   status: string
   adset_id: string
   campaign_id: string
+  created_time?: string               // ISO timestamp da criação do anúncio na Meta
   effective_object_story_id?: string  // formato: pageId_postId
   creative?: {
     object_type?: string
@@ -132,6 +133,7 @@ export interface MappedAdDay {
   frequency: number | null
   video_3s_views: number | null
   video_thruplay_views: number | null
+  created_at_meta: string | null
 }
 
 // ─── Helpers ───────────────────────────────────────────────────────────────────
@@ -247,8 +249,8 @@ async function fetchAdList(accountId: string, token: string): Promise<MetaAdInfo
   // em contas com muito histórico de ads pausados. Ads pausados aparecem em
   // insights mesmo sem estar neste list — perdemos apenas o enrichment de creative.
   const url = buildUrl(`/${accountId}/ads`, {
-    fields: 'id,name,status,adset_id,campaign_id,effective_object_story_id,creative{object_type,thumbnail_url,image_url,title,body,instagram_permalink_url}',
-    effective_status: '["ACTIVE"]',
+    fields: 'id,name,status,adset_id,campaign_id,created_time,effective_object_story_id,creative{object_type,thumbnail_url,image_url,title,body,instagram_permalink_url}',
+    effective_status: '["ACTIVE","PAUSED"]',
     limit: '100',
   }, token)
   return fetchAllPages<MetaAdInfo>(url)
@@ -474,6 +476,7 @@ export async function syncAccountData(
       frequency: row.frequency ? parseFloat(row.frequency) : null,
       video_3s_views: parseVideoAction(row.video_3_sec_watched_actions),
       video_thruplay_views: parseVideoAction(row.video_thruplay_watched_actions),
+      created_at_meta: adInfo?.created_time ?? null,
     }
   })
 

@@ -167,7 +167,7 @@ export default function CriativosPage() {
     const eventList = eventMaps.map(e => e.conversion_event);
 
     const base = supabase.from("ad_creatives")
-      .select("ad_id,ad_name,campaign_name,platform,creative_type,thumbnail_url,video_url,permalink_url,headline,status,impressions,clicks,spend,frequency,placement,date")
+      .select("ad_id,ad_name,campaign_name,platform,creative_type,thumbnail_url,video_url,permalink_url,headline,status,impressions,clicks,spend,frequency,placement,date,created_at_meta")
       .gte("date", since).lte("date", until);
     const q1 = platform !== "all" ? base.eq("platform", platform) : base;
     const qAds = metaSlug ? q1.eq("client_slug", metaSlug) : q1;
@@ -217,9 +217,10 @@ export default function CriativosPage() {
       if (rows && rows.length > 0) {
         const map = new Map<string, CreativeRow>();
         const catMap = new Map<string, { status: string; firstDate: string; permalink: string | null; thumbnail: string | null; headline: string | null; type: string | null; campaign: string; platform: Platform; impressions: number; clicks: number; spend: number }>();
-        // Última data com spend > 0 e status mais recente, por ad_id
+        // Última data com spend > 0, status mais recente, e created_at_meta por ad_id
         const lastActiveByAdId = new Map<string, string>();
         const statusByAdId = new Map<string, { status: string; date: string }>();
+        const createdAtMetaByAdId = new Map<string, string>();
         for (const r of rows) {
           const key = `${r.platform}:${r.ad_id}`;
           const ex = map.get(key);
@@ -233,6 +234,8 @@ export default function CriativosPage() {
           // Status na linha mais recente (data mais nova manda)
           const sExist = statusByAdId.get(r.ad_id);
           if (!sExist || (r.date && r.date > sExist.date)) statusByAdId.set(r.ad_id, { status: r.status ?? "", date: r.date ?? "" });
+          // created_at_meta (vem da Meta como timestamp ISO; pega o primeiro não-nulo)
+          if (r.created_at_meta && !createdAtMetaByAdId.has(r.ad_id)) createdAtMetaByAdId.set(r.ad_id, String(r.created_at_meta).slice(0, 10));
           // Catalog: track first date and status
           const ce = catMap.get(key);
           if (ce) {
@@ -287,7 +290,9 @@ export default function CriativosPage() {
         // Build catalog with real first date
         setCatalogData(mapped.map(c => {
           const cat = catMap.get(c._key);
-          const realFirstDate = firstDateMap.get(c.ad_id) ?? cat?.firstDate ?? "";
+          // Prefere created_at_meta (data real de criação na Meta) sobre primeira data com dados
+          const createdReal = createdAtMetaByAdId.get(c.ad_id);
+          const realFirstDate = createdReal ?? firstDateMap.get(c.ad_id) ?? cat?.firstDate ?? "";
           const latestStatus = statusByAdId.get(c.ad_id)?.status ?? cat?.status ?? "";
           return {
             ad_id: c.ad_id, ad_name: c.ad_name, campaign_name: c.campaign_name, platform: c.platform,
@@ -297,7 +302,7 @@ export default function CriativosPage() {
             last_active_date: lastActiveByAdId.get(c.ad_id) ?? null,
             impressions: c.impressions, clicks: c.clicks, spend: c.spend,
             leads: c.leads, ctr: c.ctr, cpl: c.cpl,
-            note: null, // preenchido no render via notesMap
+            note: null,
           };
         }));
       } else { setData([]); setCatalogData([]); }
