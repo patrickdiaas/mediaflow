@@ -353,7 +353,7 @@ export async function POST(req: NextRequest) {
     // ── Criativos do período principal ──────────────────────────────────────
     const { data: adCreativesRaw } = await supabase
       .from("ad_creatives")
-      .select("ad_id, ad_name, campaign_name, platform, status, creative_type, headline, permalink_url, impressions, clicks, spend, date, created_at_meta")
+      .select("ad_id, ad_name, campaign_name, platform, status, creative_type, headline, permalink_url, impressions, clicks, spend, date, created_at_meta, updated_at_meta")
       .eq("client_slug", client)
       .gte("date", periodFrom)
       .lte("date", periodTo);
@@ -368,7 +368,7 @@ export async function POST(req: NextRequest) {
     const notesByAdId = new Map<string, string>();
     for (const n of creativeNotesRaw ?? []) notesByAdId.set(n.ad_id, n.note);
 
-    const creativeAgg = new Map<string, { ad_id: string; name: string; campaign: string; platform: string; type: string | null; headline: string | null; permalink: string | null; spend: number; impressions: number; clicks: number; leads: number; status: string; created_at_meta: string | null; last_active_date: string | null; last_date: string; note: string | null }>();
+    const creativeAgg = new Map<string, { ad_id: string; name: string; campaign: string; platform: string; type: string | null; headline: string | null; permalink: string | null; spend: number; impressions: number; clicks: number; leads: number; status: string; created_at_meta: string | null; updated_at_meta: string | null; last_active_date: string | null; last_date: string; note: string | null }>();
     for (const c of adCreatives) {
       const ex = creativeAgg.get(c.ad_id);
       const hasSpend = Number(c.spend) > 0;
@@ -377,6 +377,7 @@ export async function POST(req: NextRequest) {
         if ((c as any).date && (c as any).date > ex.last_date) { ex.last_date = (c as any).date; ex.status = (c as any).status ?? ex.status; }
         if (hasSpend && (c as any).date && (!ex.last_active_date || (c as any).date > ex.last_active_date)) ex.last_active_date = (c as any).date;
         if (!ex.created_at_meta && (c as any).created_at_meta) ex.created_at_meta = (c as any).created_at_meta;
+        if (!ex.updated_at_meta && (c as any).updated_at_meta) ex.updated_at_meta = (c as any).updated_at_meta;
         if (!ex.permalink && c.permalink_url) ex.permalink = c.permalink_url;
       } else {
         creativeAgg.set(c.ad_id, {
@@ -386,6 +387,7 @@ export async function POST(req: NextRequest) {
           spend: Number(c.spend), impressions: Number(c.impressions), clicks: Number(c.clicks), leads: 0,
           status: (c as any).status ?? "",
           created_at_meta: (c as any).created_at_meta ?? null,
+          updated_at_meta: (c as any).updated_at_meta ?? null,
           last_active_date: hasSpend ? ((c as any).date ?? null) : null,
           last_date: (c as any).date ?? "",
           note: notesByAdId.get(c.ad_id) ?? null,
@@ -573,10 +575,14 @@ ${metaCampaigns.filter(c => c.leads > 0 || c.spend > 50).map(c => {
     formsStr ? `    Formulários: ${formsStr}` : "",
     creatives.length > 0 ? `    Criativos:\n${creatives.map(cr => {
       const created = (cr as any).created_at_meta ? String((cr as any).created_at_meta).slice(0, 10) : null;
+      const updated = (cr as any).updated_at_meta ? String((cr as any).updated_at_meta).slice(0, 10) : null;
       const lastActive = (cr as any).last_active_date ?? null;
       const st = String((cr as any).status ?? "").toUpperCase();
       let stLabel = "Ativo";
-      if (st === "PAUSED" || st === "DISABLED" || st === "ARCHIVED") stLabel = lastActive ? `Pausado em ${lastActive}` : "Pausado";
+      if (st === "PAUSED" || st === "DISABLED" || st === "ARCHIVED") {
+        // Prefere updated_at_meta (data exata da pausa); fallback last_active_date
+        stLabel = updated ? `Pausado em ${updated}` : (lastActive ? `Pausado em ~${lastActive}` : "Pausado");
+      }
       else if (st === "ACTIVE" || st === "ENABLED" || st === "") stLabel = "Ativo";
       else stLabel = st;
       const note = (cr as any).note ? ` | nota: ${String((cr as any).note).replace(/\n/g, " ")}` : "";
@@ -632,7 +638,7 @@ ${reportActions.map((a: any) => {
     // Agrega criativos do período principal por ad_id. Rastreamos a última data
     // COM spend > 0 (proxy de "última veiculação"). Quando essa data < hoje e o
     // status atual é PAUSED, sabemos que foi pausado em ~last_active_date.
-    const adsAgg = new Map<string, { ad_id: string; ad_name: string; campaign_name: string; platform: string; status: string; permalink: string | null; spend: number; impressions: number; clicks: number; last_date: string; last_active_date: string | null; created_at_meta: string | null }>();
+    const adsAgg = new Map<string, { ad_id: string; ad_name: string; campaign_name: string; platform: string; status: string; permalink: string | null; spend: number; impressions: number; clicks: number; last_date: string; last_active_date: string | null; created_at_meta: string | null; updated_at_meta: string | null }>();
     for (const r of adCreatives) {
       const ex = adsAgg.get(r.ad_id);
       const hasSpend = Number(r.spend) > 0;
@@ -643,6 +649,7 @@ ${reportActions.map((a: any) => {
         if (!ex.permalink && r.permalink_url) ex.permalink = r.permalink_url;
         if (r.date === ex.last_date) ex.status = (r as any).status ?? ex.status;
         if (!ex.created_at_meta && (r as any).created_at_meta) ex.created_at_meta = (r as any).created_at_meta;
+        if (!ex.updated_at_meta && (r as any).updated_at_meta) ex.updated_at_meta = (r as any).updated_at_meta;
       } else {
         adsAgg.set(r.ad_id, {
           ad_id: r.ad_id, ad_name: r.ad_name, campaign_name: r.campaign_name ?? "",
@@ -652,6 +659,7 @@ ${reportActions.map((a: any) => {
           last_date: r.date,
           last_active_date: hasSpend ? r.date : null,
           created_at_meta: (r as any).created_at_meta ?? null,
+          updated_at_meta: (r as any).updated_at_meta ?? null,
         });
       }
     }
@@ -674,10 +682,11 @@ ${reportActions.map((a: any) => {
       .sort((a, b) => a.first_date.localeCompare(b.first_date) || a.ad_name.localeCompare(b.ad_name));
 
     // Helper de status legível por linha
-    const statusLabel = (a: { status: string; last_active_date: string | null }) => {
+    const statusLabel = (a: { status: string; last_active_date: string | null; updated_at_meta?: string | null }) => {
       const s = String(a.status ?? "").toUpperCase();
       if (s === "PAUSED" || s === "DISABLED" || s === "ARCHIVED") {
-        return a.last_active_date ? `Pausado em ${a.last_active_date}` : "Pausado";
+        const updated = a.updated_at_meta ? String(a.updated_at_meta).slice(0, 10) : null;
+        return updated ? `Pausado em ${updated}` : (a.last_active_date ? `Pausado em ~${a.last_active_date}` : "Pausado");
       }
       if (s === "ACTIVE" || s === "ENABLED" || s === "") {
         return a.last_active_date && a.last_active_date >= periodFrom ? "Ativo" : "Ativo (sem spend no período)";

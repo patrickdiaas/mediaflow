@@ -95,7 +95,7 @@ export async function POST(request: Request) {
       continue
     }
 
-    const { campaigns, adSets, ads, regions, placements } = syncData
+    const { campaigns, adSets, ads, regions, placements, adsInfoCurrent } = syncData
 
     if (campaigns.length > 0) {
       const err = await upsertBatched(supabase, 'ad_campaigns', campaigns, 'platform,campaign_id,date')
@@ -120,6 +120,23 @@ export async function POST(request: Request) {
     if (placements.length > 0) {
       const err = await upsertBatched(supabase, 'ad_placements', placements, 'platform,campaign_id,placement,date')
       if (err) { results[clientSlug] = { campaigns: campaigns.length, adSets: adSets.length, ads: ads.length, regions: regions.length, placements: 0, error: `ad_placements: ${err}` }; continue }
+    }
+
+    // Atualiza retroativamente status + datas em TODAS as linhas históricas
+    // de ad_creatives para os ads que vieram em adsInfoCurrent. Isso garante
+    // que o status no banco reflita o estado ATUAL da Meta (ex: anúncios
+    // pausados após o range do sync) e que datas (created/updated) sejam
+    // preenchidas mesmo em linhas antigas.
+    for (const info of adsInfoCurrent) {
+      await supabase.from('ad_creatives')
+        .update({
+          status: info.status,
+          created_at_meta: info.created_at_meta,
+          updated_at_meta: info.updated_at_meta,
+        })
+        .eq('platform', 'meta')
+        .eq('client_slug', clientSlug)
+        .eq('ad_id', info.ad_id)
     }
 
     results[clientSlug] = {
