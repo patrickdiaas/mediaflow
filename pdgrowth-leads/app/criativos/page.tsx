@@ -88,12 +88,14 @@ interface CatalogItem {
   headline: string | null;
   status: string;
   first_date: string;
+  last_active_date: string | null;
   impressions: number;
   clicks: number;
   spend: number;
   leads: number;
   ctr: number;
   cpl: number;
+  note: string | null;
 }
 
 export default function CriativosPage() {
@@ -101,9 +103,52 @@ export default function CriativosPage() {
   const [view, setView]         = useState<"grid" | "list" | "catalog">("grid");
   const [campaign, setCampaign] = useState<string>("all");
   const [sortBy, setSortBy]     = useState<SortKey>("cpl");
+  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "paused" | "paused_in_period">("all");
   const [data, setData]         = useState<CreativeRow[]>([]);
   const [catalogData, setCatalogData] = useState<CatalogItem[]>([]);
   const [loading, setLoading]   = useState(false);
+
+  // Creative notes (motivo de pausa, observações)
+  const [notesMap, setNotesMap] = useState<Map<string, { id: string; note: string }>>(new Map());
+  const [editingNote, setEditingNote] = useState<string | null>(null); // ad_id sendo editado
+  const [noteDraft, setNoteDraft] = useState("");
+  const [savingNote, setSavingNote] = useState(false);
+
+  async function fetchNotes() {
+    if (client === "all") { setNotesMap(new Map()); return; }
+    const res = await fetch(`/api/admin/creative-notes?client=${encodeURIComponent(client)}`);
+    const json = await res.json();
+    if (res.ok) {
+      const m = new Map<string, { id: string; note: string }>();
+      for (const r of json.data ?? []) m.set(r.ad_id, { id: r.id, note: r.note });
+      setNotesMap(m);
+    }
+  }
+
+  async function saveNote(ad_id: string, ad_name: string, note: string) {
+    if (client === "all") return;
+    setSavingNote(true);
+    const res = await fetch("/api/admin/creative-notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ client_slug: client, ad_id, ad_name, note }),
+    });
+    if (res.ok) {
+      setEditingNote(null);
+      fetchNotes();
+    }
+    setSavingNote(false);
+  }
+
+  async function clearNote(ad_id: string) {
+    const entry = notesMap.get(ad_id);
+    if (!entry) return;
+    if (!confirm("Remover anotação?")) return;
+    await fetch(`/api/admin/creative-notes?id=${entry.id}`, { method: "DELETE" });
+    fetchNotes();
+  }
+
+  useEffect(() => { fetchNotes(); }, [client]);
 
   useEffect(() => {
     let cancelled = false;
@@ -172,11 +217,22 @@ export default function CriativosPage() {
       if (rows && rows.length > 0) {
         const map = new Map<string, CreativeRow>();
         const catMap = new Map<string, { status: string; firstDate: string; permalink: string | null; thumbnail: string | null; headline: string | null; type: string | null; campaign: string; platform: Platform; impressions: number; clicks: number; spend: number }>();
+        // Última data com spend > 0 e status mais recente, por ad_id
+        const lastActiveByAdId = new Map<string, string>();
+        const statusByAdId = new Map<string, { status: string; date: string }>();
         for (const r of rows) {
           const key = `${r.platform}:${r.ad_id}`;
           const ex = map.get(key);
           if (ex) { ex.impressions += r.impressions ?? 0; ex.clicks += r.clicks ?? 0; ex.spend += r.spend ?? 0; }
           else { map.set(key, { ad_id: r.ad_id, ad_name: r.ad_name, campaign_name: r.campaign_name ?? "", platform: r.platform as Platform, creative_type: r.creative_type ?? null, thumbnail_url: r.thumbnail_url ?? null, video_url: r.video_url ?? null, permalink_url: r.permalink_url ?? null, headline: r.headline ?? null, placement: r.placement ?? null, impressions: r.impressions ?? 0, clicks: r.clicks ?? 0, spend: r.spend ?? 0, frequency: r.frequency ?? null, leads: 0, cpl: 0, ctr: 0, cpm: 0, video_3s_rate: null, video_thruplay_rate: null }); }
+          // Última data com spend > 0
+          if (Number(r.spend ?? 0) > 0 && r.date) {
+            const cur = lastActiveByAdId.get(r.ad_id);
+            if (!cur || r.date > cur) lastActiveByAdId.set(r.ad_id, r.date);
+          }
+          // Status na linha mais recente (data mais nova manda)
+          const sExist = statusByAdId.get(r.ad_id);
+          if (!sExist || (r.date && r.date > sExist.date)) statusByAdId.set(r.ad_id, { status: r.status ?? "", date: r.date ?? "" });
           // Catalog: track first date and status
           const ce = catMap.get(key);
           if (ce) {
@@ -232,13 +288,16 @@ export default function CriativosPage() {
         setCatalogData(mapped.map(c => {
           const cat = catMap.get(c._key);
           const realFirstDate = firstDateMap.get(c.ad_id) ?? cat?.firstDate ?? "";
+          const latestStatus = statusByAdId.get(c.ad_id)?.status ?? cat?.status ?? "";
           return {
             ad_id: c.ad_id, ad_name: c.ad_name, campaign_name: c.campaign_name, platform: c.platform,
             creative_type: cat?.type ?? null, thumbnail_url: cat?.thumbnail ?? null,
             permalink_url: cat?.permalink ?? null, headline: cat?.headline ?? null,
-            status: cat?.status ?? "", first_date: realFirstDate,
+            status: latestStatus, first_date: realFirstDate,
+            last_active_date: lastActiveByAdId.get(c.ad_id) ?? null,
             impressions: c.impressions, clicks: c.clicks, spend: c.spend,
             leads: c.leads, ctr: c.ctr, cpl: c.cpl,
+            note: null, // preenchido no render via notesMap
           };
         }));
       } else { setData([]); setCatalogData([]); }
@@ -248,9 +307,25 @@ export default function CriativosPage() {
   }, [platform, period, client]);
 
   const campaigns = ["all", ...Array.from(new Set(data.map(c => c.campaign_name).filter(Boolean)))];
-  const filteredCatalog = (campaign === "all" ? catalogData : catalogData.filter(c => c.campaign_name === campaign))
+
+  // Hidrata catálogo com nota mais recente e aplica filtros (campanha + status)
+  function isActive(s: string) { return !s || s === "ACTIVE" || s === "ENABLED"; }
+  function isPaused(s: string) { return s === "PAUSED" || s === "DISABLED" || s === "ARCHIVED"; }
+  const { since: periodSince } = getPeriodDates(period);
+  const filteredCatalog = catalogData
+    .map(c => ({ ...c, note: notesMap.get(c.ad_id)?.note ?? null }))
+    .filter(c => campaign === "all" || c.campaign_name === campaign)
+    .filter(c => {
+      if (statusFilter === "all") return true;
+      if (statusFilter === "active") return isActive(c.status);
+      if (statusFilter === "paused") return isPaused(c.status);
+      if (statusFilter === "paused_in_period") {
+        // Pausado E última atividade dentro do período → pausado durante o período
+        return isPaused(c.status) && c.last_active_date != null && c.last_active_date >= periodSince;
+      }
+      return true;
+    })
     .sort((a, b) => {
-      // Sort by campaign first, then by spend within campaign
       if (a.campaign_name !== b.campaign_name) return a.campaign_name.localeCompare(b.campaign_name);
       return b.spend - a.spend;
     });
@@ -391,6 +466,15 @@ export default function CriativosPage() {
               className="bg-card border border-border rounded-lg px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-accent/40 cursor-pointer max-w-[200px] truncate">
               {campaigns.map(c => (<option key={c} value={c}>{c === "all" ? "Todas as campanhas" : c}</option>))}
             </select>
+            {view === "catalog" && (
+              <select value={statusFilter} onChange={e => setStatusFilter(e.target.value as any)}
+                className="bg-card border border-border rounded-lg px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-accent/40 cursor-pointer">
+                <option value="all">Status: todos</option>
+                <option value="active">Apenas ativos</option>
+                <option value="paused">Apenas pausados</option>
+                <option value="paused_in_period">Pausados durante o período</option>
+              </select>
+            )}
             {view !== "catalog" && (
               <div className="flex items-center gap-1.5 bg-card border border-border rounded-lg px-2.5 py-2">
                 <ArrowUpDown size={12} className="text-text-muted flex-shrink-0" />
@@ -435,45 +519,82 @@ export default function CriativosPage() {
                   <span className="text-xs text-text-muted">· {items.length} criativos</span>
                 </div>
                 <div className="space-y-2">
-                  {items.map(c => (
-                    <div key={c.ad_id} className="bg-card border border-border rounded-xl p-4 flex gap-4 items-start hover:border-border-light transition-colors">
-                      <div className="relative w-20 h-14 rounded-lg overflow-hidden bg-bg flex-shrink-0 border border-border">
-                        {c.thumbnail_url
-                          ? <Image src={c.thumbnail_url} alt={c.ad_name} fill className="object-cover" sizes="80px" unoptimized />
-                          : c.platform === "google"
-                            ? <div className="w-full h-full flex items-center justify-center text-gold text-[10px] font-bold">Search</div>
-                            : <div className="w-full h-full flex items-center justify-center text-text-muted text-[10px]">—</div>
-                        }
+                  {items.map(c => {
+                    const pausedDateLabel = isPaused(c.status) && c.last_active_date
+                      ? `Pausado em ${new Date(c.last_active_date + "T12:00:00").toLocaleDateString("pt-BR")}`
+                      : isPaused(c.status) ? "Pausado" : "Ativo";
+                    return (
+                    <div key={c.ad_id} className="bg-card border border-border rounded-xl p-4 hover:border-border-light transition-colors">
+                      <div className="flex gap-4 items-start">
+                        <div className="relative w-20 h-14 rounded-lg overflow-hidden bg-bg flex-shrink-0 border border-border">
+                          {c.thumbnail_url
+                            ? <Image src={c.thumbnail_url} alt={c.ad_name} fill className="object-cover" sizes="80px" unoptimized />
+                            : c.platform === "google"
+                              ? <div className="w-full h-full flex items-center justify-center text-gold text-[10px] font-bold">Search</div>
+                              : <div className="w-full h-full flex items-center justify-center text-text-muted text-[10px]">—</div>
+                          }
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1 flex-wrap">
+                            <span className={`text-[10px] font-semibold ${isActive(c.status) ? "text-accent" : "text-gold"}`}>
+                              {pausedDateLabel}
+                            </span>
+                            {c.first_date && (
+                              <span className="text-[10px] text-text-muted">Desde {new Date(c.first_date + "T12:00:00").toLocaleDateString("pt-BR")}</span>
+                            )}
+                            {c.last_active_date && isActive(c.status) && (
+                              <span className="text-[10px] text-text-muted">Última: {new Date(c.last_active_date + "T12:00:00").toLocaleDateString("pt-BR")}</span>
+                            )}
+                            {c.creative_type && <span className="text-[10px] text-text-dark">{c.creative_type}</span>}
+                          </div>
+                          <div className="text-sm font-semibold text-text-primary truncate" title={c.ad_name}>{c.ad_name}</div>
+                          {c.headline && <div className="text-xs text-gold mt-0.5">{c.headline}</div>}
+                          <div className="flex gap-4 mt-2 text-xs">
+                            <span><span className="text-accent font-mono font-semibold">{c.leads}</span> <span className="text-text-muted">leads</span></span>
+                            <span><span className="text-text-secondary font-mono">{c.ctr.toFixed(1)}%</span> <span className="text-text-muted">CTR</span></span>
+                            <span><span className="text-gold font-mono">{c.cpl > 0 ? `R$${c.cpl.toFixed(0)}` : "—"}</span> <span className="text-text-muted">CPL</span></span>
+                            <span><span className="text-blue font-mono">R${c.spend.toFixed(0)}</span> <span className="text-text-muted">gasto</span></span>
+                          </div>
+                        </div>
+                        {c.permalink_url && (
+                          <a href={c.permalink_url} target="_blank" rel="noopener noreferrer"
+                            className="flex-shrink-0 flex items-center gap-1 text-[11px] text-blue hover:text-accent transition-colors mt-1">
+                            <ExternalLink size={12} /> Ver
+                          </a>
+                        )}
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 mb-1 flex-wrap">
-                          <span className={`text-[10px] font-semibold ${
-                            (!c.status || c.status === "ACTIVE" || c.status === "ENABLED") ? "text-accent" : "text-gold"
-                          }`}>
-                            {(!c.status || c.status === "ACTIVE" || c.status === "ENABLED") ? "Ativo" : c.status === "PAUSED" ? "Pausado" : c.status}
-                          </span>
-                          {c.first_date && (
-                            <span className="text-[10px] text-text-muted">Desde {new Date(c.first_date + "T12:00:00").toLocaleDateString("pt-BR")}</span>
+                      {/* Notas inline (motivo de pausa, observações) */}
+                      {client !== "all" && (
+                        <div className="mt-3 pt-3 border-t border-border">
+                          {editingNote === c.ad_id ? (
+                            <div className="space-y-2">
+                              <textarea
+                                value={noteDraft}
+                                onChange={e => setNoteDraft(e.target.value)}
+                                placeholder="Por que foi pausado / observações / contexto..."
+                                rows={2}
+                                className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary placeholder:text-text-dark focus:outline-none focus:border-accent/40 resize-y"
+                              />
+                              <div className="flex gap-2 justify-end">
+                                <button onClick={() => setEditingNote(null)} className="text-[10px] text-text-muted hover:text-text-primary">Cancelar</button>
+                                <button onClick={() => saveNote(c.ad_id, c.ad_name, noteDraft)} disabled={savingNote} className="text-[10px] text-accent hover:underline disabled:opacity-50">{savingNote ? "Salvando..." : "Salvar nota"}</button>
+                              </div>
+                            </div>
+                          ) : c.note ? (
+                            <div className="flex items-start gap-2">
+                              <span className="text-[10px] text-text-muted font-semibold uppercase tracking-wider mt-0.5">Nota:</span>
+                              <span className="text-xs text-text-secondary flex-1">{c.note}</span>
+                              <button onClick={() => { setEditingNote(c.ad_id); setNoteDraft(c.note ?? ""); }} className="text-[10px] text-blue hover:underline flex-shrink-0">editar</button>
+                              <button onClick={() => clearNote(c.ad_id)} className="text-[10px] text-red hover:underline flex-shrink-0">remover</button>
+                            </div>
+                          ) : (
+                            <button onClick={() => { setEditingNote(c.ad_id); setNoteDraft(""); }} className="text-[10px] text-text-muted hover:text-accent">+ adicionar nota</button>
                           )}
-                          {c.creative_type && <span className="text-[10px] text-text-dark">{c.creative_type}</span>}
                         </div>
-                        <div className="text-sm font-semibold text-text-primary truncate" title={c.ad_name}>{c.ad_name}</div>
-                        {c.headline && <div className="text-xs text-gold mt-0.5">{c.headline}</div>}
-                        <div className="flex gap-4 mt-2 text-xs">
-                          <span><span className="text-accent font-mono font-semibold">{c.leads}</span> <span className="text-text-muted">leads</span></span>
-                          <span><span className="text-text-secondary font-mono">{c.ctr.toFixed(1)}%</span> <span className="text-text-muted">CTR</span></span>
-                          <span><span className="text-gold font-mono">{c.cpl > 0 ? `R$${c.cpl.toFixed(0)}` : "—"}</span> <span className="text-text-muted">CPL</span></span>
-                          <span><span className="text-blue font-mono">R${c.spend.toFixed(0)}</span> <span className="text-text-muted">gasto</span></span>
-                        </div>
-                      </div>
-                      {c.permalink_url && (
-                        <a href={c.permalink_url} target="_blank" rel="noopener noreferrer"
-                          className="flex-shrink-0 flex items-center gap-1 text-[11px] text-blue hover:text-accent transition-colors mt-1">
-                          <ExternalLink size={12} /> Ver
-                        </a>
                       )}
                     </div>
-                  ))}
+                  );
+                  })}
                 </div>
               </div>
             ))}

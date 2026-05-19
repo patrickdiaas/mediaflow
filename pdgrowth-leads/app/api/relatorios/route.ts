@@ -592,14 +592,20 @@ ${reportActions.map((a: any) => {
       if (r.ad_id && r.date && !adFirstDate.has(r.ad_id)) adFirstDate.set(r.ad_id, r.date);
     }
 
-    // Agrega criativos do período principal por ad_id (latest status/permalink, max date como "last seen")
-    const adsAgg = new Map<string, { ad_id: string; ad_name: string; campaign_name: string; platform: string; status: string; permalink: string | null; spend: number; impressions: number; clicks: number; last_date: string }>();
+    // Agrega criativos do período principal por ad_id. Rastreamos a última data
+    // COM spend > 0 (proxy de "última veiculação"). Quando essa data < hoje e o
+    // status atual é PAUSED, sabemos que foi pausado em ~last_active_date.
+    const adsAgg = new Map<string, { ad_id: string; ad_name: string; campaign_name: string; platform: string; status: string; permalink: string | null; spend: number; impressions: number; clicks: number; last_date: string; last_active_date: string | null }>();
     for (const r of adCreatives) {
       const ex = adsAgg.get(r.ad_id);
+      const hasSpend = Number(r.spend) > 0;
       if (ex) {
         ex.spend += Number(r.spend); ex.impressions += Number(r.impressions); ex.clicks += Number(r.clicks);
         if (r.date > ex.last_date) ex.last_date = r.date;
+        if (hasSpend && (!ex.last_active_date || r.date > ex.last_active_date)) ex.last_active_date = r.date;
         if (!ex.permalink && r.permalink_url) ex.permalink = r.permalink_url;
+        // Pega o último status conhecido (status na linha mais recente)
+        if (r.date === ex.last_date) ex.status = (r as any).status ?? ex.status;
       } else {
         adsAgg.set(r.ad_id, {
           ad_id: r.ad_id, ad_name: r.ad_name, campaign_name: r.campaign_name ?? "",
@@ -607,9 +613,19 @@ ${reportActions.map((a: any) => {
           permalink: r.permalink_url ?? null,
           spend: Number(r.spend), impressions: Number(r.impressions), clicks: Number(r.clicks),
           last_date: r.date,
+          last_active_date: hasSpend ? r.date : null,
         });
       }
     }
+
+    // Notes cadastradas pelo gestor (motivo de pausa, observações, etc)
+    const { data: creativeNotesRaw } = await supabase
+      .from("creative_notes")
+      .select("ad_id, note")
+      .eq("client_slug", client);
+    const notesByAdId = new Map<string, string>();
+    for (const n of creativeNotesRaw ?? []) notesByAdId.set(n.ad_id, n.note);
+
     // Atribui leads aos ads. Filtramos só Meta — Google Ads não tem permalink
     // público de anúncio (search/display sem link visível), então a seção fica
     // dedicada a Meta como prestação de contas dos criativos rodados.
@@ -619,13 +635,29 @@ ${reportActions.map((a: any) => {
         ...a,
         first_date: adFirstDate.get(a.ad_id) ?? a.last_date,
         leads: Array.from(creativeAgg.values()).find(c => c.name === a.ad_name)?.leads ?? 0,
+        note: notesByAdId.get(a.ad_id) ?? null,
       }))
       .filter(a => a.spend > 0 || a.leads > 0)
       .sort((a, b) => a.first_date.localeCompare(b.first_date) || a.ad_name.localeCompare(b.ad_name));
 
+    // Helper de status legível por linha
+    const statusLabel = (a: { status: string; last_active_date: string | null }) => {
+      const s = String(a.status ?? "").toUpperCase();
+      if (s === "PAUSED" || s === "DISABLED" || s === "ARCHIVED") {
+        return a.last_active_date ? `Pausado em ${a.last_active_date}` : "Pausado";
+      }
+      if (s === "ACTIVE" || s === "ENABLED" || s === "") {
+        return a.last_active_date && a.last_active_date >= periodFrom ? "Ativo" : "Ativo (sem spend no período)";
+      }
+      return s;
+    };
+
     const adsListContext = adsList.length > 0 ? `
 ANÚNCIOS META QUE RODARAM NO PERÍODO (lista direta de ad_creatives sincronizados — mostrar como prestação de contas):
-${adsList.map(a => `  - ${a.ad_name} | ${a.campaign_name} | início: ${a.first_date} | status: ${a.status || "—"} | R$${fmt(a.spend)} | ${a.leads} leads${a.permalink ? ` | link: ${a.permalink}` : ""}`).join("\n")}
+${adsList.map(a => {
+  const noteStr = a.note ? ` | nota: ${a.note.replace(/\n/g, " ")}` : "";
+  return `  - ${a.ad_name} | ${a.campaign_name} | início: ${a.first_date} | última atividade: ${a.last_active_date ?? "—"} | ${statusLabel(a)} | R$${fmt(a.spend)} | ${a.leads} leads${a.permalink ? ` | link: ${a.permalink}` : ""}${noteStr}`;
+}).join("\n")}
 Total: ${adsList.length} anúncios Meta.
 `.trim() : "";
 
@@ -698,7 +730,7 @@ Após a tabela, mostre a projeção (run-rate). Comente em 2-3 frases se o ritmo
 
     if (adsList.length > 0) {
       sections.push(["Anúncios Meta do Período",
-        "Os dados estão em 'ANÚNCIOS META QUE RODARAM NO PERÍODO' no contexto. Apresente TABELA com colunas: Anúncio | Campanha | Início | Status | Investimento | Leads | Link. Use a data 'início' do contexto (data da primeira veiculação histórica, pode ser anterior ao período se o anúncio já rodava antes). Coluna Link como hyperlink markdown (ex: [ver](url)). Ordene por data de início ascendente. Esta seção é uma prestação de contas da mídia rodada — NÃO comente performance aqui, apenas liste."]);
+        "Os dados estão em 'ANÚNCIOS META QUE RODARAM NO PERÍODO' no contexto. Apresente TABELA com colunas: Anúncio | Campanha | Início | Última atividade | Status | Investimento | Leads | Link. Use a data 'início' (primeira veiculação histórica) e 'última atividade' (último dia com spend > 0). Status já vem legível ('Ativo', 'Pausado em DATA', etc) — copie do contexto. Coluna Link como hyperlink markdown (ex: [ver](url)). Ordene por data de início ascendente. Se um anúncio tem 'nota:' no contexto, apresente a nota abaixo da linha da tabela como bullet de observação. Esta seção é uma prestação de contas da mídia rodada — NÃO comente performance, apenas liste."]);
     }
 
     sections.push(["Destaques e Pontos de Atenção",

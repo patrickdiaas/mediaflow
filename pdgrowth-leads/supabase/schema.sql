@@ -222,6 +222,24 @@ create table if not exists client_budgets (
   unique (client_slug, year_month, platform)
 );
 
+-- ─── Creative Notes ──────────────────────────────────────────────────────────
+-- Anotações livres por criativo (motivo de pausa, performance, contexto).
+-- Aparecem em /criativos e são injetadas no relatório na seção Anúncios Meta.
+create table if not exists creative_notes (
+  id           uuid primary key default gen_random_uuid(),
+  client_slug  text not null references clients(slug),
+  ad_id        text not null,                          -- corresponde a ad_creatives.ad_id
+  ad_name      text,                                   -- guardamos pra exibição mesmo se ad sumir do sync
+  note         text not null,
+  created_at   timestamptz default now(),
+  updated_at   timestamptz default now(),
+  unique (client_slug, ad_id)
+);
+
+alter table public.creative_notes enable row level security;
+drop policy if exists "anon read" on public.creative_notes;
+create policy "anon read" on public.creative_notes for select using (true);
+
 -- ─── Report Actions ──────────────────────────────────────────────────────────
 -- Ações realizadas pelo gestor (novos criativos, otimizações, pausas, etc).
 -- São automaticamente injetadas no relatório de qualquer período que cubra
