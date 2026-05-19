@@ -11,7 +11,7 @@ export async function GET(req: NextRequest) {
 
   let q = supabase
     .from("report_actions")
-    .select("id, client_slug, action_date, platform, campaign_name, title, description, created_at")
+    .select("id, client_slug, action_date, platform, campaign_name, title, description, link, created_at")
     .order("action_date", { ascending: false });
 
   if (client && client !== "all") q = q.eq("client_slug", client);
@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
 // Body: { client_slug, action_date, platform?, campaign_name?, title, description }
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { client_slug, action_date, platform, campaign_name, title, description } = body ?? {};
+  const { client_slug, action_date, platform, campaign_name, title, description, link } = body ?? {};
   if (!client_slug || !action_date || !title || !description) {
     return NextResponse.json({ error: "client_slug, action_date, title e description são obrigatórios" }, { status: 400 });
   }
@@ -42,6 +42,7 @@ export async function POST(req: NextRequest) {
       campaign_name: campaign_name ?? null,
       title,
       description,
+      link: link ?? null,
     })
     .select()
     .single();

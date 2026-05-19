@@ -353,7 +353,7 @@ export async function POST(req: NextRequest) {
     // ── Criativos do período principal ──────────────────────────────────────
     const { data: adCreativesRaw } = await supabase
       .from("ad_creatives")
-      .select("ad_id, ad_name, campaign_name, platform, creative_type, headline, permalink_url, impressions, clicks, spend")
+      .select("ad_id, ad_name, campaign_name, platform, status, creative_type, headline, permalink_url, impressions, clicks, spend, date")
       .eq("client_slug", client)
       .gte("date", periodFrom)
       .lte("date", periodTo);
@@ -575,11 +575,58 @@ AÇÕES REALIZADAS PELO GESTOR NO PERÍODO (cadastradas previamente, devem entra
 ${reportActions.map((a: any) => {
   const platLabel = a.platform === "meta" ? "Meta" : a.platform === "google" ? "Google" : "Geral";
   const camp = a.campaign_name ? ` | ${a.campaign_name}` : "";
-  return `  - ${a.action_date} | ${platLabel}${camp} | ${a.title}: ${a.description}`;
+  const link = a.link ? ` | link: ${a.link}` : "";
+  return `  - ${a.action_date} | ${platLabel}${camp} | ${a.title}: ${a.description}${link}`;
 }).join("\n")}
 `.trim() : "";
 
-    const context = [weeklyTableContext, monthlyContext, pacingContext, mainDetailContext, unmatchedContext, actionsContext].filter(Boolean).join("\n\n");
+    // Bloco 6: ANÚNCIOS DO PERÍODO — lista automática de criativos que rodaram
+    // no range, com data da primeira veiculação (first_date) + link permalink.
+    // Usado pelo cliente como prestação de contas das ações de mídia.
+    const { data: firstDateRows } = await supabase.from("ad_creatives")
+      .select("ad_id, date")
+      .eq("client_slug", client)
+      .order("date", { ascending: true });
+    const adFirstDate = new Map<string, string>();
+    for (const r of firstDateRows ?? []) {
+      if (r.ad_id && r.date && !adFirstDate.has(r.ad_id)) adFirstDate.set(r.ad_id, r.date);
+    }
+
+    // Agrega criativos do período principal por ad_id (latest status/permalink, max date como "last seen")
+    const adsAgg = new Map<string, { ad_id: string; ad_name: string; campaign_name: string; platform: string; status: string; permalink: string | null; spend: number; impressions: number; clicks: number; last_date: string }>();
+    for (const r of adCreatives) {
+      const ex = adsAgg.get(r.ad_id);
+      if (ex) {
+        ex.spend += Number(r.spend); ex.impressions += Number(r.impressions); ex.clicks += Number(r.clicks);
+        if (r.date > ex.last_date) ex.last_date = r.date;
+        if (!ex.permalink && r.permalink_url) ex.permalink = r.permalink_url;
+      } else {
+        adsAgg.set(r.ad_id, {
+          ad_id: r.ad_id, ad_name: r.ad_name, campaign_name: r.campaign_name ?? "",
+          platform: r.platform, status: (r as any).status ?? "",
+          permalink: r.permalink_url ?? null,
+          spend: Number(r.spend), impressions: Number(r.impressions), clicks: Number(r.clicks),
+          last_date: r.date,
+        });
+      }
+    }
+    // Atribui leads aos ads (mesmo loop usado abaixo): aproveita o leadCounts já em creativeAgg via leads
+    const adsList = Array.from(adsAgg.values())
+      .map(a => ({
+        ...a,
+        first_date: adFirstDate.get(a.ad_id) ?? a.last_date,
+        leads: Array.from(creativeAgg.values()).find(c => c.name === a.ad_name)?.leads ?? 0,
+      }))
+      .filter(a => a.spend > 0 || a.leads > 0)
+      .sort((a, b) => a.first_date.localeCompare(b.first_date) || a.ad_name.localeCompare(b.ad_name));
+
+    const adsListContext = adsList.length > 0 ? `
+ANÚNCIOS QUE RODARAM NO PERÍODO (lista direta de ad_creatives sincronizados — mostrar como prestação de contas):
+${adsList.map(a => `  - ${a.ad_name} | ${a.platform === "meta" ? "Meta" : "Google"} | ${a.campaign_name} | início: ${a.first_date} | status: ${a.status || "—"} | R$${fmt(a.spend)} | ${a.leads} leads${a.permalink ? ` | link: ${a.permalink}` : ""}`).join("\n")}
+Total: ${adsList.length} anúncios.
+`.trim() : "";
+
+    const context = [weeklyTableContext, monthlyContext, pacingContext, mainDetailContext, unmatchedContext, actionsContext, adsListContext].filter(Boolean).join("\n\n");
 
     // ── Prompts ──────────────────────────────────────────────────────────────
     const systemPrompt = `Você é o gestor de tráfego sênior redigindo um relatório de performance para apresentar ao cliente e à equipe na reunião semanal.
@@ -643,7 +690,12 @@ Após a tabela, mostre a projeção (run-rate). Comente em 2-3 frases se o ritmo
 
     if (reportActions.length > 0) {
       sections.push(["Ações Realizadas pelo Gestor no Período",
-        "Liste as ações cadastradas no contexto, agrupadas por plataforma (Meta primeiro, depois Google, depois Geral). Para cada ação, mostre data, campanha (se houver) e descrição. Use tabela ou bullets organizados. NÃO invente ações além das listadas no contexto."]);
+        "Liste as ações cadastradas no contexto, agrupadas por plataforma (Meta primeiro, depois Google, depois Geral). Para cada ação, mostre data, campanha (se houver), descrição e o link (se presente) como hyperlink markdown. Use tabela ou bullets organizados. NÃO invente ações além das listadas no contexto."]);
+    }
+
+    if (adsList.length > 0) {
+      sections.push(["Anúncios do Período",
+        "Os dados estão em 'ANÚNCIOS QUE RODARAM NO PERÍODO' no contexto. Apresente TABELA com colunas: Anúncio | Campanha | Plataforma | Início | Status | Investimento | Leads | Link. Use a data 'início' do contexto (data da primeira veiculação histórica, pode ser anterior ao período se o anúncio já rodava antes). Coluna Link como hyperlink markdown (ex: [ver](url)). Ordene por data de início ascendente. Esta seção é uma prestação de contas da mídia rodada — NÃO comente performance aqui, apenas liste."]);
     }
 
     sections.push(["Destaques e Pontos de Atenção",

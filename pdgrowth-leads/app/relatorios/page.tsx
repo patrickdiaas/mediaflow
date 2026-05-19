@@ -20,6 +20,7 @@ interface ReportAction {
   campaign_name: string | null;
   title: string;
   description: string;
+  link: string | null;
   created_at: string;
 }
 
@@ -178,6 +179,7 @@ export default function RelatoriosPage() {
   const [newActionCampaign, setNewActionCampaign] = useState("");
   const [newActionTitle, setNewActionTitle] = useState("");
   const [newActionDesc, setNewActionDesc] = useState("");
+  const [newActionLink, setNewActionLink] = useState("");
   const [savingAction, setSavingAction] = useState(false);
 
   const period = computePeriod(reportType, customSince, customUntil);
@@ -217,10 +219,11 @@ export default function RelatoriosPage() {
         campaign_name: newActionCampaign.trim() || null,
         title: newActionTitle.trim(),
         description: newActionDesc.trim(),
+        link: newActionLink.trim() || null,
       }),
     });
     if (res.ok) {
-      setNewActionTitle(""); setNewActionDesc(""); setNewActionCampaign("");
+      setNewActionTitle(""); setNewActionDesc(""); setNewActionCampaign(""); setNewActionLink("");
       fetchActions();
     } else {
       const j = await res.json().catch(() => ({}));
@@ -632,6 +635,13 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
                     rows={2}
                     className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-accent/40 resize-y"
                   />
+                  <input
+                    type="url"
+                    value={newActionLink}
+                    onChange={e => setNewActionLink(e.target.value)}
+                    placeholder="Link (opcional — URL do anúncio/criativo/recurso)"
+                    className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary placeholder:text-text-dark focus:outline-none focus:border-accent/40"
+                  />
                   <div className="flex justify-end">
                     <button
                       onClick={addAction}
@@ -660,6 +670,11 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
                               {a.campaign_name && <span className="text-text-muted font-mono ml-2">· {a.campaign_name}</span>}
                             </div>
                             <div className="text-xs text-text-secondary leading-relaxed">{a.description}</div>
+                            {a.link && (
+                              <a href={a.link} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue hover:underline break-all">
+                                {a.link}
+                              </a>
+                            )}
                           </div>
                           <button
                             onClick={() => deleteAction(a.id)}

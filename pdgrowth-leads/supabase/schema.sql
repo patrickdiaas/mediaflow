@@ -234,6 +234,7 @@ create table if not exists report_actions (
   campaign_name text,                                     -- opcional, pra ações específicas
   title         text not null,                            -- ex: "Reforço criativo"
   description   text not null,                            -- texto livre que vira bullet no relatório
+  link          text,                                     -- opcional: URL do anúncio/criativo/recurso
   created_at    timestamptz default now()
 );
 create index if not exists idx_report_actions_client_date on report_actions (client_slug, action_date);
