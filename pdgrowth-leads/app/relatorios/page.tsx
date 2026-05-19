@@ -6,11 +6,21 @@ import { useDashboard } from "@/lib/dashboard-context";
 import {
   FileBarChart2, RefreshCw, AlertCircle, Download, Send,
   TrendingUp, Megaphone, Image, Sparkles, Users, Target, MessageSquare,
-  ListChecks, Plus, Trash2, ChevronDown, ChevronRight,
+  ListChecks, Plus, Trash2, ChevronDown, ChevronRight, BookmarkPlus, NotebookPen,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 
 type ReportType = "semanal" | "quinzenal" | "mensal";
+
+interface ReportObservation {
+  id: string;
+  client_slug: string;
+  since: string;
+  until: string | null;
+  content: string;
+  created_at: string;
+  updated_at: string;
+}
 
 interface ReportAction {
   id: string;
@@ -170,6 +180,14 @@ export default function RelatoriosPage() {
   const [followUpInput, setFollowUpInput] = useState("");
   const [followUpLoading, setFollowUpLoading] = useState(false);
 
+  // Observações persistidas com vigência (since/until) — narrativa contextual
+  const [observations, setObservations] = useState<ReportObservation[]>([]);
+  const [observationsExpanded, setObservationsExpanded] = useState(false);
+  const [newObsSince, setNewObsSince] = useState(() => new Date().toISOString().slice(0, 10));
+  const [newObsUntil, setNewObsUntil] = useState("");
+  const [newObsContent, setNewObsContent] = useState("");
+  const [savingObs, setSavingObs] = useState(false);
+
   // Ações realizadas pelo gestor — persistidas e injetadas no contexto.
   const [actions, setActions] = useState<ReportAction[]>([]);
   const [actionsExpanded, setActionsExpanded] = useState(false);
@@ -192,6 +210,44 @@ export default function RelatoriosPage() {
     if (res.ok) setActions(json.data ?? []);
   }
 
+  async function fetchObservations() {
+    if (client === "all") { setObservations([]); return; }
+    const url = `/api/admin/observations?client=${encodeURIComponent(client)}&overlaps_since=${period.since}&overlaps_until=${period.until}`;
+    const res = await fetch(url);
+    const json = await res.json();
+    if (res.ok) setObservations(json.data ?? []);
+  }
+
+  async function addObservation(content?: string, since?: string, until?: string) {
+    const body = {
+      client_slug: client,
+      since: (since ?? newObsSince),
+      until: (until ?? newObsUntil) || null,
+      content: (content ?? newObsContent).trim(),
+    };
+    if (!body.content || client === "all") return;
+    setSavingObs(true);
+    const res = await fetch("/api/admin/observations", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (res.ok) {
+      if (!content) { setNewObsContent(""); setNewObsUntil(""); }
+      fetchObservations();
+    } else {
+      const j = await res.json().catch(() => ({}));
+      alert("Erro ao salvar observação: " + (j.error ?? "desconhecido"));
+    }
+    setSavingObs(false);
+  }
+
+  async function deleteObservation(id: string) {
+    if (!confirm("Remover esta observação?")) return;
+    const res = await fetch(`/api/admin/observations?id=${id}`, { method: "DELETE" });
+    if (res.ok) fetchObservations();
+  }
+
   async function fetchCampaignNames() {
     if (client === "all") { setCampaignNames([]); return; }
     const since = new Date(); since.setDate(since.getDate() - 90);
@@ -204,7 +260,7 @@ export default function RelatoriosPage() {
     setCampaignNames(names);
   }
 
-  useEffect(() => { fetchActions(); fetchCampaignNames(); }, [client, reportType, customSince, customUntil]);
+  useEffect(() => { fetchActions(); fetchCampaignNames(); fetchObservations(); }, [client, reportType, customSince, customUntil]);
 
   async function addAction() {
     if (!newActionTitle.trim() || !newActionDesc.trim() || client === "all") return;
@@ -575,6 +631,89 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
         {client !== "all" && (
           <div className="mb-6 bg-card border border-border rounded-xl overflow-hidden">
             <button
+              onClick={() => setObservationsExpanded(v => !v)}
+              className="w-full flex items-center gap-2 px-5 py-3 hover:bg-bg/50 transition-colors text-left"
+            >
+              {observationsExpanded ? <ChevronDown size={14} className="text-text-muted" /> : <ChevronRight size={14} className="text-text-muted" />}
+              <NotebookPen size={14} className="text-blue" />
+              <span className="text-sm font-semibold text-text-primary">Observações do gestor</span>
+              <span className="text-xs text-text-muted ml-2">
+                {observations.length === 0 ? "nenhuma vigente" : `${observations.length} vigente${observations.length > 1 ? "s" : ""}`}
+              </span>
+              <span className="text-[10px] text-text-dark ml-auto">
+                texto livre · entram no relatório quando o período se sobrepõe
+              </span>
+            </button>
+
+            {observationsExpanded && (
+              <div className="border-t border-border p-5 space-y-4">
+                <div className="space-y-2">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-[10px] text-text-muted block mb-1">Vigência início</label>
+                      <input
+                        type="date"
+                        value={newObsSince}
+                        onChange={e => setNewObsSince(e.target.value)}
+                        className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-accent/40"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-text-muted block mb-1">Vigência fim (opcional — vazio = sem fim)</label>
+                      <input
+                        type="date"
+                        value={newObsUntil}
+                        onChange={e => setNewObsUntil(e.target.value)}
+                        className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-accent/40"
+                      />
+                    </div>
+                  </div>
+                  <textarea
+                    value={newObsContent}
+                    onChange={e => setNewObsContent(e.target.value)}
+                    placeholder={"Ex: Esgotamos o orçamento Meta dia 14/05. Redistribuí o restante do orçamento total entre Meta e Google pelos dias restantes do mês."}
+                    rows={3}
+                    className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-accent/40 resize-y"
+                  />
+                  <div className="flex justify-end">
+                    <button
+                      onClick={() => addObservation()}
+                      disabled={savingObs || !newObsContent.trim()}
+                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-accent/10 border border-accent/30 text-accent hover:bg-accent/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <Plus size={12} />
+                      {savingObs ? "Salvando..." : "Adicionar observação"}
+                    </button>
+                  </div>
+                </div>
+
+                {observations.length > 0 && (
+                  <div className="border-t border-border pt-3 space-y-2">
+                    {observations.map(o => (
+                      <div key={o.id} className="flex items-start gap-2 py-1.5">
+                        <span className="text-[10px] font-mono text-text-muted flex-shrink-0 mt-0.5 w-32 break-all">
+                          {o.until ? `${o.since.slice(5).replace("-", "/")} a ${o.until.slice(5).replace("-", "/")}` : `desde ${o.since.slice(5).replace("-", "/")}`}
+                        </span>
+                        <div className="flex-1 text-xs text-text-secondary leading-relaxed whitespace-pre-wrap">{o.content}</div>
+                        <button
+                          onClick={() => deleteObservation(o.id)}
+                          className="text-text-muted hover:text-red transition-colors flex-shrink-0 mt-1"
+                          title="Remover"
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
+        {client !== "all" && (
+          <div className="mb-6 bg-card border border-border rounded-xl overflow-hidden">
+            <button
               onClick={() => setActionsExpanded(v => !v)}
               className="w-full flex items-center gap-2 px-5 py-3 hover:bg-bg/50 transition-colors text-left"
             >
@@ -761,7 +900,19 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
                       rows={4}
                       className="w-full bg-bg border border-border rounded-lg px-3 py-2.5 text-sm text-text-primary placeholder:text-text-dark focus:outline-none focus:border-accent/40 disabled:opacity-50 resize-y"
                     />
-                    <div className="flex justify-end">
+                    <div className="flex justify-end gap-2">
+                      <button
+                        onClick={async () => {
+                          if (!followUpInput.trim() || client === "all") return;
+                          await addObservation(followUpInput.trim(), period.since, period.until);
+                          setFollowUpInput("");
+                        }}
+                        disabled={savingObs || !followUpInput.trim() || client === "all"}
+                        title="Salvar este texto como observação permanente. Próximas gerações de relatório que cubram este período vão trazer essa observação automaticamente."
+                        className="flex items-center gap-1.5 px-4 py-2 rounded-lg bg-blue/10 border border-blue/30 text-blue text-sm font-medium hover:bg-blue/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      >
+                        <BookmarkPlus size={13} /> Salvar como observação
+                      </button>
                       <button
                         onClick={sendCorrection}
                         disabled={followUpLoading || !followUpInput.trim()}

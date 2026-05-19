@@ -224,6 +224,27 @@ create table if not exists client_budgets (
   unique (client_slug, year_month, platform)
 );
 
+-- ─── Report Observations ────────────────────────────────────────────────────
+-- Observações livres do gestor com vigência (since/until). Aparecem em
+-- qualquer relatório cujo período se sobreponha. Diferente de report_actions
+-- (que é estruturada com data/título/etc e vira seção dedicada), aqui é
+-- narrativa contextual que a Claude usa onde fizer sentido — tipicamente
+-- pra explicar decisões de gestão de orçamento, ajustes estratégicos, etc.
+create table if not exists report_observations (
+  id           uuid primary key default gen_random_uuid(),
+  client_slug  text not null references clients(slug),
+  since        date not null,
+  until        date,                                    -- null = vigente sem data de fim
+  content      text not null,
+  created_at   timestamptz default now(),
+  updated_at   timestamptz default now()
+);
+create index if not exists idx_report_observations_client_range on report_observations (client_slug, since, until);
+
+alter table public.report_observations enable row level security;
+drop policy if exists "anon read" on public.report_observations;
+create policy "anon read" on public.report_observations for select using (true);
+
 -- ─── Creative Notes ──────────────────────────────────────────────────────────
 -- Anotações livres por criativo (motivo de pausa, performance, contexto).
 -- Aparecem em /criativos e são injetadas no relatório na seção Anúncios Meta.

@@ -261,12 +261,25 @@ export async function POST(req: NextRequest) {
     // ── Ações do gestor no período (criativos novos, otimizações, pausas) ──
     const { data: actionsRaw } = await supabase
       .from("report_actions")
-      .select("action_date, platform, campaign_name, title, description")
+      .select("action_date, platform, campaign_name, title, description, link")
       .eq("client_slug", client)
       .gte("action_date", periodFrom)
       .lte("action_date", periodTo)
       .order("action_date", { ascending: true });
     const reportActions = actionsRaw ?? [];
+
+    // ── Observações do gestor com vigência sobrepondo o período ──
+    // Texto livre narrativo (ex: "redistribuímos o restante do orçamento Meta
+    // pra Google após esgotar"). A Claude usa pra contextualizar pacing,
+    // destaques e variações inesperadas.
+    const { data: obsRaw } = await supabase
+      .from("report_observations")
+      .select("since, until, content")
+      .eq("client_slug", client)
+      .lte("since", periodTo)
+      .or(`until.is.null,until.gte.${periodFrom}`)
+      .order("since", { ascending: true });
+    const reportObservations = obsRaw ?? [];
 
     // ── Stats por janela ────────────────────────────────────────────────────
     const weekStats = weeks.map(w => ({ ...w, stats: computeRangeStats(allLeads, allAdCampaigns, w.since, w.until) }));
@@ -623,6 +636,17 @@ ${reportActions.map((a: any) => {
 }).join("\n")}
 `.trim() : "";
 
+    // Bloco 5b: observações do gestor com vigência sobrepondo o período
+    // Devem ENTRAR COMO SEÇÃO DEDICADA "Observações do Gestor" — texto livre
+    // que contextualiza pacing, decisões estratégicas, ajustes de orçamento.
+    const observationsContext = reportObservations.length > 0 ? `
+OBSERVAÇÕES DO GESTOR (vigentes no período — devem entrar como seção dedicada e ser citadas em destaques/pacing quando contextualizam números):
+${reportObservations.map((o: any) => {
+  const range = o.until ? `${o.since} a ${o.until}` : `desde ${o.since}`;
+  return `  - [${range}] ${String(o.content).replace(/\n/g, " ")}`;
+}).join("\n")}
+`.trim() : "";
+
     // Bloco 6: ANÚNCIOS DO PERÍODO — lista automática de criativos que rodaram
     // no range, com data da primeira veiculação (first_date) + link permalink.
     // Usado pelo cliente como prestação de contas das ações de mídia.
@@ -703,7 +727,7 @@ ${adsList.map(a => {
 Total: ${adsList.length} anúncios Meta.
 `.trim() : "";
 
-    const context = [weeklyTableContext, monthlyContext, pacingContext, mainDetailContext, unmatchedContext, actionsContext, adsListContext].filter(Boolean).join("\n\n");
+    const context = [weeklyTableContext, monthlyContext, pacingContext, mainDetailContext, unmatchedContext, actionsContext, observationsContext, adsListContext].filter(Boolean).join("\n\n");
 
     // ── Prompts ──────────────────────────────────────────────────────────────
     const systemPrompt = `Você é o gestor de tráfego sênior redigindo um relatório de performance para apresentar ao cliente e à equipe na reunião semanal.
@@ -768,6 +792,11 @@ Após a tabela, mostre a projeção (run-rate). Comente em 2-3 frases se o ritmo
     if (reportActions.length > 0) {
       sections.push(["Ações Realizadas pelo Gestor no Período",
         "Liste as ações cadastradas no contexto, agrupadas por plataforma (Meta primeiro, depois Google, depois Geral). Para cada ação, mostre data, campanha (se houver), descrição e o link (se presente) como hyperlink markdown. Use tabela ou bullets organizados. NÃO invente ações além das listadas no contexto."]);
+    }
+
+    if (reportObservations.length > 0) {
+      sections.push(["Observações do Gestor",
+        "Apresente como bullets (ou parágrafos curtos quando o texto for longo) as observações que vieram no bloco 'OBSERVAÇÕES DO GESTOR' do contexto. Cada bullet começa com o range de vigência entre colchetes (ex: '[01/05 a 31/05]') seguido do texto da observação. Use exatamente o conteúdo cadastrado — NÃO reescreva, NÃO resuma, NÃO invente. Quando o conteúdo da observação contextualizar algum número apresentado em outras seções (ex: pacing, variação mês a mês, queda em uma campanha), referencie brevemente na seção de Destaques."]);
     }
 
     if (adsList.length > 0) {
