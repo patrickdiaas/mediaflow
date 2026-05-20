@@ -997,6 +997,8 @@ IMPORTANTE sobre formatação:
       reportActions,
       reportObservations,
       unmatchedLeads,
+      googleTopKeywords: topKw.slice(0, 10),
+      googleTopSearchTerms: topSt.slice(0, 10),
     };
 
     return NextResponse.json({ context, kpis, reportType, systemPrompt, userPrompt, presentation, step: "data" });

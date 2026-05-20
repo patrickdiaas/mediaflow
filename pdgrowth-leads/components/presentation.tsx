@@ -23,6 +23,8 @@ interface PresentationData {
   reportActions: any[];
   reportObservations: any[];
   unmatchedLeads: any[];
+  googleTopKeywords?: any[];
+  googleTopSearchTerms?: any[];
 }
 
 interface Props {
@@ -185,6 +187,11 @@ function buildSlides(d: PresentationData, kpis: any, _reportText: string | null)
     d.googleCampaigns.filter(c => c.leads > 0 || c.spend > 50).forEach((c, i) => {
       slides.push(<CampaignDetailSlide key={`google-${i}`} c={c} platform="google" weeks={d.weeks} />);
     });
+
+    // 7b. Top palavras-chave + Top termos de pesquisa (agregado Google Ads)
+    const hasKw = (d.googleTopKeywords?.length ?? 0) > 0;
+    const hasSt = (d.googleTopSearchTerms?.length ?? 0) > 0;
+    if (hasKw || hasSt) slides.push(<GoogleKeywordsSlide key="google-kw" d={d} />);
   }
 
   // 8. Anúncios Meta do período
@@ -435,6 +442,75 @@ function CampaignSummarySlide({ title, rows, analysis, observations }: { title: 
         </table>
       </div>
       <ContextCallout analysis={analysis} observations={observations} />
+    </SlideShell>
+  );
+}
+
+function GoogleKeywordsSlide({ d }: { d: PresentationData }) {
+  const kw = d.googleTopKeywords ?? [];
+  const st = d.googleTopSearchTerms ?? [];
+  return (
+    <SlideShell title="Google Ads — Palavras e Termos" subtitle="Top palavras-chave e termos de pesquisa do período">
+      <div className="grid grid-cols-2 gap-6 flex-1 min-h-0">
+        <div className="bg-card border border-border rounded-2xl overflow-hidden flex flex-col">
+          <div className="px-5 py-3 border-b border-border text-xs uppercase tracking-widest text-text-muted">Top Palavras-Chave</div>
+          <div className="overflow-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-text-muted uppercase tracking-wider">
+                  <th className="text-left px-5 py-3">Palavra-chave</th>
+                  <th className="text-right px-3 py-3">Cliques</th>
+                  <th className="text-right px-3 py-3">Conv</th>
+                  <th className="text-right px-3 py-3">CPC</th>
+                </tr>
+              </thead>
+              <tbody>
+                {kw.length === 0 && (
+                  <tr><td colSpan={4} className="px-5 py-6 text-center text-text-muted text-xs">Sem dados de palavras-chave no período.</td></tr>
+                )}
+                {kw.map((k, i) => (
+                  <tr key={i} className={i < kw.length - 1 ? "border-b border-border" : ""}>
+                    <td className="px-5 py-3">
+                      <div className="font-mono text-text-primary truncate max-w-xs" title={k.text}>{k.text}</div>
+                      {k.matchType && <div className="text-[10px] text-text-muted">[{k.matchType}]</div>}
+                    </td>
+                    <td className="px-3 py-3 text-right font-mono text-blue">{k.clicks}</td>
+                    <td className="px-3 py-3 text-right font-mono text-accent">{Number(k.conversions).toFixed(0)}</td>
+                    <td className="px-3 py-3 text-right font-mono text-text-secondary">{k.clicks > 0 ? `R$ ${(Number(k.spend) / k.clicks).toFixed(2)}` : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div className="bg-card border border-border rounded-2xl overflow-hidden flex flex-col">
+          <div className="px-5 py-3 border-b border-border text-xs uppercase tracking-widest text-text-muted">Top Termos de Pesquisa</div>
+          <div className="overflow-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-xs text-text-muted uppercase tracking-wider">
+                  <th className="text-left px-5 py-3">Termo</th>
+                  <th className="text-right px-3 py-3">Cliques</th>
+                  <th className="text-right px-3 py-3">Conv</th>
+                </tr>
+              </thead>
+              <tbody>
+                {st.length === 0 && (
+                  <tr><td colSpan={3} className="px-5 py-6 text-center text-text-muted text-xs">Sem dados de termos de pesquisa no período.</td></tr>
+                )}
+                {st.map((s, i) => (
+                  <tr key={i} className={i < st.length - 1 ? "border-b border-border" : ""}>
+                    <td className="px-5 py-3 font-mono text-text-primary truncate max-w-xs" title={s.term}>{s.term}</td>
+                    <td className="px-3 py-3 text-right font-mono text-blue">{s.clicks}</td>
+                    <td className="px-3 py-3 text-right font-mono text-accent">{Number(s.conversions).toFixed(0)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </SlideShell>
   );
 }
