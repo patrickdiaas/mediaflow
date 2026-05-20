@@ -11,6 +11,7 @@ create table if not exists clients (
   google_ads_customer_id  text,
   google_ads_manager_id   text,
   rdstation_slug          text,               -- slug usado no webhook RD Station (?client=)
+  logo_url                text,               -- URL do logo (usado na capa da apresentação)
   active                  boolean default true,
   created_at              timestamptz default now()
 );

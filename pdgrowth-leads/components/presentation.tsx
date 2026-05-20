@@ -4,6 +4,8 @@ import { X, ChevronLeft, ChevronRight, Maximize2, ExternalLink } from "lucide-re
 
 interface PresentationData {
   client: string;
+  clientLogoUrl?: string | null;
+  clientDisplayName?: string | null;
   reportType: string;
   periodFrom: string;
   periodTo: string;
@@ -102,7 +104,11 @@ export default function Presentation({ data, kpis, destaquesText, onClose }: Pro
         <div className="flex items-center gap-3 text-xs text-text-muted">
           <span className="font-mono">{idx + 1} / {slides.length}</span>
           <span className="text-text-dark">·</span>
-          <span className="text-text-secondary">{data.client}</span>
+          {data.clientLogoUrl ? (
+            <img src={data.clientLogoUrl} alt="" className="h-5 w-auto opacity-80" />
+          ) : (
+            <span className="text-text-secondary">{data.clientDisplayName || data.client}</span>
+          )}
           <span className="text-text-dark">·</span>
           <span>{brDateFull(data.periodFrom)} a {brDateFull(data.periodTo)}</span>
         </div>
@@ -202,10 +208,14 @@ function buildSlides(d: PresentationData, kpis: any, destaquesText: string | nul
 
 // ─── Slides individuais ──────────────────────────────────────────────────────
 function CoverSlide({ d }: { d: PresentationData }) {
+  const displayName = d.clientDisplayName || d.client;
   return (
     <div className="flex-1 flex flex-col items-center justify-center text-center">
+      {d.clientLogoUrl && (
+        <img src={d.clientLogoUrl} alt={displayName} className="w-80 h-auto mb-10 opacity-95" />
+      )}
       <div className="text-[10px] uppercase tracking-[0.3em] text-accent font-semibold mb-4">Relatório {d.reportType}</div>
-      <div className="text-6xl font-bold text-text-primary tracking-tight mb-3">{d.client}</div>
+      {!d.clientLogoUrl && <div className="text-6xl font-bold text-text-primary tracking-tight mb-3">{displayName}</div>}
       <div className="text-2xl text-text-secondary mb-12">{brDateFull(d.periodFrom)} a {brDateFull(d.periodTo)}</div>
       <div className="flex items-center gap-3 text-xs text-text-muted">
         <span className="font-display font-bold text-accent text-base">PD</span>

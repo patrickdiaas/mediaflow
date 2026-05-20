@@ -899,9 +899,18 @@ IMPORTANTE sobre formatação:
 - Use ### para subtítulos dentro das seções.
 - NÃO use ### sozinho com emojis — escreva o texto descritivo completo.`;
 
+    // Busca metadados do cliente (display_name, logo) pra apresentação
+    const { data: clientMeta } = await supabase
+      .from("clients")
+      .select("display_name, logo_url")
+      .eq("slug", client)
+      .maybeSingle();
+
     // Dados estruturados pra modo apresentação (slides) — frontend renderiza
     // sem precisar fazer fetch adicional.
     const presentation = {
+      clientLogoUrl: clientMeta?.logo_url ?? null,
+      clientDisplayName: clientMeta?.display_name ?? null,
       client,
       reportType,
       periodFrom,
