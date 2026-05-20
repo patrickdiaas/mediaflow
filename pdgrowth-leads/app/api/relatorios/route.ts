@@ -216,7 +216,7 @@ export async function POST(req: NextRequest) {
     // ── Ad campaigns ────────────────────────────────────────────────────────
     const { data: adCampaignsRaw } = await supabase
       .from("ad_campaigns")
-      .select("campaign_id, campaign_name, platform, date, impressions, clicks, spend, reach")
+      .select("campaign_id, campaign_name, platform, date, impressions, clicks, spend, reach, status")
       .eq("client_slug", client)
       .gte("date", fetchSince)
       .lte("date", fetchUntil);
@@ -325,14 +325,26 @@ export async function POST(req: NextRequest) {
     for (const l of mainLeads) formMap.set(l.conversion_event ?? "desconhecido", (formMap.get(l.conversion_event ?? "desconhecido") ?? 0) + 1);
     const topForms = Array.from(formMap.entries()).sort((a, b) => b[1] - a[1]).slice(0, 10);
 
-    // Aggregate de campanhas (período principal)
-    const campAgg = new Map<string, { name: string; platform: string; campaignIds: Set<string>; spend: number; impressions: number; clicks: number; reach: number; leads: number }>();
+    // Aggregate de campanhas (período principal) — guarda status mais recente
+    // (linha de data mais alta) para diferenciar campanhas ativas das pausadas.
+    const campAgg = new Map<string, { name: string; platform: string; campaignIds: Set<string>; spend: number; impressions: number; clicks: number; reach: number; leads: number; status: string; last_date: string }>();
     for (const c of mainAds) {
       const key = c.campaign_name;
-      const e = campAgg.get(key) ?? { name: c.campaign_name, platform: c.platform, campaignIds: new Set(), spend: 0, impressions: 0, clicks: 0, reach: 0, leads: 0 };
-      e.spend += Number(c.spend); e.impressions += Number(c.impressions); e.clicks += Number(c.clicks); e.reach += Number(c.reach);
-      if (c.campaign_id) e.campaignIds.add(c.campaign_id);
-      campAgg.set(key, e);
+      const ex = campAgg.get(key);
+      if (ex) {
+        ex.spend += Number(c.spend); ex.impressions += Number(c.impressions); ex.clicks += Number(c.clicks); ex.reach += Number(c.reach);
+        if (c.campaign_id) ex.campaignIds.add(c.campaign_id);
+        if (c.date > ex.last_date) { ex.last_date = c.date; ex.status = (c as any).status ?? ex.status; }
+      } else {
+        campAgg.set(key, {
+          name: c.campaign_name, platform: c.platform,
+          campaignIds: new Set(c.campaign_id ? [c.campaign_id] : []),
+          spend: Number(c.spend), impressions: Number(c.impressions), clicks: Number(c.clicks), reach: Number(c.reach),
+          leads: 0,
+          status: (c as any).status ?? "",
+          last_date: c.date,
+        });
+      }
     }
     // Constrói índice de atribuição (exato → id → alias → fuzzy → event)
     const campIndex = buildAttributionIndex(
@@ -362,6 +374,38 @@ export async function POST(req: NextRequest) {
     const campaignRows = Array.from(campAgg.values())
       .map(c => ({ ...c, ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0, cpl: c.leads > 0 ? c.spend / c.leads : null }))
       .sort((a, b) => (b.leads || 0) - (a.leads || 0));
+
+    // ── Stats por (campanha, semana) para sub-tabela semanal no detalhamento ──
+    // Passada única sobre mainAds e mainLeads, indexando pelo bucket de semana.
+    const campaignWeekly = new Map<string, { spend: number; impressions: number; clicks: number; leads: number }[]>();
+    const findWeekIdx = (dateStr: string): number => {
+      for (let i = 0; i < weeks.length; i++) {
+        if (dateStr >= weeks[i].since && dateStr <= weeks[i].until) return i;
+      }
+      return -1;
+    };
+    const ensureCampaignWeekly = (campName: string) => {
+      if (!campaignWeekly.has(campName)) {
+        campaignWeekly.set(campName, weeks.map(() => ({ spend: 0, impressions: 0, clicks: 0, leads: 0 })));
+      }
+      return campaignWeekly.get(campName)!;
+    };
+    for (const a of mainAds) {
+      const wIdx = findWeekIdx(a.date);
+      if (wIdx === -1) continue;
+      const arr = ensureCampaignWeekly(a.campaign_name);
+      arr[wIdx].spend += Number(a.spend);
+      arr[wIdx].impressions += Number(a.impressions);
+      arr[wIdx].clicks += Number(a.clicks);
+    }
+    for (const l of mainLeads) {
+      const wIdx = findWeekIdx(l._brt_date);
+      if (wIdx === -1) continue;
+      const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event);
+      if (!r.campaign_name) continue;
+      const arr = ensureCampaignWeekly(r.campaign_name);
+      arr[wIdx].leads++;
+    }
 
     // ── Criativos do período principal ──────────────────────────────────────
     const { data: adCreativesRaw } = await supabase
@@ -571,21 +615,44 @@ ${(["total", "meta", "google"] as const)
     const metaCampaigns = campaignRows.filter(c => c.platform === "meta");
     const googleCampaigns = campaignRows.filter(c => c.platform === "google");
 
+    // Status legível por campanha (Ativo / Pausado)
+    const campStatusLabel = (st: string) => {
+      const s = String(st ?? "").toUpperCase();
+      if (s === "PAUSED" || s === "DISABLED" || s === "ARCHIVED") return "Pausado";
+      if (s === "ACTIVE" || s === "ENABLED" || s === "") return "Ativo";
+      return s;
+    };
+    // Sub-tabela: gasto/leads por semana de uma campanha
+    const campaignWeeklyLines = (campName: string) => {
+      const arr = campaignWeekly.get(campName);
+      if (!arr || !arr.some(w => w.spend > 0 || w.leads > 0)) return "";
+      return `    Por semana:\n${arr.map((w, i) => {
+        const cpl = w.leads > 0 && w.spend > 0 ? w.spend / w.leads : 0;
+        const ctr = w.impressions > 0 ? (w.clicks / w.impressions) * 100 : 0;
+        return `      - ${weeks[i].label}: R$${fmt(w.spend)} | ${w.leads} leads | CPL ${cpl > 0 ? `R$${fmt(cpl)}` : "—"} | CTR ${pct(ctr)}`;
+      }).join("\n")}`;
+    };
+
     const mainDetailContext = `
 DETALHAMENTO DO PERÍODO (${brDateFull(periodFrom)} a ${brDateFull(periodTo)}):
 - Total: ${mainLeads.length} leads | R$${fmt(mainAds.reduce((s, a) => s + Number(a.spend), 0))} invest
 - Formulários (top 10): ${topForms.map(([f, n]) => `${f} (${n})`).join(", ")}
 
-${metaCampaigns.length > 0 ? `META ADS — POR CAMPANHA:
+${metaCampaigns.length > 0 ? `RESUMO META ADS — TODAS AS CAMPANHAS NO PERÍODO (ordenadas por leads):
+${metaCampaigns.map(c => `  - ${c.name} | ${campStatusLabel(c.status)} | R$${fmt(c.spend)} | ${c.leads} leads | CPL ${c.cpl ? `R$${fmt(c.cpl)}` : "—"} | CTR ${pct(c.ctr)}`).join("\n")}
+
+META ADS — POR CAMPANHA (detalhe + criativos + semana a semana):
 ${metaCampaigns.filter(c => c.leads > 0 || c.spend > 50).map(c => {
   const creatives = creativesByCampaign.get(c.name) ?? [];
   const forms = formsByCampaign.get(c.name);
   const formsStr = forms ? Array.from(forms.entries()).sort((a, b) => b[1] - a[1]).map(([f, n]) => `${f}(${n})`).join(", ") : "";
+  const weeklyStr = campaignWeeklyLines(c.name);
   return [
-    `  CAMPANHA: ${c.name}`,
+    `  CAMPANHA: ${c.name} | ${campStatusLabel(c.status)}`,
     `    Gasto: R$${fmt(c.spend)} | Impressões: ${fmtInt(c.impressions)} | Cliques: ${fmtInt(c.clicks)} | CTR: ${pct(c.ctr)}`,
     `    Leads: ${c.leads}${c.cpl ? ` | CPL: R$${fmt(c.cpl)}` : ""}`,
     formsStr ? `    Formulários: ${formsStr}` : "",
+    weeklyStr,
     creatives.length > 0 ? `    Criativos:\n${creatives.map(cr => {
       const created = (cr as any).created_at_meta ? String((cr as any).created_at_meta).slice(0, 10) : null;
       const updated = (cr as any).updated_at_meta ? String((cr as any).updated_at_meta).slice(0, 10) : null;
@@ -604,12 +671,19 @@ ${metaCampaigns.filter(c => c.leads > 0 || c.spend > 50).map(c => {
   ].filter(Boolean).join("\n");
 }).join("\n\n")}${topPlacements.length > 0 ? `\n\n  POSICIONAMENTOS:\n${topPlacements.map(p => `    ${p.name}: ${p.conversions} conv | ${fmtInt(p.clicks)} cliques | R$${fmt(p.spend)}`).join("\n")}` : ""}` : ""}
 
-${googleCampaigns.length > 0 ? `GOOGLE ADS — POR CAMPANHA:
-${googleCampaigns.filter(c => c.leads > 0 || c.spend > 50).map(c => [
-  `  CAMPANHA: ${c.name}`,
-  `    Gasto: R$${fmt(c.spend)} | Impressões: ${fmtInt(c.impressions)} | Cliques: ${fmtInt(c.clicks)} | CTR: ${pct(c.ctr)}`,
-  `    Leads: ${c.leads}${c.cpl ? ` | CPL: R$${fmt(c.cpl)}` : ""}`,
-].join("\n")).join("\n\n")}
+${googleCampaigns.length > 0 ? `RESUMO GOOGLE ADS — TODAS AS CAMPANHAS NO PERÍODO (ordenadas por leads):
+${googleCampaigns.map(c => `  - ${c.name} | ${campStatusLabel(c.status)} | R$${fmt(c.spend)} | ${c.leads} leads | CPL ${c.cpl ? `R$${fmt(c.cpl)}` : "—"} | CTR ${pct(c.ctr)}`).join("\n")}
+
+GOOGLE ADS — POR CAMPANHA (detalhe + semana a semana):
+${googleCampaigns.filter(c => c.leads > 0 || c.spend > 50).map(c => {
+  const weeklyStr = campaignWeeklyLines(c.name);
+  return [
+    `  CAMPANHA: ${c.name} | ${campStatusLabel(c.status)}`,
+    `    Gasto: R$${fmt(c.spend)} | Impressões: ${fmtInt(c.impressions)} | Cliques: ${fmtInt(c.clicks)} | CTR: ${pct(c.ctr)}`,
+    `    Leads: ${c.leads}${c.cpl ? ` | CPL: R$${fmt(c.cpl)}` : ""}`,
+    weeklyStr,
+  ].filter(Boolean).join("\n");
+}).join("\n\n")}
 
   TOP PALAVRAS-CHAVE:
 ${topKw.slice(0, 10).map((k, i) => `    ${i + 1}. "${k.text}" [${k.matchType}] | ${k.clicks} cliques | ${k.conversions.toFixed(0)} conv | CPC R$${k.clicks > 0 ? fmt(k.spend / k.clicks) : "—"}`).join("\n")}
@@ -776,12 +850,12 @@ Após a tabela, mostre a projeção (run-rate). Comente em 2-3 frases se o ritmo
 
     sections.push(["Meta Ads — Resultados por Campanha (período " + brDateFull(periodFrom) + " a " + brDateFull(periodTo) + ")",
       metaCampaigns.length > 0
-        ? "Para CADA campanha Meta com investimento ou leads no período selecionado, apresente: investimento, leads, CPL, CTR. Abaixo de cada campanha, liste TODOS os criativos com gasto (mesmo os com zero leads). Para cada criativo, mostre: nome, data de criação (campo 'criado:' do contexto), status (Ativo ou 'Pausado em DATA' — copie literal do contexto), gasto, leads, CTR, CPL e link. Se houver nota: incluir abaixo como bullet de observação. Mencione posicionamentos que mais converteram. Os números devem refletir TODO o período selecionado, não apenas a semana mais recente."
+        ? "Inicie a seção com uma TABELA RESUMO baseada em 'RESUMO META ADS — TODAS AS CAMPANHAS NO PERÍODO' (do contexto), com colunas: Campanha | Status | Investimento | Leads | CPL | CTR. Inclua TODAS as campanhas listadas no resumo (não filtre). Após a tabela resumo, faça o detalhamento POR CAMPANHA usando os blocos do contexto. Para cada campanha (do bloco 'META ADS — POR CAMPANHA'): cabeçalho com nome + status, subbloco com investimento/impressões/cliques/CTR/leads/CPL, depois sub-tabela 'Semana a Semana' (colunas: Semana | Investimento | Leads | CPL | CTR) usando os dados de 'Por semana:' do contexto, e por fim a lista de criativos (criado em / status / gasto / leads / CTR / CPL / link, com nota como bullet abaixo quando presente). Mencione posicionamentos que mais converteram. NÃO invente semanas além das listadas."
         : "Sem campanhas Meta no período."]);
 
     sections.push(["Google Ads — Resultados por Campanha (período " + brDateFull(periodFrom) + " a " + brDateFull(periodTo) + ")",
       googleCampaigns.length > 0
-        ? "Para CADA campanha Google com investimento ou leads no período selecionado, apresente: investimento, leads, CPL, CTR. Liste as top palavras-chave com cliques e conversões. Liste os termos de pesquisa mais relevantes. Destaque termos com alta conversão e termos que gastam sem converter. Os números devem refletir TODO o período selecionado, não apenas a semana mais recente."
+        ? "Inicie com TABELA RESUMO baseada em 'RESUMO GOOGLE ADS — TODAS AS CAMPANHAS NO PERÍODO' (do contexto), colunas: Campanha | Status | Investimento | Leads | CPL | CTR. Após a tabela resumo, detalhe POR CAMPANHA: cabeçalho com nome + status, métricas agregadas, sub-tabela 'Semana a Semana' (Semana | Investimento | Leads | CPL | CTR), top palavras-chave com cliques e conversões, top termos de pesquisa, destacando termos com alta conversão e termos que gastam sem converter. NÃO invente semanas além das listadas."
         : "Sem campanhas Google no período."]);
 
     if (unmatchedLeads.length > 0) {
