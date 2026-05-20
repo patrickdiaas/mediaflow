@@ -19,9 +19,19 @@ interface ReportObservation {
   since: string;
   until: string | null;
   content: string;
+  slide_tag: string | null;
   created_at: string;
   updated_at: string;
 }
+
+const SLIDE_TAGS: { value: string; label: string }[] = [
+  { value: "",          label: "Geral (aparece como seção dedicada)" },
+  { value: "pacing",    label: "Pacing do mês" },
+  { value: "weekly",    label: "Comparativo semanal" },
+  { value: "monthly",   label: "Mês corrente vs anterior" },
+  { value: "meta",      label: "Meta Ads" },
+  { value: "google",    label: "Google Ads" },
+];
 
 interface ReportAction {
   id: string;
@@ -189,6 +199,7 @@ export default function RelatoriosPage() {
   const [newObsSince, setNewObsSince] = useState(() => new Date().toISOString().slice(0, 10));
   const [newObsUntil, setNewObsUntil] = useState("");
   const [newObsContent, setNewObsContent] = useState("");
+  const [newObsTag, setNewObsTag] = useState("");
   const [savingObs, setSavingObs] = useState(false);
 
   // Ações realizadas pelo gestor — persistidas e injetadas no contexto.
@@ -221,12 +232,14 @@ export default function RelatoriosPage() {
     if (res.ok) setObservations(json.data ?? []);
   }
 
-  async function addObservation(content?: string, since?: string, until?: string) {
+  async function addObservation(content?: string, since?: string, until?: string, slideTag?: string) {
+    const tagToUse = slideTag !== undefined ? slideTag : newObsTag;
     const body = {
       client_slug: client,
       since: (since ?? newObsSince),
       until: (until ?? newObsUntil) || null,
       content: (content ?? newObsContent).trim(),
+      slide_tag: tagToUse || null,
     };
     if (!body.content || client === "all") return;
     setSavingObs(true);
@@ -236,7 +249,7 @@ export default function RelatoriosPage() {
       body: JSON.stringify(body),
     });
     if (res.ok) {
-      if (!content) { setNewObsContent(""); setNewObsUntil(""); }
+      if (!content) { setNewObsContent(""); setNewObsUntil(""); setNewObsTag(""); }
       fetchObservations();
     } else {
       const j = await res.json().catch(() => ({}));
@@ -687,11 +700,21 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
                     rows={3}
                     className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-accent/40 resize-y"
                   />
-                  <div className="flex justify-end">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="flex-1">
+                      <label className="text-[10px] text-text-muted block mb-1">Aparece em qual slide da apresentação?</label>
+                      <select
+                        value={newObsTag}
+                        onChange={e => setNewObsTag(e.target.value)}
+                        className="w-full bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-accent/40"
+                      >
+                        {SLIDE_TAGS.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                      </select>
+                    </div>
                     <button
                       onClick={() => addObservation()}
                       disabled={savingObs || !newObsContent.trim()}
-                      className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-accent/10 border border-accent/30 text-accent hover:bg-accent/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                      className="self-end flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-accent/10 border border-accent/30 text-accent hover:bg-accent/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
                     >
                       <Plus size={12} />
                       {savingObs ? "Salvando..." : "Adicionar observação"}
@@ -701,11 +724,14 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
 
                 {observations.length > 0 && (
                   <div className="border-t border-border pt-3 space-y-2">
-                    {observations.map(o => (
+                    {observations.map(o => {
+                      const tagLabel = SLIDE_TAGS.find(t => t.value === (o.slide_tag ?? ""))?.label.split(" ")[0] ?? "Geral";
+                      return (
                       <div key={o.id} className="flex items-start gap-2 py-1.5">
-                        <span className="text-[10px] font-mono text-text-muted flex-shrink-0 mt-0.5 w-32 break-all">
+                        <span className="text-[10px] font-mono text-text-muted flex-shrink-0 mt-0.5 w-28 break-all">
                           {o.until ? `${o.since.slice(5).replace("-", "/")} a ${o.until.slice(5).replace("-", "/")}` : `desde ${o.since.slice(5).replace("-", "/")}`}
                         </span>
+                        <span className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md border text-blue border-blue/30 bg-blue/10 flex-shrink-0 mt-0.5">{tagLabel}</span>
                         <div className="flex-1 text-xs text-text-secondary leading-relaxed whitespace-pre-wrap">{o.content}</div>
                         <button
                           onClick={() => deleteObservation(o.id)}
@@ -715,7 +741,8 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
                           <Trash2 size={12} />
                         </button>
                       </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>

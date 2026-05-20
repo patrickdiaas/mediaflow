@@ -274,7 +274,7 @@ export async function POST(req: NextRequest) {
     // destaques e variações inesperadas.
     const { data: obsRaw } = await supabase
       .from("report_observations")
-      .select("since, until, content")
+      .select("since, until, content, slide_tag")
       .eq("client_slug", client)
       .lte("since", periodTo)
       .or(`until.is.null,until.gte.${periodFrom}`)

@@ -59,11 +59,22 @@ function deltaColor(curr: number, prev: number, inverted = false): string {
   return better ? "text-accent" : "text-red";
 }
 
-// Extrai a seção 'Destaques' do markdown da Claude
-function extractDestaques(text: string | null): string | null {
+// Extrai uma seção do markdown da Claude por título (case-insensitive, parcial).
+// Procura por '**N. Título...' ou '## N. Título...' e devolve o conteúdo até a
+// próxima seção. Devolve null se não encontrar.
+function extractSection(text: string | null, titlePattern: string): string | null {
   if (!text) return null;
-  const m = text.match(/\*\*\d+\.\s*Destaques[^*]*\*\*\s*\n([\s\S]+?)(?:\n\*\*\d+\.|$)/i);
+  const re = new RegExp(`(?:\\*\\*|##\\s*)\\d+\\.?\\s*${titlePattern}[^*\\n]*(?:\\*\\*|)\\s*\\n([\\s\\S]+?)(?:\\n(?:\\*\\*|##\\s*)\\d+\\.?\\s|$)`, "i");
+  const m = text.match(re);
   return m ? m[1].trim() : null;
+}
+
+// Filtra observações por tag (e separa as gerais)
+function obsByTag(observations: any[], tag: string): any[] {
+  return observations.filter(o => o.slide_tag === tag);
+}
+function obsGeneral(observations: any[]): any[] {
+  return observations.filter(o => !o.slide_tag || o.slide_tag === "general");
 }
 
 export default function Presentation({ data, kpis, destaquesText, onClose }: Props) {
@@ -152,8 +163,16 @@ export default function Presentation({ data, kpis, destaquesText, onClose }: Pro
 }
 
 // ─── Construtor de slides ────────────────────────────────────────────────────
-function buildSlides(d: PresentationData, kpis: any, destaquesText: string | null): React.ReactNode[] {
+function buildSlides(d: PresentationData, kpis: any, reportText: string | null): React.ReactNode[] {
   const slides: React.ReactNode[] = [];
+
+  // Extrai análises da Claude por seção
+  const analysisPacing  = extractSection(reportText, "Pacing");
+  const analysisWeekly  = extractSection(reportText, "Comparativo Semanal");
+  const analysisMonthly = extractSection(reportText, "M[êe]s Corrente");
+  const analysisMeta    = extractSection(reportText, "Meta Ads");
+  const analysisGoogle  = extractSection(reportText, "Google Ads");
+  const analysisDestaq  = extractSection(reportText, "Destaques");
 
   // 1. Capa
   slides.push(<CoverSlide key="cover" d={d} />);
@@ -162,18 +181,17 @@ function buildSlides(d: PresentationData, kpis: any, destaquesText: string | nul
   slides.push(<OverviewSlide key="overview" d={d} kpis={kpis} />);
 
   // 3. Pacing
-  if (d.pacing) slides.push(<PacingSlide key="pacing" d={d} />);
+  if (d.pacing) slides.push(<PacingSlide key="pacing" d={d} analysis={analysisPacing} observations={obsByTag(d.reportObservations, "pacing")} />);
 
   // 4. Comparativo Semanal
-  if (d.weekStats.length > 1) slides.push(<WeeklySlide key="weekly" d={d} />);
+  if (d.weekStats.length > 1) slides.push(<WeeklySlide key="weekly" d={d} analysis={analysisWeekly} observations={obsByTag(d.reportObservations, "weekly")} />);
 
   // 5. Mês corrente vs anterior
-  slides.push(<MonthlySlide key="monthly" d={d} />);
+  slides.push(<MonthlySlide key="monthly" d={d} analysis={analysisMonthly} observations={obsByTag(d.reportObservations, "monthly")} />);
 
   // 6. Resumo Meta
   if (d.metaCampaigns.length > 0) {
-    slides.push(<MetaSummarySlide key="meta-summary" d={d} />);
-    // 7-N. Detalhe por campanha Meta (filtra ativas/com gasto)
+    slides.push(<MetaSummarySlide key="meta-summary" d={d} analysis={analysisMeta} observations={obsByTag(d.reportObservations, "meta")} />);
     d.metaCampaigns.filter(c => c.leads > 0 || c.spend > 50).forEach((c, i) => {
       slides.push(<CampaignDetailSlide key={`meta-${i}`} c={c} platform="meta" weeks={d.weeks} />);
     });
@@ -181,7 +199,7 @@ function buildSlides(d: PresentationData, kpis: any, destaquesText: string | nul
 
   // 8. Resumo Google
   if (d.googleCampaigns.length > 0) {
-    slides.push(<GoogleSummarySlide key="google-summary" d={d} />);
+    slides.push(<GoogleSummarySlide key="google-summary" d={d} analysis={analysisGoogle} observations={obsByTag(d.reportObservations, "google")} />);
     d.googleCampaigns.filter(c => c.leads > 0 || c.spend > 50).forEach((c, i) => {
       slides.push(<CampaignDetailSlide key={`google-${i}`} c={c} platform="google" weeks={d.weeks} />);
     });
@@ -193,12 +211,12 @@ function buildSlides(d: PresentationData, kpis: any, destaquesText: string | nul
   // 10. Ações
   if (d.reportActions.length > 0) slides.push(<ActionsSlide key="actions" d={d} />);
 
-  // 11. Observações
-  if (d.reportObservations.length > 0) slides.push(<ObservationsSlide key="obs" d={d} />);
+  // 11. Observações gerais (sem tag específica)
+  const generalObs = obsGeneral(d.reportObservations);
+  if (generalObs.length > 0) slides.push(<ObservationsSlide key="obs" observations={generalObs} />);
 
   // 12. Destaques (texto da Claude)
-  const destaques = extractDestaques(destaquesText);
-  if (destaques) slides.push(<DestaquesSlide key="destaques" text={destaques} />);
+  if (analysisDestaq) slides.push(<DestaquesSlide key="destaques" text={analysisDestaq} />);
 
   // 13. Fim
   slides.push(<EndSlide key="end" d={d} />);
@@ -252,7 +270,7 @@ function OverviewSlide({ d, kpis }: { d: PresentationData; kpis: any }) {
   );
 }
 
-function PacingSlide({ d }: { d: PresentationData }) {
+function PacingSlide({ d, analysis, observations }: { d: PresentationData; analysis?: string | null; observations?: any[] }) {
   const order: ("total" | "meta" | "google")[] = ["total", "meta", "google"];
   const items = order.filter(k => d.pacing?.[k]).map(k => ({ key: k, ...d.pacing![k] }));
   return (
@@ -295,11 +313,12 @@ function PacingSlide({ d }: { d: PresentationData }) {
           );
         })}
       </div>
+      <ContextCallout analysis={analysis} observations={observations} />
     </SlideShell>
   );
 }
 
-function WeeklySlide({ d }: { d: PresentationData }) {
+function WeeklySlide({ d, analysis, observations }: { d: PresentationData; analysis?: string | null; observations?: any[] }) {
   return (
     <SlideShell title="Comparativo Semanal">
       <div className="bg-card border border-border rounded-2xl overflow-hidden flex-1">
@@ -334,11 +353,12 @@ function WeeklySlide({ d }: { d: PresentationData }) {
           </tbody>
         </table>
       </div>
+      <ContextCallout analysis={analysis} observations={observations} />
     </SlideShell>
   );
 }
 
-function MonthlySlide({ d }: { d: PresentationData }) {
+function MonthlySlide({ d, analysis, observations }: { d: PresentationData; analysis?: string | null; observations?: any[] }) {
   const cur = d.monthCurStats, prev = d.monthPrevStats;
   const rows = [
     { label: "Total", cur: { leads: cur.leads, spend: cur.spend, cpl: cur.cpl }, prev: { leads: prev.leads, spend: prev.spend, cpl: prev.cpl } },
@@ -388,17 +408,18 @@ function MonthlySlide({ d }: { d: PresentationData }) {
           <div className="text-lg font-mono text-blue mt-1">R$ {fmt(d.runRate.spend)} investimento</div>
         </div>
       </div>
+      <ContextCallout analysis={analysis} observations={observations} />
     </SlideShell>
   );
 }
 
-function MetaSummarySlide({ d }: { d: PresentationData }) {
-  return <CampaignSummarySlide title="Resumo Meta Ads" rows={d.metaCampaigns} />;
+function MetaSummarySlide({ d, analysis, observations }: { d: PresentationData; analysis?: string | null; observations?: any[] }) {
+  return <CampaignSummarySlide title="Resumo Meta Ads" rows={d.metaCampaigns} analysis={analysis} observations={observations} />;
 }
-function GoogleSummarySlide({ d }: { d: PresentationData }) {
-  return <CampaignSummarySlide title="Resumo Google Ads" rows={d.googleCampaigns} />;
+function GoogleSummarySlide({ d, analysis, observations }: { d: PresentationData; analysis?: string | null; observations?: any[] }) {
+  return <CampaignSummarySlide title="Resumo Google Ads" rows={d.googleCampaigns} analysis={analysis} observations={observations} />;
 }
-function CampaignSummarySlide({ title, rows }: { title: string; rows: any[] }) {
+function CampaignSummarySlide({ title, rows, analysis, observations }: { title: string; rows: any[]; analysis?: string | null; observations?: any[] }) {
   return (
     <SlideShell title={title} subtitle="Todas as campanhas do período">
       <div className="bg-card border border-border rounded-2xl overflow-hidden">
@@ -434,6 +455,7 @@ function CampaignSummarySlide({ title, rows }: { title: string; rows: any[] }) {
           </tbody>
         </table>
       </div>
+      <ContextCallout analysis={analysis} observations={observations} />
     </SlideShell>
   );
 }
@@ -595,11 +617,11 @@ function ActionsSlide({ d }: { d: PresentationData }) {
   );
 }
 
-function ObservationsSlide({ d }: { d: PresentationData }) {
+function ObservationsSlide({ observations }: { observations: any[] }) {
   return (
     <SlideShell title="Observações do Gestor">
       <div className="space-y-4 flex-1 overflow-auto">
-        {d.reportObservations.map((o, i) => (
+        {observations.map((o, i) => (
           <div key={i} className="bg-card border border-border rounded-xl p-5">
             <div className="text-xs font-mono text-text-muted mb-2">{o.until ? `${brDateShort(o.since)} a ${brDateShort(o.until)}` : `desde ${brDateShort(o.since)}`}</div>
             <div className="text-base text-text-primary leading-relaxed whitespace-pre-wrap">{o.content}</div>
@@ -654,6 +676,39 @@ function SlideShell({ title, subtitle, children }: { title: string; subtitle?: s
       <div className="flex-1 flex flex-col min-h-0">{children}</div>
     </div>
   );
+}
+
+// Callout pra mostrar análise da Claude + observações do gestor no fim do slide
+function ContextCallout({ analysis, observations }: { analysis?: string | null; observations?: any[] }) {
+  const hasAnalysis = !!analysis;
+  const hasObs = observations && observations.length > 0;
+  if (!hasAnalysis && !hasObs) return null;
+  return (
+    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
+      {hasAnalysis && (
+        <div className="bg-card border-l-4 border-accent rounded-r-lg px-4 py-3">
+          <div className="text-[10px] uppercase tracking-widest text-accent font-semibold mb-1">Análise</div>
+          <div className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">{renderInlineMd(analysis!)}</div>
+        </div>
+      )}
+      {hasObs && (
+        <div className="bg-card border-l-4 border-blue rounded-r-lg px-4 py-3">
+          <div className="text-[10px] uppercase tracking-widest text-blue font-semibold mb-1">Observação do gestor</div>
+          <div className="space-y-2">
+            {observations!.map((o, i) => (
+              <div key={i} className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">{o.content}</div>
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+// Renderiza markdown inline simples (bold) sem usar lib
+function renderInlineMd(text: string): React.ReactNode {
+  const parts = text.split(/\*\*(.+?)\*\*/g);
+  return parts.map((p, i) => i % 2 === 1 ? <strong key={i} className="text-text-primary font-semibold">{p}</strong> : p);
 }
 
 function KpiBoxLarge({ label, value, color }: { label: string; value: string; color: string }) {

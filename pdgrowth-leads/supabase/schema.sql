@@ -237,6 +237,9 @@ create table if not exists report_observations (
   since        date not null,
   until        date,                                    -- null = vigente sem data de fim
   content      text not null,
+  -- tag opcional que vincula a observação a um slide específico da apresentação:
+  -- 'pacing' | 'weekly' | 'monthly' | 'meta' | 'google' | 'general' (default)
+  slide_tag    text,
   created_at   timestamptz default now(),
   updated_at   timestamptz default now()
 );

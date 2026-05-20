@@ -12,7 +12,7 @@ export async function GET(req: NextRequest) {
 
   let q = supabase
     .from("report_observations")
-    .select("id, client_slug, since, until, content, created_at, updated_at")
+    .select("id, client_slug, since, until, content, slide_tag, created_at, updated_at")
     .order("since", { ascending: false });
 
   if (client && client !== "all") q = q.eq("client_slug", client);
@@ -29,14 +29,14 @@ export async function GET(req: NextRequest) {
 // Body: { client_slug, since, until?, content }
 export async function POST(req: NextRequest) {
   const body = await req.json();
-  const { client_slug, since, until, content } = body ?? {};
+  const { client_slug, since, until, content, slide_tag } = body ?? {};
   if (!client_slug || !since || !content) {
     return NextResponse.json({ error: "client_slug, since e content são obrigatórios" }, { status: 400 });
   }
   const supabase = createServiceClient();
   const { data, error } = await supabase
     .from("report_observations")
-    .insert({ client_slug, since, until: until ?? null, content })
+    .insert({ client_slug, since, until: until ?? null, content, slide_tag: slide_tag ?? null })
     .select()
     .single();
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
@@ -53,6 +53,7 @@ export async function PATCH(req: NextRequest) {
   if ("since" in body) update.since = body.since;
   if ("until" in body) update.until = body.until;
   if ("content" in body) update.content = body.content;
+  if ("slide_tag" in body) update.slide_tag = body.slide_tag;
   const supabase = createServiceClient();
   const { error } = await supabase.from("report_observations").update(update).eq("id", id);
   if (error) return NextResponse.json({ error: error.message }, { status: 500 });
