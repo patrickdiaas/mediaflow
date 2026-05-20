@@ -59,16 +59,6 @@ function deltaColor(curr: number, prev: number, inverted = false): string {
   return better ? "text-accent" : "text-red";
 }
 
-// Extrai uma seção do markdown da Claude por título (case-insensitive, parcial).
-// Procura por '**N. Título...' ou '## N. Título...' e devolve o conteúdo até a
-// próxima seção. Devolve null se não encontrar.
-function extractSection(text: string | null, titlePattern: string): string | null {
-  if (!text) return null;
-  const re = new RegExp(`(?:\\*\\*|##\\s*)\\d+\\.?\\s*${titlePattern}[^*\\n]*(?:\\*\\*|)\\s*\\n([\\s\\S]+?)(?:\\n(?:\\*\\*|##\\s*)\\d+\\.?\\s|$)`, "i");
-  const m = text.match(re);
-  return m ? m[1].trim() : null;
-}
-
 // Filtra observações por tag (e separa as gerais)
 function obsByTag(observations: any[], tag: string): any[] {
   return observations.filter(o => o.slide_tag === tag);
@@ -163,16 +153,8 @@ export default function Presentation({ data, kpis, destaquesText, onClose }: Pro
 }
 
 // ─── Construtor de slides ────────────────────────────────────────────────────
-function buildSlides(d: PresentationData, kpis: any, reportText: string | null): React.ReactNode[] {
+function buildSlides(d: PresentationData, kpis: any, _reportText: string | null): React.ReactNode[] {
   const slides: React.ReactNode[] = [];
-
-  // Extrai análises da Claude por seção
-  const analysisPacing  = extractSection(reportText, "Pacing");
-  const analysisWeekly  = extractSection(reportText, "Comparativo Semanal");
-  const analysisMonthly = extractSection(reportText, "M[êe]s Corrente");
-  const analysisMeta    = extractSection(reportText, "Meta Ads");
-  const analysisGoogle  = extractSection(reportText, "Google Ads");
-  const analysisDestaq  = extractSection(reportText, "Destaques");
 
   // 1. Capa
   slides.push(<CoverSlide key="cover" d={d} />);
@@ -181,44 +163,41 @@ function buildSlides(d: PresentationData, kpis: any, reportText: string | null):
   slides.push(<OverviewSlide key="overview" d={d} kpis={kpis} />);
 
   // 3. Pacing
-  if (d.pacing) slides.push(<PacingSlide key="pacing" d={d} analysis={analysisPacing} observations={obsByTag(d.reportObservations, "pacing")} />);
+  if (d.pacing) slides.push(<PacingSlide key="pacing" d={d} observations={obsByTag(d.reportObservations, "pacing")} />);
 
   // 4. Comparativo Semanal
-  if (d.weekStats.length > 1) slides.push(<WeeklySlide key="weekly" d={d} analysis={analysisWeekly} observations={obsByTag(d.reportObservations, "weekly")} />);
+  if (d.weekStats.length > 1) slides.push(<WeeklySlide key="weekly" d={d} observations={obsByTag(d.reportObservations, "weekly")} />);
 
   // 5. Mês corrente vs anterior
-  slides.push(<MonthlySlide key="monthly" d={d} analysis={analysisMonthly} observations={obsByTag(d.reportObservations, "monthly")} />);
+  slides.push(<MonthlySlide key="monthly" d={d} observations={obsByTag(d.reportObservations, "monthly")} />);
 
-  // 6. Resumo Meta
+  // 6. Resumo Meta + detalhes
   if (d.metaCampaigns.length > 0) {
-    slides.push(<MetaSummarySlide key="meta-summary" d={d} analysis={analysisMeta} observations={obsByTag(d.reportObservations, "meta")} />);
+    slides.push(<MetaSummarySlide key="meta-summary" d={d} observations={obsByTag(d.reportObservations, "meta")} />);
     d.metaCampaigns.filter(c => c.leads > 0 || c.spend > 50).forEach((c, i) => {
       slides.push(<CampaignDetailSlide key={`meta-${i}`} c={c} platform="meta" weeks={d.weeks} />);
     });
   }
 
-  // 8. Resumo Google
+  // 7. Resumo Google + detalhes
   if (d.googleCampaigns.length > 0) {
-    slides.push(<GoogleSummarySlide key="google-summary" d={d} analysis={analysisGoogle} observations={obsByTag(d.reportObservations, "google")} />);
+    slides.push(<GoogleSummarySlide key="google-summary" d={d} observations={obsByTag(d.reportObservations, "google")} />);
     d.googleCampaigns.filter(c => c.leads > 0 || c.spend > 50).forEach((c, i) => {
       slides.push(<CampaignDetailSlide key={`google-${i}`} c={c} platform="google" weeks={d.weeks} />);
     });
   }
 
-  // 9. Anúncios Meta do período
+  // 8. Anúncios Meta do período
   if (d.adsList.length > 0) slides.push(<AdsListSlide key="ads" d={d} />);
 
-  // 10. Ações
+  // 9. Ações
   if (d.reportActions.length > 0) slides.push(<ActionsSlide key="actions" d={d} />);
 
-  // 11. Observações gerais (sem tag específica)
+  // 10. Observações gerais (sem tag específica)
   const generalObs = obsGeneral(d.reportObservations);
   if (generalObs.length > 0) slides.push(<ObservationsSlide key="obs" observations={generalObs} />);
 
-  // 12. Destaques (texto da Claude)
-  if (analysisDestaq) slides.push(<DestaquesSlide key="destaques" text={analysisDestaq} />);
-
-  // 13. Fim
+  // 11. Fim
   slides.push(<EndSlide key="end" d={d} />);
 
   return slides;
@@ -632,30 +611,6 @@ function ObservationsSlide({ observations }: { observations: any[] }) {
   );
 }
 
-function DestaquesSlide({ text }: { text: string }) {
-  // Renderização simples: parágrafos e bullets
-  const lines = text.split("\n").filter(l => l.trim());
-  return (
-    <SlideShell title="Destaques e Pontos de Atenção">
-      <div className="space-y-3 flex-1 overflow-auto">
-        {lines.map((line, i) => {
-          if (/^[-*]\s/.test(line.trim())) {
-            const content = line.trim().replace(/^[-*]\s+/, "").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
-            return <div key={i} className="flex gap-3 text-lg"><span className="text-accent mt-1">▸</span><span className="text-text-secondary" dangerouslySetInnerHTML={{ __html: content }} /></div>;
-          }
-          if (/^#{1,3}\s/.test(line.trim())) {
-            return <h3 key={i} className="text-xl font-semibold text-accent mt-4">{line.replace(/^#+\s*/, "").replace(/\*\*/g, "")}</h3>;
-          }
-          if (/^\*\*(.+)\*\*$/.test(line.trim())) {
-            return <h3 key={i} className="text-xl font-semibold text-text-primary mt-4">{line.replace(/^\*\*|\*\*$/g, "")}</h3>;
-          }
-          return <p key={i} className="text-lg text-text-secondary leading-relaxed" dangerouslySetInnerHTML={{ __html: line.replace(/\*\*(.+?)\*\*/g, "<strong class=\"text-text-primary\">$1</strong>") }} />;
-        })}
-      </div>
-    </SlideShell>
-  );
-}
-
 function EndSlide({ d }: { d: PresentationData }) {
   return (
     <div className="flex-1 flex flex-col items-center justify-center text-center">
@@ -678,37 +633,22 @@ function SlideShell({ title, subtitle, children }: { title: string; subtitle?: s
   );
 }
 
-// Callout pra mostrar análise da Claude + observações do gestor no fim do slide
-function ContextCallout({ analysis, observations }: { analysis?: string | null; observations?: any[] }) {
-  const hasAnalysis = !!analysis;
+// Callout pra mostrar observações do gestor no fim do slide
+function ContextCallout({ observations }: { analysis?: string | null; observations?: any[] }) {
   const hasObs = observations && observations.length > 0;
-  if (!hasAnalysis && !hasObs) return null;
+  if (!hasObs) return null;
   return (
-    <div className="mt-4 grid grid-cols-1 md:grid-cols-2 gap-3">
-      {hasAnalysis && (
-        <div className="bg-card border-l-4 border-accent rounded-r-lg px-4 py-3">
-          <div className="text-[10px] uppercase tracking-widest text-accent font-semibold mb-1">Análise</div>
-          <div className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">{renderInlineMd(analysis!)}</div>
+    <div className="mt-4">
+      <div className="bg-card border-l-4 border-blue rounded-r-lg px-4 py-3">
+        <div className="text-[10px] uppercase tracking-widest text-blue font-semibold mb-1">Observação do gestor</div>
+        <div className="space-y-2">
+          {observations!.map((o, i) => (
+            <div key={i} className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">{o.content}</div>
+          ))}
         </div>
-      )}
-      {hasObs && (
-        <div className="bg-card border-l-4 border-blue rounded-r-lg px-4 py-3">
-          <div className="text-[10px] uppercase tracking-widest text-blue font-semibold mb-1">Observação do gestor</div>
-          <div className="space-y-2">
-            {observations!.map((o, i) => (
-              <div key={i} className="text-sm text-text-secondary leading-relaxed whitespace-pre-wrap">{o.content}</div>
-            ))}
-          </div>
-        </div>
-      )}
+      </div>
     </div>
   );
-}
-
-// Renderiza markdown inline simples (bold) sem usar lib
-function renderInlineMd(text: string): React.ReactNode {
-  const parts = text.split(/\*\*(.+?)\*\*/g);
-  return parts.map((p, i) => i % 2 === 1 ? <strong key={i} className="text-text-primary font-semibold">{p}</strong> : p);
 }
 
 function KpiBoxLarge({ label, value, color }: { label: string; value: string; color: string }) {
