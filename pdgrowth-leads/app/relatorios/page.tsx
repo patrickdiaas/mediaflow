@@ -6,9 +6,10 @@ import { useDashboard } from "@/lib/dashboard-context";
 import {
   FileBarChart2, RefreshCw, AlertCircle, Download, Send,
   TrendingUp, Megaphone, Image, Sparkles, Users, Target, MessageSquare,
-  ListChecks, Plus, Trash2, ChevronDown, ChevronRight, BookmarkPlus, NotebookPen,
+  ListChecks, Plus, Trash2, ChevronDown, ChevronRight, BookmarkPlus, NotebookPen, Presentation as PresentationIcon,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import Presentation from "@/components/presentation";
 
 type ReportType = "semanal" | "quinzenal" | "mensal";
 
@@ -172,6 +173,8 @@ export default function RelatoriosPage() {
   const [customUntil, setCustomUntil] = useState("");
   const [report, setReport]   = useState<string | null>(null);
   const [kpis, setKpis]       = useState<any>(null);
+  const [presentationData, setPresentationData] = useState<any>(null);
+  const [showPresentation, setShowPresentation] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError]     = useState<string | null>(null);
 
@@ -299,6 +302,7 @@ export default function RelatoriosPage() {
     setError(null);
     setReport(null);
     setKpis(null);
+    setPresentationData(null);
 
     // Usa datas personalizadas se preenchidas, senão calcula pelo tipo
     let since: string, until: string;
@@ -336,6 +340,7 @@ export default function RelatoriosPage() {
       if (!res1.ok) { setError(data1.error ?? "Erro ao buscar dados."); setLoading(false); return; }
 
       setKpis(data1.kpis);
+      setPresentationData(data1.presentation ?? null);
 
       // Step 2: Generate report with Claude (longer, uses separate endpoint)
       const controller = new AbortController();
@@ -610,6 +615,13 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
               </div>
             </div>
             <div className="flex items-center gap-2 flex-shrink-0">
+              {presentationData && (
+                <button onClick={() => setShowPresentation(true)}
+                  className="flex items-center gap-1.5 px-3 py-2.5 rounded-lg border border-accent/30 bg-accent/10 text-accent text-sm font-semibold hover:bg-accent/20 transition-colors"
+                  title="Abrir em modo apresentação (paisagem, fullscreen)">
+                  <PresentationIcon size={14} /> Apresentar
+                </button>
+              )}
               {report && (
                 <button onClick={exportPDF}
                   className="flex items-center gap-1.5 px-3 py-2.5 rounded-lg border border-border text-text-secondary text-sm hover:text-accent hover:border-accent/30 transition-colors">
@@ -941,6 +953,16 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
           </div>
         )}
       </main>
+
+      {/* Modo apresentação (overlay fullscreen) */}
+      {showPresentation && presentationData && (
+        <Presentation
+          data={presentationData}
+          kpis={kpis}
+          destaquesText={report}
+          onClose={() => setShowPresentation(false)}
+        />
+      )}
     </div>
   );
 }

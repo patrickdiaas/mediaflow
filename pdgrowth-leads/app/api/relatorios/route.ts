@@ -899,7 +899,98 @@ IMPORTANTE sobre formatação:
 - Use ### para subtítulos dentro das seções.
 - NÃO use ### sozinho com emojis — escreva o texto descritivo completo.`;
 
-    return NextResponse.json({ context, kpis, reportType, systemPrompt, userPrompt, step: "data" });
+    // Dados estruturados pra modo apresentação (slides) — frontend renderiza
+    // sem precisar fazer fetch adicional.
+    const presentation = {
+      client,
+      reportType,
+      periodFrom,
+      periodTo,
+      monthCur,
+      monthPrev,
+      monthCurStats,
+      monthPrevStats,
+      runRate,
+      pacing: hasPacing ? pacingByPlatform : null,
+      weeks,
+      weekStats: weekStats.map((w, i) => ({
+        label: w.label,
+        since: w.since,
+        until: w.until,
+        ...w.stats,
+        deltaLeads: i > 0 ? deltaPct(w.stats.leads, weekStats[i - 1].stats.leads) : null,
+        deltaSpend: i > 0 ? deltaPct(w.stats.spend, weekStats[i - 1].stats.spend) : null,
+        deltaCpl: i > 0 ? deltaPct(w.stats.cpl, weekStats[i - 1].stats.cpl) : null,
+        deltaCtr: i > 0 ? deltaPct(w.stats.ctr, weekStats[i - 1].stats.ctr) : null,
+      })),
+      metaCampaigns: metaCampaigns.map(c => ({
+        name: c.name,
+        status: c.status,
+        spend: c.spend,
+        impressions: c.impressions,
+        clicks: c.clicks,
+        leads: c.leads,
+        ctr: c.ctr,
+        cpl: c.cpl,
+        weekly: (campaignWeekly.get(c.name) ?? []).map((w, i) => ({
+          label: weeks[i]?.label ?? "",
+          spend: w.spend,
+          leads: w.leads,
+          cpl: w.leads > 0 && w.spend > 0 ? w.spend / w.leads : 0,
+          ctr: w.impressions > 0 ? (w.clicks / w.impressions) * 100 : 0,
+        })),
+        creatives: (creativesByCampaign.get(c.name) ?? []).slice(0, 6).map(cr => ({
+          name: cr.name,
+          spend: cr.spend,
+          leads: cr.leads,
+          ctr: cr.ctr,
+          cpl: cr.cpl,
+          permalink: cr.permalink,
+          status: (cr as any).status ?? "",
+          created_at_meta: (cr as any).created_at_meta ?? null,
+          updated_at_meta: (cr as any).updated_at_meta ?? null,
+          note: (cr as any).note ?? null,
+          thumbnail: null, // se quiser puxar thumbnail, adicionar select de thumbnail_url
+        })),
+      })),
+      googleCampaigns: googleCampaigns.map(c => ({
+        name: c.name,
+        status: c.status,
+        spend: c.spend,
+        impressions: c.impressions,
+        clicks: c.clicks,
+        leads: c.leads,
+        ctr: c.ctr,
+        cpl: c.cpl,
+        weekly: (campaignWeekly.get(c.name) ?? []).map((w, i) => ({
+          label: weeks[i]?.label ?? "",
+          spend: w.spend,
+          leads: w.leads,
+          cpl: w.leads > 0 && w.spend > 0 ? w.spend / w.leads : 0,
+          ctr: w.impressions > 0 ? (w.clicks / w.impressions) * 100 : 0,
+        })),
+        // Top keywords e search terms desta campanha
+        topKeywords: topKw.filter(k => k.campaign === c.name).slice(0, 6),
+        topSearchTerms: topSt.filter(s => s.campaign === c.name).slice(0, 6),
+      })),
+      adsList: adsList.map(a => ({
+        ad_name: a.ad_name,
+        campaign_name: a.campaign_name,
+        first_date: a.first_date,
+        last_active_date: a.last_active_date,
+        status: a.status,
+        spend: a.spend,
+        leads: a.leads,
+        permalink: a.permalink,
+        note: a.note,
+        statusLabel: statusLabel(a),
+      })),
+      reportActions,
+      reportObservations,
+      unmatchedLeads,
+    };
+
+    return NextResponse.json({ context, kpis, reportType, systemPrompt, userPrompt, presentation, step: "data" });
   } catch (err: any) {
     return NextResponse.json({ error: err.message ?? "Erro interno." }, { status: 500 });
   }
