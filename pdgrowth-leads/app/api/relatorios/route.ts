@@ -86,8 +86,18 @@ function monthBoundary(untilStr: string): { since: string; until: string; daysIn
 
 function previousMonthSameWindow(currentSince: string, currentUntil: string): { since: string; until: string } {
   const sCur = parseYmd(currentSince), uCur = parseYmd(currentUntil);
-  const sPrev = new Date(sCur.getFullYear(), sCur.getMonth() - 1, sCur.getDate());
-  const uPrev = new Date(uCur.getFullYear(), uCur.getMonth() - 1, uCur.getDate());
+  // Clamp do dia ao último dia do mês alvo para evitar overflow do Date.
+  // Ex: 31/05 → "31/04" não existe; clamp → 30/04 (último dia de abril).
+  const clampDay = (year: number, month: number, day: number) => {
+    const lastDayOfMonth = new Date(year, month + 1, 0).getDate();
+    return Math.min(day, lastDayOfMonth);
+  };
+  const sPrevYear = sCur.getFullYear();
+  const sPrevMonth = sCur.getMonth() - 1;
+  const uPrevYear = uCur.getFullYear();
+  const uPrevMonth = uCur.getMonth() - 1;
+  const sPrev = new Date(sPrevYear, sPrevMonth, clampDay(sPrevYear, sPrevMonth, sCur.getDate()));
+  const uPrev = new Date(uPrevYear, uPrevMonth, clampDay(uPrevYear, uPrevMonth, uCur.getDate()));
   return { since: ymd(sPrev), until: ymd(uPrev) };
 }
 
@@ -836,11 +846,13 @@ QUANDO HOUVER MÊS CORRENTE vs ANTERIOR:
           ? "Apresente UMA tabela com TODAS as semanas no formato: Semana | Período | Leads | Δ% | Invest | Δ% | CPL | Δ% | CTR | Δ% (a primeira semana não tem Δ). Logo abaixo, repita o exercício com sub-tabelas por plataforma (Meta e Google). Após as tabelas, em 3-4 frases, comente as principais variações entre semanas — onde houve aceleração, onde houve atenção."
           : "Período principal cabe em uma única semana. Apresente os números agregados sem tabela comparativa entre semanas."],
       ["Mês Corrente e Projeção",
-        `Apresente o acumulado do mês corrente até a data de fechamento e a comparação com o MESMO INTERVALO do mês anterior. Inclua a projeção (run-rate) para o fechamento do mês.
+        `Apresente o acumulado do mês corrente até a data de fechamento e a comparação com o mesmo intervalo do mês anterior. Inclua a projeção (run-rate) para o fechamento do mês.
 
 Use TABELA com colunas: Plataforma | Leads (corrente) | Leads (anterior) | Δ Leads | Invest (corrente) | Invest (anterior) | Δ Invest | CPL (corrente) | CPL (anterior) | Δ CPL. Linhas: TOTAL, Meta, Google. TODAS as linhas DEVEM ter valores do mês anterior preenchidos — estão em "MÊS ANTERIOR" e em "VARIAÇÃO MÊS A MÊS". Não deixe Meta/Google com "—" no anterior.
 
-Após a tabela, mostre a projeção (run-rate). Comente em 2-3 frases se o ritmo está acima ou abaixo do mês anterior.`],
+Após a tabela, mostre a projeção (run-rate). Comente em 2-3 frases se o ritmo está acima ou abaixo do mês anterior.
+
+NÃO inclua "nota metodológica" explicando o intervalo do mês anterior — as datas no contexto já são corretas e o leitor enxerga no cabeçalho da tabela.`],
     ];
 
     if (hasPacing) {
