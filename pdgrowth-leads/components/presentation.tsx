@@ -579,6 +579,9 @@ function CampaignDetailSlide({ c, platform, weeks }: { c: any; platform: string;
                       <span className="text-accent font-mono">{cr.leads} leads</span>
                       <span className="text-text-secondary font-mono">{fmtPct(cr.ctr)}</span>
                     </div>
+                    {cr.ambiguousAttribution && (
+                      <div className="text-[10px] text-gold mt-1">⚠ Atribuição ambígua — outro ad com mesmo nome compartilha a UTM. Leads foram atribuídos ao de maior spend.</div>
+                    )}
                     {cr.note && <div className="text-[11px] text-text-secondary mt-1 italic">{cr.note}</div>}
                   </div>
                 );

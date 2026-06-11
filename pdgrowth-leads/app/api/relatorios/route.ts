@@ -467,12 +467,37 @@ export async function POST(req: NextRequest) {
       const curEntry = cur ? Array.from(creativeAgg.values()).find(x => x.name === cur) : null;
       if (!cur || c.spend > (curEntry?.spend ?? 0)) dominantCreative.set(c.campaign, c.name);
     }
+    // Pré-índice: ad_name -> [criativos com esse nome] (pra detectar duplicatas)
+    const creativesByName = new Map<string, typeof creativeAgg extends Map<any, infer V> ? V[] : never>();
+    for (const e of Array.from(creativeAgg.values())) {
+      if (!creativesByName.has(e.name)) creativesByName.set(e.name, []);
+      creativesByName.get(e.name)!.push(e);
+    }
+    // Flag ad_ids com nome duplicado (pra mostrar aviso no relatório)
+    const duplicatedNameAdIds = new Set<string>();
+    for (const list of Array.from(creativesByName.values())) {
+      if (list.length > 1) for (const c of list) duplicatedNameAdIds.add(c.ad_id);
+    }
+
     for (const l of mainLeads) {
       let matched = false;
       // Tenta primeiro por utm_term (nome do criativo)
       if (l.utm_term) {
-        for (const [, e] of Array.from(creativeAgg.entries())) {
-          if (e.name === l.utm_term || fuzzyMatch(e.name, l.utm_term)) { e.leads++; matched = true; break; }
+        // 1) Match exato — se houver N criativos com mesmo nome, atribui ao de MAIOR spend.
+        // Quando 2 ads (em ad sets diferentes) têm mesmo ad_name e UTMs iguais,
+        // não dá pra distinguir o lead pela UTM; a heurística "maior spend" alinha
+        // melhor com a realidade da Meta (ad com mais budget tende a gerar mais leads).
+        const exactMatches = creativesByName.get(l.utm_term);
+        if (exactMatches && exactMatches.length > 0) {
+          const winner = exactMatches.length === 1 ? exactMatches[0] : exactMatches.slice().sort((a, b) => b.spend - a.spend)[0];
+          winner.leads++;
+          matched = true;
+        }
+        // 2) Senão, fuzzy match no primeiro que casar
+        if (!matched) {
+          for (const [, e] of Array.from(creativeAgg.entries())) {
+            if (fuzzyMatch(e.name, l.utm_term)) { e.leads++; matched = true; break; }
+          }
         }
       }
       // Fallback: criativo dominante da campanha atribuída (inclui leads sem utm_term,
@@ -676,7 +701,10 @@ ${metaCampaigns.filter(c => c.leads > 0 || c.spend > 50).map(c => {
       else if (st === "ACTIVE" || st === "ENABLED" || st === "") stLabel = "Ativo";
       else stLabel = st;
       const note = (cr as any).note ? ` | nota: ${String((cr as any).note).replace(/\n/g, " ")}` : "";
-      return `      - ${cr.name} | criado: ${created ?? "—"} | ${stLabel} | R$${fmt(cr.spend)} | ${cr.leads} leads | CTR ${pct(cr.ctr)}${cr.cpl ? ` | CPL R$${fmt(cr.cpl)}` : ""}${cr.permalink ? ` | ${cr.permalink}` : ""}${note}`;
+      const dupFlag = duplicatedNameAdIds.has((cr as any).ad_id)
+        ? " | AVISO: existem ad_ids diferentes com este mesmo nome — leads via utm_term foram atribuídos ao de maior spend; configure UTMs distintas por ad set pra tracking exato"
+        : "";
+      return `      - ${cr.name} | criado: ${created ?? "—"} | ${stLabel} | R$${fmt(cr.spend)} | ${cr.leads} leads | CTR ${pct(cr.ctr)}${cr.cpl ? ` | CPL R$${fmt(cr.cpl)}` : ""}${cr.permalink ? ` | ${cr.permalink}` : ""}${note}${dupFlag}`;
     }).join("\n")}` : "",
   ].filter(Boolean).join("\n");
 }).join("\n\n")}${topPlacements.length > 0 ? `\n\n  POSICIONAMENTOS:\n${topPlacements.map(p => `    ${p.name}: ${p.conversions} conv | ${fmtInt(p.clicks)} cliques | R$${fmt(p.spend)}`).join("\n")}` : ""}` : ""}
@@ -971,7 +999,8 @@ IMPORTANTE sobre formatação:
           created_at_meta: (cr as any).created_at_meta ?? null,
           updated_at_meta: (cr as any).updated_at_meta ?? null,
           note: (cr as any).note ?? null,
-          thumbnail: null, // se quiser puxar thumbnail, adicionar select de thumbnail_url
+          ambiguousAttribution: duplicatedNameAdIds.has((cr as any).ad_id),
+          thumbnail: null,
         })),
       })),
       googleCampaigns: googleCampaigns.map(c => ({
