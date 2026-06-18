@@ -160,6 +160,11 @@ create table if not exists campaign_aliases (
   client_slug           text not null references clients(slug),
   alias_utm_campaign    text not null,             -- valor exato do utm_campaign que vem no lead
   target_campaign_name  text not null,             -- nome da campanha real em ad_campaigns
+  -- Vigência opcional. Lead só é redirecionado se converted_at cair em [since, until].
+  -- Null em ambos = sempre vigente. Usado quando uma campanha foi recriada com novo
+  -- nome mas UTMs antigas continuam chegando — ex: alias since='2026-06-10'.
+  since                 date,
+  until                 date,
   notes                 text,
   created_at            timestamptz default now(),
   unique (client_slug, alias_utm_campaign)

@@ -32,6 +32,8 @@ interface CampaignAliasRow {
   client_slug: string;
   alias_utm_campaign: string;
   target_campaign_name: string;
+  since: string | null;
+  until: string | null;
   notes: string | null;
   created_at: string;
 }
@@ -71,8 +73,13 @@ export default function ConfiguracoesPage() {
   const [adCampaignNames, setAdCampaignNames] = useState<string[]>([]);
   const [newAliasUtm, setNewAliasUtm] = useState("");
   const [newAliasTarget, setNewAliasTarget] = useState("");
+  const [newAliasSince, setNewAliasSince] = useState("");
+  const [newAliasUntil, setNewAliasUntil] = useState("");
   const [newAliasNotes, setNewAliasNotes] = useState("");
   const [savingAlias, setSavingAlias] = useState(false);
+  const [editingAliasId, setEditingAliasId] = useState<string | null>(null);
+  const [editSince, setEditSince] = useState("");
+  const [editUntil, setEditUntil] = useState("");
 
   // Budgets
   const [budgets, setBudgets] = useState<BudgetRow[]>([]);
@@ -136,13 +143,15 @@ export default function ConfiguracoesPage() {
         client_slug: client,
         alias_utm_campaign: newAliasUtm.trim(),
         target_campaign_name: newAliasTarget.trim(),
+        since: newAliasSince || null,
+        until: newAliasUntil || null,
         notes: newAliasNotes.trim() || null,
       }),
     });
     const json = await res.json();
     if (!res.ok) setError("Erro ao salvar alias: " + (json.error ?? "desconhecido"));
     else {
-      setNewAliasUtm(""); setNewAliasTarget(""); setNewAliasNotes("");
+      setNewAliasUtm(""); setNewAliasTarget(""); setNewAliasSince(""); setNewAliasUntil(""); setNewAliasNotes("");
       fetchAliases();
     }
     setSavingAlias(false);
@@ -152,6 +161,22 @@ export default function ConfiguracoesPage() {
     if (!confirm("Remover este alias?")) return;
     const res = await fetch(`/api/admin/aliases?id=${id}`, { method: "DELETE" });
     if (res.ok) fetchAliases();
+  }
+
+  function startEditAlias(a: CampaignAliasRow) {
+    setEditingAliasId(a.id);
+    setEditSince(a.since ?? "");
+    setEditUntil(a.until ?? "");
+  }
+
+  async function saveEditAlias(id: string) {
+    const res = await fetch(`/api/admin/aliases?id=${id}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ since: editSince || null, until: editUntil || null }),
+    });
+    if (res.ok) { setEditingAliasId(null); fetchAliases(); }
+    else { const j = await res.json(); setError("Erro ao atualizar alias: " + (j.error ?? "desconhecido")); }
   }
 
   async function fetchBudgets() {
@@ -440,6 +465,29 @@ export default function ConfiguracoesPage() {
                     {adCampaignNames.map(n => <option key={n} value={n} />)}
                   </datalist>
                 </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] uppercase tracking-wider text-text-muted w-12">Início</span>
+                    <input
+                      type="date"
+                      value={newAliasSince}
+                      onChange={e => setNewAliasSince(e.target.value)}
+                      className="flex-1 bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary placeholder:text-text-dark focus:outline-none focus:border-accent/40"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] uppercase tracking-wider text-text-muted w-12">Fim</span>
+                    <input
+                      type="date"
+                      value={newAliasUntil}
+                      onChange={e => setNewAliasUntil(e.target.value)}
+                      className="flex-1 bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary placeholder:text-text-dark focus:outline-none focus:border-accent/40"
+                    />
+                  </div>
+                </div>
+                <p className="text-[10px] text-text-muted mb-2">
+                  Vigência opcional: deixe vazio se o alias vale sempre. Use quando uma campanha foi duplicada (ex: <span className="font-mono">-new</span>) mas a UTM antiga continua chegando.
+                </p>
                 <div className="flex gap-2">
                   <input
                     type="text"
@@ -469,10 +517,51 @@ export default function ConfiguracoesPage() {
               ) : (
                 <div className="bg-card border border-border rounded-xl overflow-hidden">
                   {aliases.map((a, i) => (
-                    <div key={a.id} className={`px-4 py-3 flex items-center gap-3 ${i < aliases.length - 1 ? "border-b border-border" : ""}`}>
+                    <div key={a.id} className={`px-4 py-3 flex items-center gap-3 flex-wrap ${i < aliases.length - 1 ? "border-b border-border" : ""}`}>
                       <code className="text-xs text-blue font-mono px-2 py-0.5 bg-blue/5 rounded">{a.alias_utm_campaign}</code>
                       <span className="text-text-muted text-xs">→</span>
                       <code className="text-xs text-accent font-mono px-2 py-0.5 bg-accent/5 rounded">{a.target_campaign_name}</code>
+                      {editingAliasId === a.id ? (
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="date"
+                            value={editSince}
+                            onChange={e => setEditSince(e.target.value)}
+                            className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text-primary"
+                          />
+                          <span className="text-text-muted text-[10px]">até</span>
+                          <input
+                            type="date"
+                            value={editUntil}
+                            onChange={e => setEditUntil(e.target.value)}
+                            className="bg-bg border border-border rounded px-2 py-1 text-[11px] text-text-primary"
+                          />
+                          <button
+                            onClick={() => saveEditAlias(a.id)}
+                            className="px-2 py-1 rounded text-[11px] bg-accent/10 border border-accent/30 text-accent hover:bg-accent/20"
+                          >Salvar</button>
+                          <button
+                            onClick={() => setEditingAliasId(null)}
+                            className="px-2 py-1 rounded text-[11px] text-text-muted hover:text-text-primary"
+                          >Cancelar</button>
+                        </div>
+                      ) : (a.since || a.until) ? (
+                        <button
+                          onClick={() => startEditAlias(a)}
+                          className="text-[11px] text-gold/80 hover:text-gold font-mono px-2 py-0.5 bg-gold/5 rounded border border-gold/20"
+                          title="Editar vigência"
+                        >
+                          {a.since ?? "—"} até {a.until ?? "—"}
+                        </button>
+                      ) : (
+                        <button
+                          onClick={() => startEditAlias(a)}
+                          className="text-[11px] text-text-muted hover:text-text-primary px-2 py-0.5 border border-dashed border-border rounded"
+                          title="Definir vigência"
+                        >
+                          + vigência
+                        </button>
+                      )}
                       {a.notes && <span className="text-xs text-text-muted truncate flex-1">{a.notes}</span>}
                       <button
                         onClick={() => deleteAlias(a.id)}

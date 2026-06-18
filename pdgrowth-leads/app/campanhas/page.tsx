@@ -137,13 +137,13 @@ export default function CampanhasPage() {
       const qSets = metaSlug ? (platform !== "all" ? baseSets.eq("platform", platform) : baseSets).eq("client_slug", metaSlug) : (platform !== "all" ? baseSets.eq("platform", platform) : baseSets);
       const qAds  = metaSlug ? (platform !== "all" ? baseAds.eq("platform", platform) : baseAds).eq("client_slug", metaSlug) : (platform !== "all" ? baseAds.eq("platform", platform) : baseAds);
 
-      const baseLeads = supabase.from("leads").select("id, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, utm_term").gte("converted_at", leadSince).lte("converted_at", leadUntil);
+      const baseLeads = supabase.from("leads").select("id, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, utm_term, converted_at").gte("converted_at", leadSince).lte("converted_at", leadUntil);
       const filteredLeads = filterCampaignLeads(baseLeads, eventList);
       const qLeads = metaSlug ? filteredLeads.eq("client_slug", metaSlug) : filteredLeads;
 
       const aliasQ = metaSlug
-        ? supabase.from("campaign_aliases").select("alias_utm_campaign, target_campaign_name").eq("client_slug", metaSlug)
-        : supabase.from("campaign_aliases").select("alias_utm_campaign, target_campaign_name");
+        ? supabase.from("campaign_aliases").select("alias_utm_campaign, target_campaign_name, since, until").eq("client_slug", metaSlug)
+        : supabase.from("campaign_aliases").select("alias_utm_campaign, target_campaign_name, since, until");
 
       Promise.all([qCamp, qSets, qAds, qLeads, aliasQ]).then(([campRes, setsRes, adsRes, leadsRes, aliasRes]) => {
         if (cancelled) return;
@@ -192,7 +192,8 @@ export default function CampanhasPage() {
         );
         const leadsPerCamp = new Map<string, number>();
         for (const l of leadsData) {
-          const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event);
+          const leadDate = (l as any).converted_at ? String((l as any).converted_at).slice(0, 10) : null;
+          const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event, leadDate);
           if (r.campaign_name) leadsPerCamp.set(r.campaign_name, (leadsPerCamp.get(r.campaign_name) ?? 0) + 1);
         }
         setCampaigns(campRows.map(c => {

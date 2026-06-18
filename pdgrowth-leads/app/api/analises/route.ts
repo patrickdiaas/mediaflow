@@ -150,7 +150,8 @@ REGRAS:
       eventMaps,
     );
     for (const l of leads) {
-      const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event);
+      const leadDate = l.converted_at ? String(l.converted_at).slice(0, 10) : null;
+      const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event, leadDate);
       if (r.campaign_name) campAgg.get(r.campaign_name)!.leads++;
     }
 

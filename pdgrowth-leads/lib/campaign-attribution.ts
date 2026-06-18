@@ -16,6 +16,8 @@ export interface CampaignLite {
 export interface CampaignAlias {
   alias_utm_campaign: string;
   target_campaign_name: string;
+  since?: string | null; // YYYY-MM-DD inclusive; null = sem limite inferior
+  until?: string | null; // YYYY-MM-DD inclusive; null = sem limite superior
 }
 
 export interface EventToCampaign {
@@ -59,12 +61,34 @@ export function buildAttributionIndex(
     if (c.campaign_id) idToName.set(c.campaign_id, c.campaign_name);
     if (c.campaign_ids) for (const id of Array.from(c.campaign_ids)) idToName.set(id, c.campaign_name);
   }
-  const aliasMap = new Map<string, string>();
-  for (const a of aliases) aliasMap.set(a.alias_utm_campaign, a.target_campaign_name);
+  // Um mesmo alias_utm_campaign pode ter múltiplas entradas, cada uma vigente em janela diferente.
+  // Ex.: medical-search-mpt → medical-search-mpt (até 2026-06-09) E medical-search-mpt-new (a partir de 2026-06-10).
+  const aliasMap = new Map<string, AliasRule[]>();
+  for (const a of aliases) {
+    const list = aliasMap.get(a.alias_utm_campaign) ?? [];
+    list.push({ target: a.target_campaign_name, since: a.since ?? null, until: a.until ?? null });
+    aliasMap.set(a.alias_utm_campaign, list);
+  }
   const eventMap = new Map<string, string>();
   for (const e of eventMaps) eventMap.set(e.conversion_event, e.target_campaign_name);
   const namesList = Array.from(namesSet);
   return { namesSet, idToName, aliasMap, eventMap, namesList };
+}
+
+interface AliasRule {
+  target: string;
+  since: string | null;
+  until: string | null;
+}
+
+function aliasRuleMatchesDate(rule: AliasRule, leadDate: string | null | undefined): boolean {
+  if (!leadDate) {
+    // Sem data do lead → só casa com regras sem vigência (compatibilidade com usos antigos).
+    return rule.since == null && rule.until == null;
+  }
+  if (rule.since && leadDate < rule.since) return false;
+  if (rule.until && leadDate > rule.until) return false;
+  return true;
 }
 
 export type AttributionIndex = ReturnType<typeof buildAttributionIndex>;
@@ -73,6 +97,7 @@ export function attributeLead(
   utmCampaign: string | null | undefined,
   index: AttributionIndex,
   conversionEvent?: string | null,
+  leadDate?: string | null,
 ): AttributionResult {
   if (utmCampaign) {
     // 1. Exato
@@ -80,10 +105,14 @@ export function attributeLead(
     // 2. Por campaign_id
     const byId = index.idToName.get(utmCampaign);
     if (byId) return { campaign_name: byId, method: "id" };
-    // 3. Alias cadastrado
-    const aliased = index.aliasMap.get(utmCampaign);
-    if (aliased && index.namesSet.has(aliased)) {
-      return { campaign_name: aliased, method: "alias", matched_alias: utmCampaign };
+    // 3. Alias cadastrado — respeita vigência (since/until) quando definida.
+    const rules = index.aliasMap.get(utmCampaign);
+    if (rules && rules.length) {
+      // Tenta primeiro regras com vigência casando a data do lead; depois regras sem vigência.
+      const dated = rules.find(r => (r.since || r.until) && aliasRuleMatchesDate(r, leadDate) && index.namesSet.has(r.target));
+      if (dated) return { campaign_name: dated.target, method: "alias", matched_alias: utmCampaign };
+      const open = rules.find(r => r.since == null && r.until == null && index.namesSet.has(r.target));
+      if (open) return { campaign_name: open.target, method: "alias", matched_alias: utmCampaign };
     }
     // 4. Fuzzy
     const fuzzy = index.namesList.find(n => fuzzyMatch(n, utmCampaign));
@@ -101,13 +130,14 @@ export function attributeLead(
 
 // Helper para buscar aliases (usar com qualquer cliente Supabase).
 export async function fetchAliases(supabase: any, clientSlug: string): Promise<CampaignAlias[]> {
+  const columns = "alias_utm_campaign, target_campaign_name, since, until";
   if (!clientSlug || clientSlug === "all") {
-    const { data } = await supabase.from("campaign_aliases").select("alias_utm_campaign, target_campaign_name");
+    const { data } = await supabase.from("campaign_aliases").select(columns);
     return (data ?? []) as CampaignAlias[];
   }
   const { data } = await supabase
     .from("campaign_aliases")
-    .select("alias_utm_campaign, target_campaign_name")
+    .select(columns)
     .eq("client_slug", clientSlug);
   return (data ?? []) as CampaignAlias[];
 }

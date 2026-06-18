@@ -173,7 +173,7 @@ export default function CriativosPage() {
     const qAds = metaSlug ? q1.eq("client_slug", metaSlug) : q1;
 
     const baseLeads = supabase.from("leads")
-      .select("utm_source, utm_term, utm_campaign, conversion_event")
+      .select("utm_source, utm_term, utm_campaign, conversion_event, converted_at")
       .gte("converted_at", leadSince)
       .lte("converted_at", leadUntil);
     const filteredLeads = filterCampaignLeads(baseLeads, eventList);
@@ -186,8 +186,8 @@ export default function CriativosPage() {
     const qFirstDate = metaSlug ? baseFirstDate.eq("client_slug", metaSlug) : baseFirstDate;
 
     const aliasQ = metaSlug
-      ? supabase.from("campaign_aliases").select("alias_utm_campaign, target_campaign_name").eq("client_slug", metaSlug)
-      : supabase.from("campaign_aliases").select("alias_utm_campaign, target_campaign_name");
+      ? supabase.from("campaign_aliases").select("alias_utm_campaign, target_campaign_name, since, until").eq("client_slug", metaSlug)
+      : supabase.from("campaign_aliases").select("alias_utm_campaign, target_campaign_name, since, until");
 
     Promise.all([qAds, qLeads, qFirstDate, aliasQ]).then(([{ data: rows }, { data: rawLeads }, { data: firstDateRows }, { data: aliasData }]) => {
       if (cancelled) return;
@@ -275,7 +275,8 @@ export default function CriativosPage() {
           }
           if (matched) continue;
           // Fallback: dominant creative da campanha resolvida (incluindo via event map)
-          const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event);
+          const leadDate = l.converted_at ? String(l.converted_at).slice(0, 10) : null;
+          const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event, leadDate);
           if (r.campaign_name) {
             const domName = domCreativePerCamp.get(r.campaign_name);
             if (domName) leadCounts.set(domName, (leadCounts.get(domName) ?? 0) + 1);

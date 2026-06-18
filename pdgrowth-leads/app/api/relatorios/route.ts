@@ -260,7 +260,7 @@ export async function POST(req: NextRequest) {
       } else if (s === "google") {
         (l as any)._platform = "google";
       } else {
-        const r = attributeLead(l.utm_campaign, globalIndex, l.conversion_event);
+        const r = attributeLead(l.utm_campaign, globalIndex, l.conversion_event, (l as any)._brt_date);
         if (r.campaign_name) {
           const p = campNameToPlatform.get(r.campaign_name);
           if (p) (l as any)._platform = p;
@@ -368,7 +368,7 @@ export async function POST(req: NextRequest) {
     // ainda apareçam separados por formulário/LP de origem (identificação útil).
     const unmatchedLeadsMap = new Map<string, { utm_campaign: string; conversion_event: string; utm_source: string | null; utm_content: string | null; count: number }>();
     for (const l of mainLeads) {
-      const result = attributeLead(l.utm_campaign, campIndex, l.conversion_event);
+      const result = attributeLead(l.utm_campaign, campIndex, l.conversion_event, (l as any)._brt_date);
       if (result.campaign_name) {
         campAgg.get(result.campaign_name)!.leads++;
         continue;
@@ -411,7 +411,7 @@ export async function POST(req: NextRequest) {
     for (const l of mainLeads) {
       const wIdx = findWeekIdx(l._brt_date);
       if (wIdx === -1) continue;
-      const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event);
+      const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event, l._brt_date);
       if (!r.campaign_name) continue;
       const arr = ensureCampaignWeekly(r.campaign_name);
       arr[wIdx].leads++;
@@ -503,7 +503,7 @@ export async function POST(req: NextRequest) {
       // Fallback: criativo dominante da campanha atribuída (inclui leads sem utm_term,
       // recuperados via event_map/alias). Garante que soma dos criativos = total da campanha.
       if (!matched) {
-        const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event);
+        const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event, (l as any)._brt_date);
         if (r.campaign_name) {
           const domName = dominantCreative.get(r.campaign_name);
           if (domName) {

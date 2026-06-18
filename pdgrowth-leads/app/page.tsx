@@ -287,7 +287,7 @@ export default function OverviewPage() {
       if (src === "facebook" || src === "fb" || src === "instagram" || src === "ig" || src === "facebook ads") l._platform = "meta";
       else if (src === "google") l._platform = "google";
       else {
-        const r = attributeLead(l.utm_campaign, globalIdx, l.conversion_event);
+        const r = attributeLead(l.utm_campaign, globalIdx, l.conversion_event, toBRTDate(String(l.converted_at)));
         if (r.campaign_name) {
           const p = campNameToPlatform.get(r.campaign_name);
           if (p) l._platform = p;
@@ -359,7 +359,7 @@ export default function OverviewPage() {
     );
     const leadsPerCamp = new Map<string, number>();
     for (const l of platformLeads) {
-      const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event);
+      const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event, toBRTDate(String(l.converted_at)));
       if (r.campaign_name) leadsPerCamp.set(r.campaign_name, (leadsPerCamp.get(r.campaign_name) ?? 0) + 1);
     }
     // Buscar conversões Google por campaign_id (keywords)
