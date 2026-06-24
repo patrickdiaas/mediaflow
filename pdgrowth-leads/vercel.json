@@ -5,6 +5,10 @@
       "schedule": "0 6 * * *"
     },
     {
+      "path": "/api/cron/sync-meta-leads",
+      "schedule": "15 6 * * *"
+    },
+    {
       "path": "/api/cron/sync-google",
       "schedule": "30 6 * * *"
     }
