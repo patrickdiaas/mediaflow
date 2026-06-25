@@ -2,12 +2,13 @@
 // Usado por clientes que capturam leads direto no Meta (sem RD Station no meio).
 //
 // Fluxo:
-//   1. /{ad_account_id}/leadgen_forms → lista formulários da conta
-//   2. /{form_id}/leads?filtering=[{field:"time_created",operator:"GREATER_THAN",value:<unix>}]
-//   3. Mapeia field_data → colunas da tabela `leads` (email, name, phone, company)
-//   4. Preenche utm_campaign com campaign_name pra atribuição casar com ad_campaigns
+//   1. /{ad_account_id}/promote_pages → pages associadas à conta
+//   2. /{page_id}?fields=access_token → Page Access Token (System User precisa ter permissão na page)
+//   3. /{page_id}/leadgen_forms (com pageToken) → lista forms da page
+//   4. /{form_id}/leads (com pageToken, filtrado por time_created > sinceUnix)
+//   5. Mapeia field_data → colunas da tabela `leads`
 //
-// Permissão necessária no token: leads_retrieval (admin/advertiser da page que possui o form).
+// Permissão necessária: System User com acesso à Page com Lead Access (leads_retrieval).
 
 const META_API_BASE = "https://graph.facebook.com/v21.0";
 
@@ -88,16 +89,39 @@ async function fetchAllPages<T>(initialUrl: string): Promise<T[]> {
   return results;
 }
 
-async function fetchLeadForms(accountId: string, token: string): Promise<MetaLeadForm[]> {
+// Lead forms são da Page, não da ad account. Fluxo:
+//   1. /{account_id}/promote_pages → pages associadas à conta
+//   2. /{page_id}?fields=access_token → Page Access Token (System User precisa ter acesso à page)
+//   3. /{page_id}/leadgen_forms (com pageToken) → forms
+//   4. /{form_id}/leads (com pageToken) → leads
+
+interface MetaAccountPage { id: string; name: string }
+
+async function fetchAccountPages(accountId: string, token: string): Promise<MetaAccountPage[]> {
+  const url = buildUrl(`/${accountId}/promote_pages`, { fields: "id,name", limit: "200" }, token);
+  return fetchAllPages<MetaAccountPage>(url);
+}
+
+async function fetchPageAccessToken(pageId: string, token: string): Promise<string | null> {
+  const url = buildUrl(`/${pageId}`, { fields: "access_token" }, token);
+  try {
+    const res = await metaFetch<{ access_token?: string }>(url);
+    return res.access_token ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function fetchLeadFormsForPage(pageId: string, pageToken: string): Promise<MetaLeadForm[]> {
   const url = buildUrl(
-    `/${accountId}/leadgen_forms`,
-    { fields: "id,name,status,page{id,name}", limit: "200" },
-    token,
+    `/${pageId}/leadgen_forms`,
+    { fields: "id,name,status", limit: "200" },
+    pageToken,
   );
   return fetchAllPages<MetaLeadForm>(url);
 }
 
-async function fetchLeadsForForm(formId: string, token: string, sinceUnix: number): Promise<MetaLead[]> {
+async function fetchLeadsForForm(formId: string, pageToken: string, sinceUnix: number): Promise<MetaLead[]> {
   const url = buildUrl(
     `/${formId}/leads`,
     {
@@ -105,7 +129,7 @@ async function fetchLeadsForForm(formId: string, token: string, sinceUnix: numbe
       limit: "100",
       filtering: JSON.stringify([{ field: "time_created", operator: "GREATER_THAN", value: sinceUnix }]),
     },
-    token,
+    pageToken,
   );
   return fetchAllPages<MetaLead>(url);
 }
@@ -165,11 +189,6 @@ interface MetaAdInsightWithActions {
   date_start: string;
   actions?: { action_type: string; value: string }[];
 }
-
-const WHATSAPP_ACTION_TYPES = new Set([
-  "onsite_conversion.messaging_conversation_started_7d",
-  "onsite_conversion.messaging_first_reply",
-]);
 
 async function fetchAdInsightsWithActions(
   accountId: string,
@@ -273,22 +292,54 @@ export async function syncMetaLeadsForAccount(
   sinceISO: string,
 ): Promise<SyncMetaLeadsResult> {
   const norm = normalizeAccountId(accountId);
-  const forms = await fetchLeadForms(norm, token);
   const sinceUnix = Math.floor(new Date(sinceISO).getTime() / 1000);
 
   const leads: MappedLead[] = [];
   const errors: SyncMetaLeadsResult["errors"] = [];
   let ok = 0;
+  let totalForms = 0;
 
-  for (const form of forms) {
+  // 1. Pages associadas à conta
+  let pages: MetaAccountPage[] = [];
+  try {
+    pages = await fetchAccountPages(norm, token);
+  } catch (err) {
+    errors.push({ form_id: "(account)", form_name: "promote_pages", error: String(err) });
+    return { forms: 0, formsOk: 0, formsFailed: errors.length, leads, errors };
+  }
+
+  // 2. Pra cada page, obter Page Access Token + listar lead forms + puxar leads
+  for (const page of pages) {
+    const pageToken = await fetchPageAccessToken(page.id, token);
+    if (!pageToken) {
+      errors.push({
+        form_id: page.id,
+        form_name: `page:${page.name}`,
+        error: "Sem access_token (System User não tem permissão na page?)",
+      });
+      continue;
+    }
+
+    let pageForms: MetaLeadForm[] = [];
     try {
-      const formLeads = await fetchLeadsForForm(form.id, token, sinceUnix);
-      for (const l of formLeads) leads.push(mapLead(l, clientSlug));
-      ok++;
+      pageForms = await fetchLeadFormsForPage(page.id, pageToken);
     } catch (err) {
-      errors.push({ form_id: form.id, form_name: form.name, error: String(err) });
+      errors.push({ form_id: page.id, form_name: `page:${page.name}`, error: String(err) });
+      continue;
+    }
+
+    totalForms += pageForms.length;
+
+    for (const form of pageForms) {
+      try {
+        const formLeads = await fetchLeadsForForm(form.id, pageToken, sinceUnix);
+        for (const l of formLeads) leads.push(mapLead(l, clientSlug));
+        ok++;
+      } catch (err) {
+        errors.push({ form_id: form.id, form_name: form.name, error: String(err) });
+      }
     }
   }
 
-  return { forms: forms.length, formsOk: ok, formsFailed: errors.length, leads, errors };
+  return { forms: totalForms, formsOk: ok, formsFailed: errors.length, leads, errors };
 }
