@@ -476,23 +476,58 @@ export async function POST(req: NextRequest) {
       if (!creativesByName.has(e.name)) creativesByName.set(e.name, []);
       creativesByName.get(e.name)!.push(e);
     }
-    // Flag ad_ids com nome duplicado (pra mostrar aviso no relatório)
+    // Flag ad_ids com nome duplicado SEM diferenciação por ad_set (caso real
+    // de ambiguidade: 2 ads no MESMO conjunto com mesmo nome — aí nem o
+    // utm_content do lead consegue desempatar). Quando os duplicados estão em
+    // conjuntos distintos, o utm_content vs ad_set_name resolve — não é mais
+    // ambíguo de fato.
     const duplicatedNameAdIds = new Set<string>();
     for (const list of Array.from(creativesByName.values())) {
-      if (list.length > 1) for (const c of list) duplicatedNameAdIds.add(c.ad_id);
+      if (list.length <= 1) continue;
+      const distinctSets = new Set(list.map(c => c.ad_set_name).filter(Boolean));
+      // Se há criativos com mesmo nome no mesmo conjunto (ou conjuntos sem nome),
+      // marca como ambíguo. Senão, utm_content desempata e o aviso polui.
+      if (distinctSets.size < list.length) {
+        for (const c of list) duplicatedNameAdIds.add(c.ad_id);
+      }
     }
+
+    // Desempate por utm_content vs ad_set_name. Usado quando há vários ads com
+    // mesmo ad_name (criativo duplicado em conjuntos diferentes) e o lead trouxe
+    // utm_content distinto pelo conjunto (padrão Meta {{adset.name}} ou custom).
+    type CreativeAggEntry = NonNullable<ReturnType<typeof creativesByName.get>>[number];
+    const resolveByUtmContent = (candidates: CreativeAggEntry[], utmContent: string | null | undefined): CreativeAggEntry | null => {
+      if (!utmContent || candidates.length === 0) return null;
+      const lc = utmContent.toLowerCase();
+      const exact = candidates.find(c => (c.ad_set_name ?? "").toLowerCase() === lc);
+      if (exact) return exact;
+      const contains = candidates.find(c => {
+        const setName = (c.ad_set_name ?? "").toLowerCase();
+        if (!setName) return false;
+        return lc.includes(setName) || setName.includes(lc);
+      });
+      if (contains) return contains;
+      const fuzzy = candidates.find(c => c.ad_set_name && fuzzyMatch(c.ad_set_name, utmContent));
+      if (fuzzy) return fuzzy;
+      return null;
+    };
 
     for (const l of mainLeads) {
       let matched = false;
       // Tenta primeiro por utm_term (nome do criativo)
       if (l.utm_term) {
-        // 1) Match exato — se houver N criativos com mesmo nome, atribui ao de MAIOR spend.
-        // Quando 2 ads (em ad sets diferentes) têm mesmo ad_name e UTMs iguais,
-        // não dá pra distinguir o lead pela UTM; a heurística "maior spend" alinha
-        // melhor com a realidade da Meta (ad com mais budget tende a gerar mais leads).
+        // 1) Match exato. Quando há N candidatos com mesmo ad_name (criativo
+        //    duplicado em ad sets diferentes), tenta desempatar via utm_content
+        //    contra ad_set_name; só cai pro "maior spend" se nada casar.
         const exactMatches = creativesByName.get(l.utm_term);
         if (exactMatches && exactMatches.length > 0) {
-          const winner = exactMatches.length === 1 ? exactMatches[0] : exactMatches.slice().sort((a, b) => b.spend - a.spend)[0];
+          let winner;
+          if (exactMatches.length === 1) {
+            winner = exactMatches[0];
+          } else {
+            winner = resolveByUtmContent(exactMatches, l.utm_content)
+              ?? exactMatches.slice().sort((a, b) => b.spend - a.spend)[0];
+          }
           winner.leads++;
           matched = true;
         }
