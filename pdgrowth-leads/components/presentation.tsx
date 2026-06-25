@@ -517,6 +517,8 @@ function GoogleKeywordsSlide({ d }: { d: PresentationData }) {
 
 function CampaignDetailSlide({ c, platform, weeks }: { c: any; platform: string; weeks: any[] }) {
   const isMeta = platform === "meta";
+  const adSets: any[] = Array.isArray(c.adSets) ? c.adSets : [];
+  const hasMultipleSets = isMeta && adSets.length > 1;
   return (
     <SlideShell
       title={c.name}
@@ -529,6 +531,37 @@ function CampaignDetailSlide({ c, platform, weeks }: { c: any; platform: string;
         <KpiBoxLarge label="CPL" value={c.cpl > 0 ? `R$ ${fmt(c.cpl)}` : "—"} color="text-gold" />
         <KpiBoxLarge label="CTR" value={fmtPct(c.ctr)} color="text-text-primary" />
       </div>
+
+      {/* Quebra por conjunto de anúncios — só renderiza quando há mais de 1 conjunto */}
+      {hasMultipleSets && (
+        <div className="bg-card border border-border rounded-2xl overflow-hidden mb-6">
+          <div className="px-5 py-3 border-b border-border text-xs uppercase tracking-widest text-text-muted">
+            Conjuntos de Anúncios · {adSets.length}
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-text-muted uppercase tracking-wider">
+                <th className="text-left px-5 py-3">Conjunto</th>
+                <th className="text-right px-4 py-3">Invest</th>
+                <th className="text-right px-4 py-3">Leads</th>
+                <th className="text-right px-4 py-3">CPL</th>
+                <th className="text-right px-4 py-3">CTR</th>
+              </tr>
+            </thead>
+            <tbody>
+              {adSets.map((s, i) => (
+                <tr key={i} className={i < adSets.length - 1 ? "border-b border-border" : ""}>
+                  <td className="px-5 py-3 text-xs font-mono truncate max-w-xs" title={s.name}>{s.name}</td>
+                  <td className="px-4 py-3 text-right font-mono text-blue">R$ {fmt(s.spend)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-accent">{s.leads}</td>
+                  <td className="px-4 py-3 text-right font-mono text-gold">{s.cpl > 0 ? `R$ ${fmt(s.cpl)}` : "—"}</td>
+                  <td className="px-4 py-3 text-right font-mono text-text-secondary">{fmtPct(s.ctr)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
 
       <div className="grid grid-cols-2 gap-6 flex-1 min-h-0">
         {/* Semana a semana */}
@@ -572,6 +605,12 @@ function CampaignDetailSlide({ c, platform, weeks }: { c: any; platform: string;
                       <div className="text-sm font-mono truncate flex-1" title={cr.name}>{cr.name}</div>
                       {cr.permalink && <a href={cr.permalink} target="_blank" rel="noopener noreferrer" className="text-blue text-xs flex-shrink-0"><ExternalLink size={12} /></a>}
                     </div>
+                    {/* Mostrar conjunto apenas quando há mais de um na campanha (senão é ruído visual) */}
+                    {hasMultipleSets && cr.ad_set_name && (
+                      <div className="text-[10px] text-text-muted font-mono mt-0.5 truncate" title={cr.ad_set_name}>
+                        Conjunto: {cr.ad_set_name}
+                      </div>
+                    )}
                     <div className="flex items-center gap-4 mt-1 text-xs">
                       <span className="text-text-muted">{created ? `Criado ${brDateShort(created)}` : "—"}</span>
                       <span className={isP ? "text-gold" : "text-accent"}>{statusLabelCamp(cr.status)}</span>
@@ -633,6 +672,11 @@ function AdsListSlide({ d }: { d: PresentationData }) {
                 <td className="px-5 py-3">
                   <div className="font-mono text-sm">{a.ad_name}</div>
                   <div className="text-[11px] text-text-muted truncate max-w-md" title={a.campaign_name}>{a.campaign_name}</div>
+                  {a.ad_set_name && (
+                    <div className="text-[10px] text-text-muted truncate max-w-md font-mono" title={a.ad_set_name}>
+                      Conjunto: {a.ad_set_name}
+                    </div>
+                  )}
                 </td>
                 <td className="px-4 py-3 text-xs text-text-secondary font-mono">{brDateShort(a.first_date)}</td>
                 <td className="px-4 py-3 text-xs">

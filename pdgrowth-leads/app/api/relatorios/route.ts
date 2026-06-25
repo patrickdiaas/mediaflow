@@ -420,7 +420,7 @@ export async function POST(req: NextRequest) {
     // ── Criativos do período principal ──────────────────────────────────────
     const { data: adCreativesRaw } = await supabase
       .from("ad_creatives")
-      .select("ad_id, ad_name, campaign_name, platform, status, creative_type, headline, permalink_url, impressions, clicks, spend, date, created_at_meta, updated_at_meta")
+      .select("ad_id, ad_name, campaign_name, ad_set_id, ad_set_name, platform, status, creative_type, headline, permalink_url, impressions, clicks, spend, date, created_at_meta, updated_at_meta")
       .eq("client_slug", client)
       .gte("date", periodFrom)
       .lte("date", periodTo);
@@ -435,7 +435,7 @@ export async function POST(req: NextRequest) {
     const notesByAdId = new Map<string, string>();
     for (const n of creativeNotesRaw ?? []) notesByAdId.set(n.ad_id, n.note);
 
-    const creativeAgg = new Map<string, { ad_id: string; name: string; campaign: string; platform: string; type: string | null; headline: string | null; permalink: string | null; spend: number; impressions: number; clicks: number; leads: number; status: string; created_at_meta: string | null; updated_at_meta: string | null; last_active_date: string | null; last_date: string; note: string | null }>();
+    const creativeAgg = new Map<string, { ad_id: string; name: string; campaign: string; ad_set_name: string; platform: string; type: string | null; headline: string | null; permalink: string | null; spend: number; impressions: number; clicks: number; leads: number; status: string; created_at_meta: string | null; updated_at_meta: string | null; last_active_date: string | null; last_date: string; note: string | null }>();
     for (const c of adCreatives) {
       const ex = creativeAgg.get(c.ad_id);
       const hasSpend = Number(c.spend) > 0;
@@ -446,10 +446,13 @@ export async function POST(req: NextRequest) {
         if (!ex.created_at_meta && (c as any).created_at_meta) ex.created_at_meta = (c as any).created_at_meta;
         if (!ex.updated_at_meta && (c as any).updated_at_meta) ex.updated_at_meta = (c as any).updated_at_meta;
         if (!ex.permalink && c.permalink_url) ex.permalink = c.permalink_url;
+        if (!ex.ad_set_name && (c as any).ad_set_name) ex.ad_set_name = (c as any).ad_set_name;
       } else {
         creativeAgg.set(c.ad_id, {
           ad_id: c.ad_id,
-          name: c.ad_name, campaign: c.campaign_name ?? "", platform: c.platform,
+          name: c.ad_name, campaign: c.campaign_name ?? "",
+          ad_set_name: (c as any).ad_set_name ?? "",
+          platform: c.platform,
           type: c.creative_type, headline: c.headline, permalink: c.permalink_url ?? null,
           spend: Number(c.spend), impressions: Number(c.impressions), clicks: Number(c.clicks), leads: 0,
           status: (c as any).status ?? "",
@@ -521,6 +524,36 @@ export async function POST(req: NextRequest) {
       if (!creativesByCampaign.has(c.campaign)) creativesByCampaign.set(c.campaign, []);
       creativesByCampaign.get(c.campaign)!.push(c);
     }
+
+    // ── Breakdown por Conjunto de Anúncios (ad_set) dentro de cada campanha ──
+    // Soma direta dos criativos (já têm spend/leads atribuídos). Quando uma
+    // campanha tem só 1 conjunto, o frontend pode pular o nível extra.
+    interface AdSetAgg {
+      ad_set_name: string;
+      spend: number;
+      impressions: number;
+      clicks: number;
+      leads: number;
+      creatives: typeof allCreativesWithSpend;
+    }
+    const adSetsByCampaign = new Map<string, Map<string, AdSetAgg>>();
+    for (const c of allCreativesWithSpend) {
+      const setName = c.ad_set_name || "(sem conjunto)";
+      let perCamp = adSetsByCampaign.get(c.campaign);
+      if (!perCamp) { perCamp = new Map(); adSetsByCampaign.set(c.campaign, perCamp); }
+      const ex = perCamp.get(setName) ?? { ad_set_name: setName, spend: 0, impressions: 0, clicks: 0, leads: 0, creatives: [] as typeof allCreativesWithSpend };
+      ex.spend += c.spend; ex.impressions += c.impressions; ex.clicks += c.clicks; ex.leads += c.leads;
+      ex.creatives.push(c);
+      perCamp.set(setName, ex);
+    }
+    // Helper: retorna conjuntos de uma campanha como array enriquecido (cpl/ctr).
+    const adSetsForCampaign = (campName: string): Array<AdSetAgg & { cpl: number | null; ctr: number }> => {
+      const m = adSetsByCampaign.get(campName);
+      if (!m) return [];
+      return Array.from(m.values())
+        .map(s => ({ ...s, cpl: s.leads > 0 ? s.spend / s.leads : null, ctr: s.impressions > 0 ? (s.clicks / s.impressions) * 100 : 0 }))
+        .sort((a, b) => b.leads - a.leads || b.spend - a.spend);
+    };
 
     // ── Keywords + search terms do período principal ────────────────────────
     const { data: kwData } = await supabase
@@ -676,36 +709,51 @@ DETALHAMENTO DO PERÍODO (${brDateFull(periodFrom)} a ${brDateFull(periodTo)}):
 ${metaCampaigns.length > 0 ? `RESUMO META ADS — TODAS AS CAMPANHAS NO PERÍODO (ordenadas por leads):
 ${metaCampaigns.map(c => `  - ${c.name} | ${campStatusLabel(c.status)} | R$${fmt(c.spend)} | ${c.leads} leads | CPL ${c.cpl ? `R$${fmt(c.cpl)}` : "—"} | CTR ${pct(c.ctr)}`).join("\n")}
 
-META ADS — POR CAMPANHA (detalhe + criativos + semana a semana):
+META ADS — POR CAMPANHA (detalhe + conjuntos + criativos + semana a semana):
 ${metaCampaigns.filter(c => c.leads > 0 || c.spend > 50).map(c => {
   const creatives = creativesByCampaign.get(c.name) ?? [];
   const forms = formsByCampaign.get(c.name);
   const formsStr = forms ? Array.from(forms.entries()).sort((a, b) => b[1] - a[1]).map(([f, n]) => `${f}(${n})`).join(", ") : "";
   const weeklyStr = campaignWeeklyLines(c.name);
+  const sets = adSetsForCampaign(c.name);
+
+  function renderCreative(cr: typeof creatives[number], indent: string): string {
+    const created = (cr as any).created_at_meta ? String((cr as any).created_at_meta).slice(0, 10) : null;
+    const updated = (cr as any).updated_at_meta ? String((cr as any).updated_at_meta).slice(0, 10) : null;
+    const lastActive = (cr as any).last_active_date ?? null;
+    const st = String((cr as any).status ?? "").toUpperCase();
+    let stLabel = "Ativo";
+    if (st === "PAUSED" || st === "DISABLED" || st === "ARCHIVED") {
+      stLabel = updated ? `Pausado em ${updated}` : (lastActive ? `Pausado em ~${lastActive}` : "Pausado");
+    } else if (st === "ACTIVE" || st === "ENABLED" || st === "") stLabel = "Ativo";
+    else stLabel = st;
+    const note = (cr as any).note ? ` | nota: ${String((cr as any).note).replace(/\n/g, " ")}` : "";
+    const dupFlag = duplicatedNameAdIds.has((cr as any).ad_id)
+      ? " | AVISO: existem ad_ids diferentes com este mesmo nome — leads via utm_term foram atribuídos ao de maior spend; configure UTMs distintas por ad set pra tracking exato"
+      : "";
+    return `${indent}- ${cr.name} | criado: ${created ?? "—"} | ${stLabel} | R$${fmt(cr.spend)} | ${cr.leads} leads | CTR ${pct(cr.ctr)}${cr.cpl ? ` | CPL R$${fmt(cr.cpl)}` : ""}${cr.permalink ? ` | ${cr.permalink}` : ""}${note}${dupFlag}`;
+  }
+
+  // Se a campanha tem >1 conjunto, mostrar quebra por conjunto (importante pra
+  // comparar performance de ad sets distintos). Senão, lista plana de criativos.
+  const hasMultipleSets = sets.length > 1;
+  const creativesBlock = hasMultipleSets
+    ? `    Conjuntos de Anúncios:\n${sets.map(s => {
+        const header = `      CONJUNTO: ${s.ad_set_name} | R$${fmt(s.spend)} | ${s.leads} leads${s.cpl ? ` | CPL R$${fmt(s.cpl)}` : ""} | CTR ${pct(s.ctr)}`;
+        const inner = s.creatives.length > 0
+          ? s.creatives.map(cr => renderCreative(cr, "        ")).join("\n")
+          : "        (sem criativos com spend)";
+        return `${header}\n${inner}`;
+      }).join("\n")}`
+    : (creatives.length > 0 ? `    Criativos:\n${creatives.map(cr => renderCreative(cr, "      ")).join("\n")}` : "");
+
   return [
     `  CAMPANHA: ${c.name} | ${campStatusLabel(c.status)}`,
     `    Gasto: R$${fmt(c.spend)} | Impressões: ${fmtInt(c.impressions)} | Cliques: ${fmtInt(c.clicks)} | CTR: ${pct(c.ctr)}`,
     `    Leads: ${c.leads}${c.cpl ? ` | CPL: R$${fmt(c.cpl)}` : ""}`,
     formsStr ? `    Formulários: ${formsStr}` : "",
     weeklyStr,
-    creatives.length > 0 ? `    Criativos:\n${creatives.map(cr => {
-      const created = (cr as any).created_at_meta ? String((cr as any).created_at_meta).slice(0, 10) : null;
-      const updated = (cr as any).updated_at_meta ? String((cr as any).updated_at_meta).slice(0, 10) : null;
-      const lastActive = (cr as any).last_active_date ?? null;
-      const st = String((cr as any).status ?? "").toUpperCase();
-      let stLabel = "Ativo";
-      if (st === "PAUSED" || st === "DISABLED" || st === "ARCHIVED") {
-        // Prefere updated_at_meta (data exata da pausa); fallback last_active_date
-        stLabel = updated ? `Pausado em ${updated}` : (lastActive ? `Pausado em ~${lastActive}` : "Pausado");
-      }
-      else if (st === "ACTIVE" || st === "ENABLED" || st === "") stLabel = "Ativo";
-      else stLabel = st;
-      const note = (cr as any).note ? ` | nota: ${String((cr as any).note).replace(/\n/g, " ")}` : "";
-      const dupFlag = duplicatedNameAdIds.has((cr as any).ad_id)
-        ? " | AVISO: existem ad_ids diferentes com este mesmo nome — leads via utm_term foram atribuídos ao de maior spend; configure UTMs distintas por ad set pra tracking exato"
-        : "";
-      return `      - ${cr.name} | criado: ${created ?? "—"} | ${stLabel} | R$${fmt(cr.spend)} | ${cr.leads} leads | CTR ${pct(cr.ctr)}${cr.cpl ? ` | CPL R$${fmt(cr.cpl)}` : ""}${cr.permalink ? ` | ${cr.permalink}` : ""}${note}${dupFlag}`;
-    }).join("\n")}` : "",
+    creativesBlock,
   ].filter(Boolean).join("\n");
 }).join("\n\n")}${topPlacements.length > 0 ? `\n\n  POSICIONAMENTOS:\n${topPlacements.map(p => `    ${p.name}: ${p.conversions} conv | ${fmtInt(p.clicks)} cliques | R$${fmt(p.spend)}`).join("\n")}` : ""}` : ""}
 
@@ -774,7 +822,7 @@ ${reportObservations.map((o: any) => {
     // Agrega criativos do período principal por ad_id. Rastreamos a última data
     // COM spend > 0 (proxy de "última veiculação"). Quando essa data < hoje e o
     // status atual é PAUSED, sabemos que foi pausado em ~last_active_date.
-    const adsAgg = new Map<string, { ad_id: string; ad_name: string; campaign_name: string; platform: string; status: string; permalink: string | null; spend: number; impressions: number; clicks: number; last_date: string; last_active_date: string | null; created_at_meta: string | null; updated_at_meta: string | null }>();
+    const adsAgg = new Map<string, { ad_id: string; ad_name: string; campaign_name: string; ad_set_name: string; platform: string; status: string; permalink: string | null; spend: number; impressions: number; clicks: number; last_date: string; last_active_date: string | null; created_at_meta: string | null; updated_at_meta: string | null }>();
     for (const r of adCreatives) {
       const ex = adsAgg.get(r.ad_id);
       const hasSpend = Number(r.spend) > 0;
@@ -786,9 +834,11 @@ ${reportObservations.map((o: any) => {
         if (r.date === ex.last_date) ex.status = (r as any).status ?? ex.status;
         if (!ex.created_at_meta && (r as any).created_at_meta) ex.created_at_meta = (r as any).created_at_meta;
         if (!ex.updated_at_meta && (r as any).updated_at_meta) ex.updated_at_meta = (r as any).updated_at_meta;
+        if (!ex.ad_set_name && (r as any).ad_set_name) ex.ad_set_name = (r as any).ad_set_name;
       } else {
         adsAgg.set(r.ad_id, {
           ad_id: r.ad_id, ad_name: r.ad_name, campaign_name: r.campaign_name ?? "",
+          ad_set_name: (r as any).ad_set_name ?? "",
           platform: r.platform, status: (r as any).status ?? "",
           permalink: r.permalink_url ?? null,
           spend: Number(r.spend), impressions: Number(r.impressions), clicks: Number(r.clicks),
@@ -890,7 +940,7 @@ NÃO inclua "nota metodológica" explicando o intervalo do mês anterior — as 
 
     sections.push(["Meta Ads — Resultados por Campanha (período " + brDateFull(periodFrom) + " a " + brDateFull(periodTo) + ")",
       metaCampaigns.length > 0
-        ? "Inicie a seção com uma TABELA RESUMO baseada em 'RESUMO META ADS — TODAS AS CAMPANHAS NO PERÍODO' (do contexto), com colunas: Campanha | Status | Investimento | Leads | CPL | CTR. Inclua TODAS as campanhas listadas no resumo (não filtre). Após a tabela resumo, faça o detalhamento POR CAMPANHA usando os blocos do contexto. Para cada campanha (do bloco 'META ADS — POR CAMPANHA'): cabeçalho com nome + status, subbloco com investimento/impressões/cliques/CTR/leads/CPL, depois sub-tabela 'Semana a Semana' (colunas: Semana | Investimento | Leads | CPL | CTR) usando os dados de 'Por semana:' do contexto, e por fim a lista de criativos (criado em / status / gasto / leads / CTR / CPL / link, com nota como bullet abaixo quando presente). Mencione posicionamentos que mais converteram. NÃO invente semanas além das listadas."
+        ? "Inicie a seção com uma TABELA RESUMO baseada em 'RESUMO META ADS — TODAS AS CAMPANHAS NO PERÍODO' (do contexto), com colunas: Campanha | Status | Investimento | Leads | CPL | CTR. Inclua TODAS as campanhas listadas no resumo (não filtre). Após a tabela resumo, faça o detalhamento POR CAMPANHA usando os blocos do contexto. Para cada campanha (do bloco 'META ADS — POR CAMPANHA'): cabeçalho com nome + status, subbloco com investimento/impressões/cliques/CTR/leads/CPL, depois sub-tabela 'Semana a Semana' (colunas: Semana | Investimento | Leads | CPL | CTR) usando os dados de 'Por semana:' do contexto. QUANDO O CONTEXTO TROUXER 'Conjuntos de Anúncios' DENTRO DA CAMPANHA (= mais de um conjunto rodando), apresente uma sub-tabela 'Conjuntos de Anúncios' com colunas: Conjunto | Investimento | Leads | CPL | CTR antes da lista de criativos, e depois liste os criativos AGRUPADOS por conjunto (sub-cabeçalho com o nome do conjunto seguido dos criativos daquele conjunto). Quando a campanha tem apenas 1 conjunto, liste os criativos direto sem essa quebra (o contexto traz como 'Criativos:' nesse caso). Cada criativo: criado em / status / gasto / leads / CTR / CPL / link, com nota como bullet abaixo quando presente. Mencione posicionamentos que mais converteram. NÃO invente semanas além das listadas."
         : "Sem campanhas Meta no período."]);
 
     sections.push(["Google Ads — Resultados por Campanha (período " + brDateFull(periodFrom) + " a " + brDateFull(periodTo) + ")",
@@ -972,37 +1022,54 @@ IMPORTANTE sobre formatação:
         deltaCpl: i > 0 ? deltaPct(w.stats.cpl, weekStats[i - 1].stats.cpl) : null,
         deltaCtr: i > 0 ? deltaPct(w.stats.ctr, weekStats[i - 1].stats.ctr) : null,
       })),
-      metaCampaigns: metaCampaigns.map(c => ({
-        name: c.name,
-        status: c.status,
-        spend: c.spend,
-        impressions: c.impressions,
-        clicks: c.clicks,
-        leads: c.leads,
-        ctr: c.ctr,
-        cpl: c.cpl,
-        weekly: (campaignWeekly.get(c.name) ?? []).map((w, i) => ({
-          label: weeks[i]?.label ?? "",
-          spend: w.spend,
-          leads: w.leads,
-          cpl: w.leads > 0 && w.spend > 0 ? w.spend / w.leads : 0,
-          ctr: w.impressions > 0 ? (w.clicks / w.impressions) * 100 : 0,
-        })),
-        creatives: (creativesByCampaign.get(c.name) ?? []).slice(0, 6).map(cr => ({
+      metaCampaigns: metaCampaigns.map(c => {
+        const mapCreative = (cr: any) => ({
           name: cr.name,
+          ad_set_name: cr.ad_set_name ?? "",
           spend: cr.spend,
           leads: cr.leads,
           ctr: cr.ctr,
           cpl: cr.cpl,
           permalink: cr.permalink,
-          status: (cr as any).status ?? "",
-          created_at_meta: (cr as any).created_at_meta ?? null,
-          updated_at_meta: (cr as any).updated_at_meta ?? null,
-          note: (cr as any).note ?? null,
-          ambiguousAttribution: duplicatedNameAdIds.has((cr as any).ad_id),
+          status: cr.status ?? "",
+          created_at_meta: cr.created_at_meta ?? null,
+          updated_at_meta: cr.updated_at_meta ?? null,
+          note: cr.note ?? null,
+          ambiguousAttribution: duplicatedNameAdIds.has(cr.ad_id),
           thumbnail: null,
-        })),
-      })),
+        });
+        const sets = adSetsForCampaign(c.name);
+        return {
+          name: c.name,
+          status: c.status,
+          spend: c.spend,
+          impressions: c.impressions,
+          clicks: c.clicks,
+          leads: c.leads,
+          ctr: c.ctr,
+          cpl: c.cpl,
+          weekly: (campaignWeekly.get(c.name) ?? []).map((w, i) => ({
+            label: weeks[i]?.label ?? "",
+            spend: w.spend,
+            leads: w.leads,
+            cpl: w.leads > 0 && w.spend > 0 ? w.spend / w.leads : 0,
+            ctr: w.impressions > 0 ? (w.clicks / w.impressions) * 100 : 0,
+          })),
+          // Quebra por conjunto de anúncios (vazio quando só existe 1 conjunto;
+          // o frontend pode usar `adSets.length > 1` pra decidir se renderiza a seção).
+          adSets: sets.map(s => ({
+            name: s.ad_set_name,
+            spend: s.spend,
+            impressions: s.impressions,
+            clicks: s.clicks,
+            leads: s.leads,
+            ctr: s.ctr,
+            cpl: s.cpl,
+            creatives: s.creatives.slice(0, 6).map(mapCreative),
+          })),
+          creatives: (creativesByCampaign.get(c.name) ?? []).slice(0, 6).map(mapCreative),
+        };
+      }),
       googleCampaigns: googleCampaigns.map(c => ({
         name: c.name,
         status: c.status,
@@ -1026,6 +1093,7 @@ IMPORTANTE sobre formatação:
       adsList: adsList.map(a => ({
         ad_name: a.ad_name,
         campaign_name: a.campaign_name,
+        ad_set_name: a.ad_set_name ?? "",
         first_date: a.first_date,
         last_active_date: a.last_active_date,
         status: a.status,
