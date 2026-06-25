@@ -13,7 +13,7 @@ export interface Client {
 }
 
 // ─── Leads ────────────────────────────────────────────────────────────────────
-export type LeadSource = "rdstation" | "meta_leadform" | "manual";
+export type LeadSource = "rdstation" | "meta_leadform" | "meta_whatsapp" | "manual";
 export type Platform = "meta" | "google";
 export type CreativeType = "image" | "video" | "carousel" | "collection";
 

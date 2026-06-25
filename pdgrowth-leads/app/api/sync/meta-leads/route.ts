@@ -1,14 +1,16 @@
 // POST /api/sync/meta-leads?secret=<META_SYNC_SECRET>&days=30
 //
-// Puxa leads do Meta Lead Ads (Instant Forms) e popula a tabela `leads`.
-// Usado por clientes que capturam leads direto no Meta (sem RD Station no meio).
+// Puxa duas fontes de leads do Meta e popula a tabela `leads`:
+//   1. Instant Forms (source='meta_leadform') — via /{form_id}/leads
+//   2. Conversas iniciadas em ads Click-to-WhatsApp (source='meta_whatsapp') —
+//      via insights ad-level (onsite_conversion.messaging_conversation_started_7d).
 //
-// Roda em todos os clientes ativos com meta_ad_account_id.
 // Idempotente: upsert com onConflict (client_slug, source, lead_email, conversion_event, converted_at).
+// Pra WhatsApp, lead_email é determinístico (`wpp_${ad_id}_${date}_${idx}`).
 
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
-import { syncMetaLeadsForAccount } from "@/lib/meta-leads";
+import { syncMetaLeadsForAccount, syncMetaWhatsappForAccount } from "@/lib/meta-leads";
 
 const UPSERT_BATCH = 200;
 
@@ -33,6 +35,7 @@ export async function POST(request: Request) {
   const since = new Date();
   since.setDate(since.getDate() - days);
   const sinceISO = since.toISOString();
+  const untilISO = new Date().toISOString();
 
   const supabase = createServiceClient();
 
@@ -49,42 +52,66 @@ export async function POST(request: Request) {
     return NextResponse.json({ success: true, message: "Nenhum cliente com meta_ad_account_id.", since: sinceISO });
   }
 
-  const results: Record<string, { forms: number; formsOk: number; formsFailed: number; leadsFound: number; leadsInserted: number; error?: string }> = {};
+  interface PerClientResult {
+    leadform: { forms: number; formsOk: number; formsFailed: number; leadsFound: number; leadsInserted: number; error?: string; formErrors?: { form_id: string; form_name: string; error: string }[] };
+    whatsapp: { adsScanned: number; conversationsTotal: number; leadsInserted: number; error?: string };
+  }
+  const results: Record<string, PerClientResult> = {};
+
+  async function upsertLeads(leads: ReturnType<typeof syncMetaLeadsForAccount> extends Promise<infer R> ? (R extends { leads: infer L } ? L : never) : never): Promise<{ inserted: number; error?: string }> {
+    let inserted = 0;
+    for (let i = 0; i < leads.length; i += UPSERT_BATCH) {
+      const batch = leads.slice(i, i + UPSERT_BATCH);
+      const { error, count } = await supabase
+        .from("leads")
+        .upsert(batch, { onConflict: "client_slug,source,lead_email,conversion_event,converted_at", count: "exact" });
+      if (error) return { inserted, error: error.message };
+      inserted += count ?? batch.length;
+    }
+    return { inserted };
+  }
 
   for (const client of clients) {
     const accountId = client.meta_ad_account_id as string;
     const clientSlug = client.slug as string;
-
-    let sync;
-    try {
-      sync = await syncMetaLeadsForAccount(accountId, clientSlug, token, sinceISO);
-    } catch (err) {
-      results[clientSlug] = { forms: 0, formsOk: 0, formsFailed: 0, leadsFound: 0, leadsInserted: 0, error: String(err) };
-      continue;
-    }
-
-    let inserted = 0;
-    let upsertError: string | undefined;
-    if (sync.leads.length > 0) {
-      for (let i = 0; i < sync.leads.length; i += UPSERT_BATCH) {
-        const batch = sync.leads.slice(i, i + UPSERT_BATCH);
-        const { error, count } = await supabase
-          .from("leads")
-          .upsert(batch, { onConflict: "client_slug,source,lead_email,conversion_event,converted_at", count: "exact" });
-        if (error) { upsertError = error.message; break; }
-        inserted += count ?? batch.length;
-      }
-    }
-
-    results[clientSlug] = {
-      forms: sync.forms,
-      formsOk: sync.formsOk,
-      formsFailed: sync.formsFailed,
-      leadsFound: sync.leads.length,
-      leadsInserted: inserted,
-      ...(upsertError ? { error: `upsert: ${upsertError}` } : {}),
+    const perClient: PerClientResult = {
+      leadform: { forms: 0, formsOk: 0, formsFailed: 0, leadsFound: 0, leadsInserted: 0 },
+      whatsapp: { adsScanned: 0, conversationsTotal: 0, leadsInserted: 0 },
     };
+
+    // ── 1. Lead Forms ────────────────────────────────────────────────────────
+    try {
+      const lf = await syncMetaLeadsForAccount(accountId, clientSlug, token, sinceISO);
+      perClient.leadform.forms = lf.forms;
+      perClient.leadform.formsOk = lf.formsOk;
+      perClient.leadform.formsFailed = lf.formsFailed;
+      perClient.leadform.leadsFound = lf.leads.length;
+      if (lf.errors.length) perClient.leadform.formErrors = lf.errors;
+      if (lf.leads.length > 0) {
+        const up = await upsertLeads(lf.leads);
+        perClient.leadform.leadsInserted = up.inserted;
+        if (up.error) perClient.leadform.error = `upsert: ${up.error}`;
+      }
+    } catch (err) {
+      perClient.leadform.error = String(err);
+    }
+
+    // ── 2. Click-to-WhatsApp ─────────────────────────────────────────────────
+    try {
+      const wp = await syncMetaWhatsappForAccount(accountId, clientSlug, token, sinceISO, untilISO);
+      perClient.whatsapp.adsScanned = wp.adsScanned;
+      perClient.whatsapp.conversationsTotal = wp.conversationsTotal;
+      if (wp.leads.length > 0) {
+        const up = await upsertLeads(wp.leads);
+        perClient.whatsapp.leadsInserted = up.inserted;
+        if (up.error) perClient.whatsapp.error = `upsert: ${up.error}`;
+      }
+    } catch (err) {
+      perClient.whatsapp.error = String(err);
+    }
+
+    results[clientSlug] = perClient;
   }
 
-  return NextResponse.json({ success: true, since: sinceISO, days, results });
+  return NextResponse.json({ success: true, since: sinceISO, until: untilISO, days, results });
 }

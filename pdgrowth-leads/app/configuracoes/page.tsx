@@ -52,11 +52,12 @@ interface TrackedForm {
 const sourceColor: Record<string, string> = {
   rdstation:      "text-accent border-accent/30 bg-accent/10",
   meta_leadform:  "text-blue border-blue/30 bg-blue/10",
+  meta_whatsapp:  "text-[#25D366] border-[#25D366]/30 bg-[#25D366]/10",
   manual:         "text-gold border-gold/30 bg-gold/10",
 };
 
 const sourceLabel: Record<string, string> = {
-  rdstation: "RD Station", meta_leadform: "Meta Lead Form", manual: "Manual",
+  rdstation: "RD Station", meta_leadform: "Meta Lead Form", meta_whatsapp: "WhatsApp", manual: "Manual",
 };
 
 export default function ConfiguracoesPage() {

@@ -21,7 +21,7 @@ create table if not exists clients (
 create table if not exists leads (
   id                uuid primary key default gen_random_uuid(),
   client_slug       text not null references clients(slug),
-  source            text not null default 'rdstation' check (source in ('rdstation', 'meta_leadform', 'manual')),
+  source            text not null default 'rdstation' check (source in ('rdstation', 'meta_leadform', 'meta_whatsapp', 'manual')),
   -- Lead info
   lead_email        text,
   lead_name         text,

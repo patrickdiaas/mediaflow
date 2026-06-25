@@ -41,7 +41,7 @@ export interface MetaLead {
 
 export interface MappedLead {
   client_slug: string;
-  source: "meta_leadform";
+  source: "meta_leadform" | "meta_whatsapp";
   lead_email: string | null;
   lead_name: string | null;
   lead_phone: string | null;
@@ -149,6 +149,122 @@ export interface SyncMetaLeadsResult {
   leads: MappedLead[];
   errors: { form_id: string; form_name: string; error: string }[];
 }
+
+// ─── Click-to-WhatsApp / Messenger conversations ──────────────────────────────
+// Ads de mensagens reportam o resultado como `onsite_conversion.messaging_conversation_started_7d`
+// nas insights ad-level. Tratamos cada conversa como um lead sintético (source='meta_whatsapp')
+// pra somar com Lead Forms na contagem do dashboard.
+
+interface MetaAdInsightWithActions {
+  campaign_id?: string;
+  campaign_name?: string;
+  adset_id?: string;
+  adset_name?: string;
+  ad_id?: string;
+  ad_name?: string;
+  date_start: string;
+  actions?: { action_type: string; value: string }[];
+}
+
+const WHATSAPP_ACTION_TYPES = new Set([
+  "onsite_conversion.messaging_conversation_started_7d",
+  "onsite_conversion.messaging_first_reply",
+]);
+
+async function fetchAdInsightsWithActions(
+  accountId: string,
+  token: string,
+  sinceISO: string,
+  untilISO: string,
+): Promise<MetaAdInsightWithActions[]> {
+  const timeRange = JSON.stringify({ since: sinceISO.slice(0, 10), until: untilISO.slice(0, 10) });
+  const url = buildUrl(
+    `/${accountId}/insights`,
+    {
+      level: "ad",
+      fields: "campaign_id,campaign_name,adset_id,adset_name,ad_id,ad_name,date_start,actions",
+      time_range: timeRange,
+      time_increment: "1",
+      limit: "500",
+    },
+    token,
+  );
+  return fetchAllPages<MetaAdInsightWithActions>(url);
+}
+
+// Conta conversas WhatsApp por (ad_id, date) somando apenas action_types relevantes,
+// preferindo o `messaging_conversation_started_7d` (o que aparece como "Resultado" no Ads Manager).
+function countWhatsAppConversations(actions: { action_type: string; value: string }[] | undefined): number {
+  if (!actions?.length) return 0;
+  const startedAction = actions.find(a => a.action_type === "onsite_conversion.messaging_conversation_started_7d");
+  if (startedAction) return parseInt(startedAction.value, 10) || 0;
+  // Fallback: first_reply (raramente difere; mais seguro pra contas que não emitem o evento de "started")
+  const firstReply = actions.find(a => a.action_type === "onsite_conversion.messaging_first_reply");
+  if (firstReply) return parseInt(firstReply.value, 10) || 0;
+  return 0;
+}
+
+export interface SyncMetaWhatsappResult {
+  adsScanned: number;
+  conversationsTotal: number;
+  leads: MappedLead[];
+}
+
+export async function syncMetaWhatsappForAccount(
+  accountId: string,
+  clientSlug: string,
+  token: string,
+  sinceISO: string,
+  untilISO: string,
+): Promise<SyncMetaWhatsappResult> {
+  const norm = normalizeAccountId(accountId);
+  const rows = await fetchAdInsightsWithActions(norm, token, sinceISO, untilISO);
+
+  const leads: MappedLead[] = [];
+  let total = 0;
+
+  for (const row of rows) {
+    const count = countWhatsAppConversations(row.actions);
+    if (count <= 0) continue;
+    total += count;
+    // Cria N leads sintéticos (1 por conversa). lead_email determinístico garante
+    // idempotência via UNIQUE (client_slug, source, lead_email, conversion_event, converted_at).
+    const adId = row.ad_id ?? "";
+    const date = row.date_start; // YYYY-MM-DD
+    // Materializa no início do dia em UTC pra `converted_at` ser estável entre syncs.
+    const convertedAt = `${date}T00:00:00.000Z`;
+    for (let i = 0; i < count; i++) {
+      leads.push({
+        client_slug: clientSlug,
+        source: "meta_whatsapp",
+        lead_email: `wpp_${adId}_${date}_${i + 1}`, // pseudo-email único pro unique constraint
+        lead_name: null,
+        lead_phone: null,
+        lead_company: null,
+        conversion_event: "whatsapp_conversation",
+        landing_page: null,
+        utm_source: "facebook",
+        utm_medium: "paid",
+        utm_campaign: row.campaign_name ?? null,
+        utm_content: row.ad_name ?? null,
+        utm_term: null,
+        converted_at: convertedAt,
+        raw_payload: {
+          ad_id: adId,
+          ad_name: row.ad_name,
+          campaign_id: row.campaign_id,
+          campaign_name: row.campaign_name,
+          adset_id: row.adset_id,
+          date,
+          conversation_index: i + 1,
+        },
+      });
+    }
+  }
+
+  return { adsScanned: rows.length, conversationsTotal: total, leads };
+}
+
 
 export async function syncMetaLeadsForAccount(
   accountId: string,

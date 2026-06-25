@@ -467,8 +467,8 @@ export default function OverviewPage() {
       const key = l.source ?? "rdstation";
       srcCounts[key] = (srcCounts[key] ?? 0) + 1;
     }
-    const srcLabels: Record<string, string> = { rdstation: "RD Station", meta_leadform: "Meta Lead Form", manual: "Manual" };
-    const srcColors: Record<string, string> = { rdstation: "#CAFF04", meta_leadform: "#60A5FA", manual: "#F59E0B" };
+    const srcLabels: Record<string, string> = { rdstation: "RD Station", meta_leadform: "Meta Lead Form", meta_whatsapp: "WhatsApp", manual: "Manual" };
+    const srcColors: Record<string, string> = { rdstation: "#CAFF04", meta_leadform: "#60A5FA", meta_whatsapp: "#25D366", manual: "#F59E0B" };
     const srcDonut = Object.entries(srcCounts)
       .sort((a, b) => b[1] - a[1])
       .map(([key, value]) => ({ label: srcLabels[key] ?? key, value, color: srcColors[key] ?? "#A78BFA" }));
