@@ -455,31 +455,42 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
     }
     const periodLabel = `${pSince} a ${pUntil}`;
 
-    // Convert URLs in text to clickable links
-    function autoLink(s: string): string {
-      return s.replace(/(https?:\/\/[^\s<>"')\]]+)/g, '<a href="$1" target="_blank">$1</a>');
-    }
+    const escapeHtml = (s: string) =>
+      String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    const autoLink = (s: string): string =>
+      s.replace(/(https?:\/\/[^\s<>"')\]]+)/g, '<a href="$1" target="_blank">$1</a>');
+    const fmt = (n: number) => Number(n ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    const fmtInt = (n: number) => Number(n ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 0 });
+    const pct = (n: number) => `${Number(n ?? 0).toFixed(2)}%`;
+    const deltaPct = (cur: number, prev: number) => {
+      if (!prev) return null;
+      return ((cur - prev) / prev) * 100;
+    };
+    const deltaSpan = (cur: number, prev: number, opts?: { lowerIsBetter?: boolean }) => {
+      const d = deltaPct(cur, prev);
+      if (d == null) return "<span class='delta-na'>—</span>";
+      const positive = opts?.lowerIsBetter ? d < 0 : d > 0;
+      const cls = Math.abs(d) < 0.5 ? "delta-flat" : positive ? "delta-up" : "delta-down";
+      const sign = d > 0 ? "+" : "";
+      return `<span class='${cls}'>${sign}${d.toFixed(1)}%</span>`;
+    };
 
     function mdToHtml(text: string): string {
       return text.split("\n").map(line => {
-        if (!line.trim()) return "<div style='height:10px'></div>";
-        // Tables: | col | col |
+        if (!line.trim()) return "<div style='height:8px'></div>";
         if (line.trim().startsWith("|") && line.trim().endsWith("|")) {
-          if (line.includes("---")) return ""; // separator row
+          if (line.includes("---")) return "";
           const cells = line.split("|").filter(c => c.trim());
           const isHeader = !line.includes("R$") && !line.includes("%") && cells.every(c => c.trim().length < 30);
           const tag = isHeader ? "th" : "td";
           return `<tr>${cells.map(c => `<${tag}>${autoLink(c.trim().replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>"))}</${tag}>`).join("")}</tr>`;
         }
-        // Section headers: **1. Title** or ## 1. Title
         const headerMatch = line.trim().match(/^(?:\*\*|\#{1,2}\s*)(\d+[\.\)]\s+.+?)(?:\*\*|$)/);
         if (headerMatch) return `</table><h2>${headerMatch[1]}</h2><table>`;
-        // Sub-headers: ### Title or **Title**
         const h3Match = line.trim().match(/^\#{3}\s+(.+)/);
         if (h3Match) return `</table><h3>${h3Match[1].replace(/\*\*/g, "")}</h3><table>`;
         const subMatch = line.trim().match(/^\*\*(.+?)\*\*$/);
         if (subMatch) return `</table><h3>${subMatch[1]}</h3><table>`;
-        // Blockquote with emoji
         if (line.trim().startsWith(">")) {
           const content = autoLink(line.replace(/^>\s*/, "").replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>"));
           return `</table><div class="callout">${content}</div><table>`;
@@ -490,13 +501,194 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
       }).join("\n").replace(/<table>\s*<\/table>/g, "").replace(/<table>\n<\/table>/g, "");
     }
 
-    const kpiHtml = kpis ? `
-    <div class="kpi-grid">
-      <div class="kpi"><div class="kpi-value accent">${kpis.leads}</div><div class="kpi-label">Leads</div></div>
-      <div class="kpi"><div class="kpi-value blue">R$ ${kpis.spend?.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}</div><div class="kpi-label">Investimento</div></div>
-      <div class="kpi"><div class="kpi-value gold">${kpis.cpl > 0 ? `R$ ${kpis.cpl.toFixed(2)}` : "—"}</div><div class="kpi-label">CPL</div></div>
-      <div class="kpi"><div class="kpi-value">${kpis.metaLeads} Meta · ${kpis.googleLeads} Google</div><div class="kpi-label">Por Plataforma</div></div>
-    </div>` : "";
+    // ── Executive summary (capa) — gerado deterministicamente a partir do
+    // presentationData. Não depende do texto do Claude pra que a 1ª página
+    // SEMPRE entregue o panorama, mesmo se o Claude variar a redação.
+    const p: any = presentationData ?? {};
+    const cur = p.monthCurStats;
+    const prev = p.monthPrevStats;
+    const isMensal = reportType === "mensal" && cur && prev;
+
+    const coverKpis = kpis ? `
+      <div class="kpi-row">
+        <div class="kpi">
+          <div class="kpi-value accent">${fmtInt(kpis.leads)}</div>
+          <div class="kpi-label">Leads no período</div>
+          ${isMensal ? `<div class="kpi-delta">vs mês ant: ${deltaSpan(cur.leads, prev.leads)}</div>` : ""}
+        </div>
+        <div class="kpi">
+          <div class="kpi-value blue">R$ ${fmtInt(kpis.spend)}</div>
+          <div class="kpi-label">Investimento</div>
+          ${isMensal ? `<div class="kpi-delta">vs mês ant: ${deltaSpan(cur.spend, prev.spend)}</div>` : ""}
+        </div>
+        <div class="kpi">
+          <div class="kpi-value gold">${kpis.cpl > 0 ? `R$ ${fmt(kpis.cpl)}` : "—"}</div>
+          <div class="kpi-label">CPL geral</div>
+          ${isMensal ? `<div class="kpi-delta">vs mês ant: ${deltaSpan(cur.cpl, prev.cpl, { lowerIsBetter: true })}</div>` : ""}
+        </div>
+        <div class="kpi">
+          <div class="kpi-value">${fmtInt(kpis.metaLeads)}<span class="kpi-split">/</span>${fmtInt(kpis.googleLeads)}</div>
+          <div class="kpi-label">Meta · Google (leads)</div>
+        </div>
+      </div>` : "";
+
+    // Top 3 campanhas por leads (mistura Meta + Google), com mini-stats
+    const allCamps: any[] = [
+      ...(p.metaCampaigns ?? []).map((c: any) => ({ ...c, platform: "meta" })),
+      ...(p.googleCampaigns ?? []).map((c: any) => ({ ...c, platform: "google" })),
+    ].sort((a, b) => (b.leads || 0) - (a.leads || 0));
+    const topCampaigns = allCamps.slice(0, 3);
+
+    const topCampaignsHtml = topCampaigns.length > 0 ? `
+      <div class="cover-section">
+        <div class="cover-section-title">Top Campanhas do Período</div>
+        <div class="top-camp-grid">
+          ${topCampaigns.map((c, i) => `
+            <div class="top-camp-card">
+              <div class="top-camp-rank">#${i + 1} · ${c.platform === "meta" ? "Meta" : "Google"}</div>
+              <div class="top-camp-name" title="${escapeHtml(c.name)}">${escapeHtml(c.name)}</div>
+              <div class="top-camp-stats">
+                <span class="stat-leads">${fmtInt(c.leads)} leads</span>
+                <span class="stat-spend">R$ ${fmtInt(c.spend)}</span>
+                <span class="stat-cpl">${c.cpl > 0 ? `CPL R$ ${fmt(c.cpl)}` : "CPL —"}</span>
+              </div>
+            </div>
+          `).join("")}
+        </div>
+      </div>` : "";
+
+    // Mês corrente vs anterior (mini-tabela compacta na capa)
+    const monthBlockHtml = isMensal ? `
+      <div class="cover-section">
+        <div class="cover-section-title">Mês Corrente vs Anterior</div>
+        <table class="cover-table">
+          <thead>
+            <tr><th>Plataforma</th><th>Leads</th><th>Δ</th><th>Invest</th><th>Δ</th><th>CPL</th><th>Δ</th></tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td><strong>Total</strong></td>
+              <td>${fmtInt(cur.leads)}</td><td>${deltaSpan(cur.leads, prev.leads)}</td>
+              <td>R$ ${fmtInt(cur.spend)}</td><td>${deltaSpan(cur.spend, prev.spend)}</td>
+              <td>${cur.cpl > 0 ? `R$ ${fmt(cur.cpl)}` : "—"}</td><td>${deltaSpan(cur.cpl, prev.cpl, { lowerIsBetter: true })}</td>
+            </tr>
+            <tr>
+              <td>Meta</td>
+              <td>${fmtInt(cur.metaLeads)}</td><td>${deltaSpan(cur.metaLeads, prev.metaLeads)}</td>
+              <td>R$ ${fmtInt(cur.metaSpend)}</td><td>${deltaSpan(cur.metaSpend, prev.metaSpend)}</td>
+              <td>${cur.metaCpl > 0 ? `R$ ${fmt(cur.metaCpl)}` : "—"}</td><td>${deltaSpan(cur.metaCpl, prev.metaCpl, { lowerIsBetter: true })}</td>
+            </tr>
+            <tr>
+              <td>Google</td>
+              <td>${fmtInt(cur.googleLeads)}</td><td>${deltaSpan(cur.googleLeads, prev.googleLeads)}</td>
+              <td>R$ ${fmtInt(cur.googleSpend)}</td><td>${deltaSpan(cur.googleSpend, prev.googleSpend)}</td>
+              <td>${cur.googleCpl > 0 ? `R$ ${fmt(cur.googleCpl)}` : "—"}</td><td>${deltaSpan(cur.googleCpl, prev.googleCpl, { lowerIsBetter: true })}</td>
+            </tr>
+          </tbody>
+        </table>
+        ${p.runRate ? `<div class="run-rate">Projeção (run-rate) — fechamento do mês: <strong>${fmtInt(p.runRate.leads)} leads</strong> · <strong>R$ ${fmtInt(p.runRate.spend)}</strong></div>` : ""}
+      </div>` : "";
+
+    // Pacing na capa (quando houver). pacing vem como { total?, meta?, google? }.
+    const pacingEntries: Array<[string, any]> = p.pacing
+      ? (["total", "meta", "google"] as const).filter(k => p.pacing[k]).map(k => [k, p.pacing[k]])
+      : [];
+    const pacingLabels: Record<string, string> = { total: "Total", meta: "Meta", google: "Google" };
+    const pacingHtml = pacingEntries.length > 0 ? `
+      <div class="cover-section">
+        <div class="cover-section-title">Pacing do Orçamento</div>
+        <table class="cover-table">
+          <thead><tr><th>Plataforma</th><th>Gasto</th><th>Orçado</th><th>%</th><th>Status</th><th>Rec./dia</th></tr></thead>
+          <tbody>
+            ${pacingEntries.map(([key, row]) => {
+              const pctReal = row.expectedSpendByEom > 0 ? (row.realSpend / row.expectedSpendByEom) * 100 : 0;
+              return `
+              <tr>
+                <td>${pacingLabels[key] ?? key}</td>
+                <td>R$ ${fmtInt(row.realSpend)}</td>
+                <td>R$ ${fmtInt(row.expectedSpendByEom)}</td>
+                <td>${pctReal.toFixed(0)}%</td>
+                <td><span class="pacing-${row.status ?? "on_track"}">${escapeHtml(row.statusLabel ?? "")}</span></td>
+                <td>R$ ${fmtInt(row.recommendedDailySpend)}</td>
+              </tr>`;
+            }).join("")}
+          </tbody>
+        </table>
+      </div>` : "";
+
+    // ── Anúncios Meta agrupados por campanha (substitui o "tudo misturado")
+    const adsList: any[] = p.adsList ?? [];
+    const adsByCampaign = new Map<string, any[]>();
+    for (const a of adsList) {
+      const k = a.campaign_name || "(sem campanha)";
+      if (!adsByCampaign.has(k)) adsByCampaign.set(k, []);
+      adsByCampaign.get(k)!.push(a);
+    }
+    const adsByCampaignHtml = adsList.length > 0 ? `
+      <h2>Anúncios Meta no Período · agrupados por campanha</h2>
+      ${Array.from(adsByCampaign.entries()).map(([campName, ads]) => {
+        // Sub-agrupa por conjunto quando há mais de 1
+        const distinctSets = new Set(ads.map(a => a.ad_set_name).filter(Boolean));
+        const hasMultipleSets = distinctSets.size > 1;
+        const sectionTitle = `<h3 class="camp-ads-title">${escapeHtml(campName)} <span class="camp-ads-count">${ads.length} anúncios</span></h3>`;
+        if (!hasMultipleSets) {
+          return sectionTitle + renderAdsTable(ads);
+        }
+        // Agrupa por conjunto
+        const bySet = new Map<string, any[]>();
+        for (const a of ads) {
+          const sk = a.ad_set_name || "(sem conjunto)";
+          if (!bySet.has(sk)) bySet.set(sk, []);
+          bySet.get(sk)!.push(a);
+        }
+        return sectionTitle + Array.from(bySet.entries()).map(([setName, setAds]) =>
+          `<div class="ad-set-block"><div class="ad-set-label">Conjunto: ${escapeHtml(setName)}</div>${renderAdsTable(setAds)}</div>`
+        ).join("");
+      }).join("")}
+    ` : "";
+
+    function renderAdsTable(ads: any[]): string {
+      return `<table class="ads-table">
+        <thead>
+          <tr>
+            <th style="width:30%">Anúncio</th>
+            <th>Início</th>
+            <th>Última ativ.</th>
+            <th>Status</th>
+            <th style="text-align:right">Invest</th>
+            <th style="text-align:right">Leads</th>
+            <th style="width:36px"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${ads.map(a => {
+            const st = String(a.status ?? "").toUpperCase();
+            const stCls = st === "PAUSED" ? "status-paused" : "status-active";
+            return `
+              <tr>
+                <td>
+                  <div class="ad-name">${escapeHtml(a.ad_name)}</div>
+                  ${a.note ? `<div class="ad-note">${escapeHtml(a.note)}</div>` : ""}
+                </td>
+                <td class="mono">${a.first_date ? new Date(a.first_date + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : "—"}</td>
+                <td class="mono">${a.last_active_date ? new Date(a.last_active_date + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : "—"}</td>
+                <td class="${stCls}">${escapeHtml(a.statusLabel ?? "")}</td>
+                <td class="mono num blue">R$ ${fmtInt(a.spend)}</td>
+                <td class="mono num accent">${fmtInt(a.leads)}</td>
+                <td>${a.permalink ? `<a href="${a.permalink}" target="_blank" class="link-icon">↗</a>` : ""}</td>
+              </tr>
+            `;
+          }).join("")}
+        </tbody>
+      </table>`;
+    }
+
+    // Remove a seção "Anúncios Meta do Período" do markdown do Claude (pra evitar
+    // duplicação — a versão agrupada é melhor e renderizada acima).
+    const reportTrimmed = report.replace(
+      /\*\*\d+\.\s*An[úu]ncios Meta do Per[íi]odo\*\*[\s\S]*?(?=\n\s*\*\*\d+\.\s|\Z)/i,
+      ""
+    );
 
     const html = `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -504,65 +696,127 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
   <meta charset="utf-8"/>
   <title>Relatório ${typeLabel} — ${clientName}</title>
   <style>
+    @page { size: A4 landscape; margin: 10mm; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; max-width: 900px; margin: 0 auto; color: #e2e2e8; font-size: 13px; line-height: 1.7; padding: 40px 36px; background: #0e1018; }
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; color: #e2e2e8; font-size: 12px; line-height: 1.5; padding: 18px 22px; background: #0e1018; }
 
-    /* Header */
-    .header { margin-bottom: 32px; }
-    .header-top { margin-bottom: 12px; }
-    .header-title { font-size: 26px; font-weight: 800; color: #f2f2f5; letter-spacing: -0.02em; }
-    .header-sub { font-size: 13px; color: #8888a0; margin-top: 2px; }
-    .header-badge { display: inline-block; background: #CAFF04; color: #0a0a0c; font-size: 11px; font-weight: 800; padding: 3px 12px; border-radius: 12px; text-transform: uppercase; letter-spacing: 0.06em; margin-left: 10px; vertical-align: middle; }
+    /* ── Cover page ───────────────────────────────────────────────── */
+    .cover { min-height: calc(100vh - 36px); display: flex; flex-direction: column; gap: 18px; page-break-after: always; }
+    .cover-header { display: flex; justify-content: space-between; align-items: flex-end; padding-bottom: 14px; border-bottom: 1px solid #24242c; }
+    .cover-title { font-size: 28px; font-weight: 800; color: #f2f2f5; letter-spacing: -0.02em; }
+    .cover-title-sub { font-size: 13px; color: #8888a0; margin-top: 4px; }
+    .cover-meta { text-align: right; font-size: 11px; color: #8888a0; line-height: 1.7; }
+    .cover-meta strong { color: #f2f2f5; }
+    .badge { display: inline-block; background: #CAFF04; color: #0a0a0c; font-size: 10px; font-weight: 800; padding: 3px 10px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.06em; margin-left: 8px; vertical-align: middle; }
 
-    /* KPIs */
-    .kpi-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin: 24px 0 32px; }
-    .kpi { background: #14161e; border: 1px solid #24242c; border-radius: 12px; padding: 18px 16px; text-align: center; }
-    .kpi-value { font-size: 22px; font-weight: 800; font-family: 'DM Mono', monospace; }
-    .kpi-value.accent { color: #CAFF04; }
-    .kpi-value.blue { color: #60A5FA; }
-    .kpi-value.gold { color: #F59E0B; }
-    .kpi-label { font-size: 10px; color: #6a6a7a; margin-top: 6px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    .kpi { background: #14161e; border: 1px solid #24242c; border-radius: 14px; padding: 18px 18px; }
+    .kpi-value { font-size: 28px; font-weight: 800; font-family: 'DM Mono', monospace; letter-spacing: -0.01em; line-height: 1.1; }
+    .kpi-value.accent { color: #CAFF04; } .kpi-value.blue { color: #60A5FA; } .kpi-value.gold { color: #F59E0B; }
+    .kpi-value .kpi-split { color: #4a4a5a; padding: 0 4px; font-weight: 400; }
+    .kpi-label { font-size: 10px; color: #6a6a7a; margin-top: 8px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .kpi-delta { font-size: 10px; color: #8888a0; margin-top: 4px; }
 
-    /* Sections */
-    h2 { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: #CAFF04; border-left: 4px solid #CAFF04; padding-left: 14px; margin: 36px 0 16px; }
-    h3 { font-size: 13px; font-weight: 700; color: #f2f2f5; margin: 22px 0 10px; padding: 8px 14px; background: #14161e; border: 1px solid #24242c; border-radius: 8px; }
-    p { margin: 6px 0; color: #b0b0c0; }
-    li { margin: 4px 0 4px 20px; color: #b0b0c0; }
+    .delta-up { color: #CAFF04; font-weight: 700; }
+    .delta-down { color: #F87171; font-weight: 700; }
+    .delta-flat { color: #8888a0; font-weight: 600; }
+    .delta-na { color: #4a4a5a; }
+
+    .cover-section { background: #14161e; border: 1px solid #24242c; border-radius: 14px; padding: 16px 20px; }
+    .cover-section-title { font-size: 11px; color: #8888a0; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; margin-bottom: 12px; }
+    .cover-table { width: 100%; border-collapse: collapse; font-size: 12px; }
+    .cover-table th { background: transparent; color: #6a6a7a; font-weight: 600; text-align: left; padding: 6px 10px; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; border-bottom: 1px solid #24242c; }
+    .cover-table th:nth-child(n+2) { text-align: right; }
+    .cover-table td { padding: 7px 10px; border-bottom: 1px solid #1a1a24; color: #d0d0dd; font-family: 'DM Mono', monospace; font-size: 11px; }
+    .cover-table td:first-child { font-family: 'Inter', sans-serif; }
+    .cover-table td:nth-child(n+2) { text-align: right; }
+    .run-rate { margin-top: 10px; font-size: 11px; color: #8888a0; padding: 8px 12px; background: #0e1018; border-left: 3px solid #CAFF04; border-radius: 0 6px 6px 0; }
+    .run-rate strong { color: #CAFF04; }
+
+    .pacing-on_track { color: #CAFF04; font-weight: 700; }
+    .pacing-slightly_over, .pacing-slightly_under { color: #F59E0B; font-weight: 700; }
+    .pacing-over, .pacing-under { color: #F87171; font-weight: 700; }
+
+    .top-camp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .top-camp-card { background: #0e1018; border: 1px solid #24242c; border-radius: 10px; padding: 12px 14px; }
+    .top-camp-rank { font-size: 10px; color: #6a6a7a; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
+    .top-camp-name { font-size: 13px; color: #f2f2f5; font-weight: 700; margin: 4px 0 8px; word-break: break-all; line-height: 1.3; }
+    .top-camp-stats { display: flex; gap: 10px; font-size: 11px; flex-wrap: wrap; }
+    .stat-leads { color: #CAFF04; font-weight: 700; font-family: 'DM Mono', monospace; }
+    .stat-spend { color: #60A5FA; font-family: 'DM Mono', monospace; }
+    .stat-cpl { color: #F59E0B; font-family: 'DM Mono', monospace; }
+
+    /* ── Body (markdown do Claude + seções renderizadas) ──────────── */
+    .body-content { max-width: 100%; }
+    h2 { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: #CAFF04; border-left: 4px solid #CAFF04; padding-left: 14px; margin: 28px 0 14px; page-break-before: auto; page-break-after: avoid; }
+    h3 { font-size: 12px; font-weight: 700; color: #f2f2f5; margin: 18px 0 8px; padding: 7px 12px; background: #14161e; border: 1px solid #24242c; border-radius: 8px; page-break-after: avoid; }
+    p { margin: 4px 0; color: #b0b0c0; }
+    li { margin: 3px 0 3px 20px; color: #b0b0c0; }
     strong { font-weight: 700; color: #f2f2f5; }
-    hr { border: none; border-top: 1px solid #24242c; margin: 24px 0; }
+    hr { border: none; border-top: 1px solid #24242c; margin: 18px 0; }
     a { color: #60A5FA; }
 
-    /* Tables */
-    table { width: 100%; border-collapse: collapse; margin: 12px 0; font-size: 12px; }
-    th { background: #14161e; color: #8888a0; font-weight: 600; text-align: left; padding: 8px 12px; border-bottom: 2px solid #24242c; font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
-    td { padding: 8px 12px; border-bottom: 1px solid #1a1a24; color: #d0d0dd; }
-    tr:hover td { background: #14161e; }
+    table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 11px; page-break-inside: avoid; }
+    th { background: #14161e; color: #8888a0; font-weight: 600; text-align: left; padding: 7px 10px; border-bottom: 2px solid #24242c; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
+    td { padding: 7px 10px; border-bottom: 1px solid #1a1a24; color: #d0d0dd; font-size: 11px; }
 
-    /* Callouts */
-    .callout { background: #14161e; border-left: 3px solid #CAFF04; border-radius: 0 8px 8px 0; padding: 12px 16px; margin: 14px 0; font-size: 12px; color: #c0c0d0; }
+    .callout { background: #14161e; border-left: 3px solid #CAFF04; border-radius: 0 8px 8px 0; padding: 10px 14px; margin: 12px 0; font-size: 11px; color: #c0c0d0; }
 
-    /* Footer */
-    .footer { margin-top: 48px; padding-top: 16px; border-top: 1px solid #24242c; font-size: 10px; color: #4a4a5a; display: flex; justify-content: space-between; }
+    /* ── Anúncios agrupados ───────────────────────────────────────── */
+    .camp-ads-title { display: flex; justify-content: space-between; align-items: center; }
+    .camp-ads-count { font-size: 10px; color: #8888a0; font-weight: 500; }
+    .ad-set-block { margin: 8px 0 14px 12px; padding-left: 12px; border-left: 2px solid #24242c; }
+    .ad-set-label { font-size: 10px; color: #8888a0; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; margin: 8px 0 4px; }
+    .ads-table .ad-name { font-family: 'DM Mono', monospace; font-size: 11px; color: #f2f2f5; }
+    .ads-table .ad-note { font-size: 10px; color: #8888a0; margin-top: 2px; font-style: italic; }
+    .ads-table .mono { font-family: 'DM Mono', monospace; }
+    .ads-table .num { text-align: right; }
+    .ads-table .blue { color: #60A5FA; }
+    .ads-table .accent { color: #CAFF04; font-weight: 700; }
+    .ads-table .status-active { color: #CAFF04; font-size: 10px; }
+    .ads-table .status-paused { color: #F59E0B; font-size: 10px; }
+    .link-icon { color: #60A5FA; text-decoration: none; font-size: 13px; }
+
+    .footer { margin-top: 28px; padding-top: 12px; border-top: 1px solid #24242c; font-size: 9px; color: #4a4a5a; display: flex; justify-content: space-between; }
 
     @media print {
-      body { padding: 12mm; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
       h2 { break-after: avoid; }
-      .kpi-grid { break-inside: avoid; }
+      .kpi-row { break-inside: avoid; }
+      .cover-section { break-inside: avoid; }
+      .top-camp-card { break-inside: avoid; }
+      .ads-table { break-inside: auto; }
+      .ad-set-block { break-inside: avoid; }
     }
   </style>
 </head>
 <body>
-  <div class="header">
-    <div class="header-top">
-      <div class="header-title">Relatório de Performance<span class="header-badge">${typeLabel}</span></div>
+  <!-- ───── Capa: Executive Summary ───── -->
+  <section class="cover">
+    <div class="cover-header">
+      <div>
+        <div class="cover-title">Relatório de Performance<span class="badge">${typeLabel}</span></div>
+        <div class="cover-title-sub">${escapeHtml(clientName)}</div>
+      </div>
+      <div class="cover-meta">
+        Período: <strong>${periodLabel}</strong><br/>
+        Gerado: ${new Date().toLocaleString("pt-BR")}
+      </div>
     </div>
-    <div class="header-sub">
-      Cliente: <strong>${clientName}</strong> &nbsp;·&nbsp; Período: <strong>${periodLabel}</strong> &nbsp;·&nbsp; Gerado: ${new Date().toLocaleString("pt-BR")}
-    </div>
+
+    ${coverKpis}
+    ${topCampaignsHtml}
+    ${monthBlockHtml}
+    ${pacingHtml}
+  </section>
+
+  <!-- ───── Conteúdo detalhado (gerado pelo Claude) ───── -->
+  <div class="body-content">
+    <table></table>
+    ${mdToHtml(reportTrimmed)}
+    ${adsByCampaignHtml}
   </div>
-  ${kpiHtml}
-  <table></table>
-  ${mdToHtml(report)}
+
   <div class="footer">
     <span>PD Growth // leads.pdgrowth.com.br</span>
     <span>${periodLabel}</span>

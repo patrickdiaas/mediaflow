@@ -1038,10 +1038,10 @@ NÃO inclua "nota metodológica" explicando o intervalo do mês anterior — as 
         "Apresente como bullets (ou parágrafos curtos quando o texto for longo) as observações que vieram no bloco 'OBSERVAÇÕES DO GESTOR' do contexto. Cada bullet começa com o range de vigência entre colchetes (ex: '[01/05 a 31/05]') seguido do texto da observação. Use exatamente o conteúdo cadastrado — NÃO reescreva, NÃO resuma, NÃO invente. Quando o conteúdo da observação contextualizar algum número apresentado em outras seções (ex: pacing, variação mês a mês, queda em uma campanha), referencie brevemente na seção de Destaques."]);
     }
 
-    if (adsList.length > 0) {
-      sections.push(["Anúncios Meta do Período",
-        "Os dados estão em 'ANÚNCIOS META QUE RODARAM NO PERÍODO' no contexto. Apresente TABELA com colunas: Anúncio | Campanha | Início | Última atividade | Status | Investimento | Leads | Link. Use a data 'início' (primeira veiculação histórica) e 'última atividade' (último dia com spend > 0). Status já vem legível ('Ativo', 'Pausado em DATA', etc) — copie do contexto. Coluna Link como hyperlink markdown (ex: [ver](url)). Ordene por data de início ascendente. Se um anúncio tem 'nota:' no contexto, apresente a nota abaixo da linha da tabela como bullet de observação. Esta seção é uma prestação de contas da mídia rodada — NÃO comente performance, apenas liste."]);
-    }
+    // NOTA: a seção "Anúncios Meta do Período" foi REMOVIDA do prompt do Claude
+    // e agora é renderizada deterministicamente no PDF (exportPDF em
+    // relatorios/page.tsx), agrupada por campanha → conjunto → anúncio.
+    // Isso evita "tudo misturado" e libera o Claude pra focar em análise.
 
     sections.push(["Destaques e Pontos de Atenção",
       "O que funcionou bem? O que precisa de atenção? Quais campanhas/criativos devem ser escalados e quais devem ser revisados? Use os dados das semanas e do mês para justificar."]);
