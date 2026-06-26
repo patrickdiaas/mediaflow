@@ -492,13 +492,15 @@ export async function POST(req: NextRequest) {
       }
     }
 
-    // Desempate por utm_content vs ad_set_name. Usado quando há vários ads com
-    // mesmo ad_name (criativo duplicado em conjuntos diferentes) e o lead trouxe
-    // utm_content distinto pelo conjunto (padrão Meta {{adset.name}} ou custom).
+    // Desempate quando há vários ads com mesmo ad_name (criativo duplicado em
+    // conjuntos diferentes). Estratégia: usa qualquer pista disponível pra
+    // resolver via ad_set_name dos candidatos.
+    //   1. utm_content vs ad_set_name (padrão Meta {{adset.name}} ou customizado)
+    //   2. sufixo extra do utm_term vs ad_set_name (caso o gestor coloque
+    //      "-02" no utm_term mas o ad_name na Meta seja igual nos 2 conjuntos)
     type CreativeAggEntry = NonNullable<ReturnType<typeof creativesByName.get>>[number];
-    const resolveByUtmContent = (candidates: CreativeAggEntry[], utmContent: string | null | undefined): CreativeAggEntry | null => {
-      if (!utmContent || candidates.length === 0) return null;
-      const lc = utmContent.toLowerCase();
+    const matchAgainstAdSet = (candidates: CreativeAggEntry[], hint: string): CreativeAggEntry | null => {
+      const lc = hint.toLowerCase();
       const exact = candidates.find(c => (c.ad_set_name ?? "").toLowerCase() === lc);
       if (exact) return exact;
       const contains = candidates.find(c => {
@@ -507,8 +509,34 @@ export async function POST(req: NextRequest) {
         return lc.includes(setName) || setName.includes(lc);
       });
       if (contains) return contains;
-      const fuzzy = candidates.find(c => c.ad_set_name && fuzzyMatch(c.ad_set_name, utmContent));
+      const fuzzy = candidates.find(c => c.ad_set_name && fuzzyMatch(c.ad_set_name, hint));
       if (fuzzy) return fuzzy;
+      return null;
+    };
+    const resolveAmbiguous = (
+      candidates: CreativeAggEntry[],
+      utmContent: string | null | undefined,
+      utmTerm: string | null | undefined,
+    ): CreativeAggEntry | null => {
+      if (candidates.length === 0) return null;
+      if (utmContent) {
+        const byContent = matchAgainstAdSet(candidates, utmContent);
+        if (byContent) return byContent;
+      }
+      if (utmTerm) {
+        // Sufixo: parte do utm_term que não está em NENHUM ad_name dos candidatos.
+        // Ex: utm_term="estatico-06-volnewmer-lp-02", ad_name="estatico-06-volnewmer-lp"
+        // → sufixo "02" casa com ad_set_name "02-medical-listas-volnewmer-lookalikes".
+        const term = utmTerm.toLowerCase();
+        for (const c of candidates) {
+          const adName = (c.name ?? "").toLowerCase();
+          if (!adName || !term.startsWith(adName) || term.length === adName.length) continue;
+          const suffix = term.slice(adName.length).replace(/^[\-_\.\s]+/, "");
+          if (!suffix) continue;
+          const bySuffix = matchAgainstAdSet(candidates, suffix);
+          if (bySuffix) return bySuffix;
+        }
+      }
       return null;
     };
 
@@ -525,16 +553,28 @@ export async function POST(req: NextRequest) {
           if (exactMatches.length === 1) {
             winner = exactMatches[0];
           } else {
-            winner = resolveByUtmContent(exactMatches, l.utm_content)
+            winner = resolveAmbiguous(exactMatches, l.utm_content, l.utm_term)
               ?? exactMatches.slice().sort((a, b) => b.spend - a.spend)[0];
           }
           winner.leads++;
           matched = true;
         }
-        // 2) Senão, fuzzy match no primeiro que casar
+        // 2) Senão, fuzzy match. Coleta TODOS os candidatos que casam e usa
+        //    o mesmo desempate por utm_content vs ad_set_name quando há N>1.
+        //    (Caso real: utm_term=`<ad_name>-02` não casa exato com `<ad_name>`,
+        //    mas casa fuzzy com os criativos de mesmo nome em ambos os conjuntos.)
         if (!matched) {
-          for (const [, e] of Array.from(creativeAgg.entries())) {
-            if (fuzzyMatch(e.name, l.utm_term)) { e.leads++; matched = true; break; }
+          const fuzzyCandidates = Array.from(creativeAgg.values()).filter(e => fuzzyMatch(e.name, l.utm_term!));
+          if (fuzzyCandidates.length > 0) {
+            let winner;
+            if (fuzzyCandidates.length === 1) {
+              winner = fuzzyCandidates[0];
+            } else {
+              winner = resolveAmbiguous(fuzzyCandidates, l.utm_content, l.utm_term)
+                ?? fuzzyCandidates.slice().sort((a, b) => b.spend - a.spend)[0];
+            }
+            winner.leads++;
+            matched = true;
           }
         }
       }
