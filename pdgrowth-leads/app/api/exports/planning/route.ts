@@ -1,10 +1,10 @@
-// GET /api/exports/planning?clients=medsystems,beautysystems&days=60
+// GET /api/exports/planning?clients=medsystems,negocioserredes&days=60
 //
 // Gera um markdown consolidado com os dados de mídia dos clientes informados
 // nos últimos N dias. Pensado pra colar no Claude Chat e pedir planejamento
-// de redistribuição de budget. Não exige secret (dados não são sensíveis;
-// já são lidos pelo dashboard anon). Resposta tem content-type text/markdown
-// pra ficar fácil de copiar/baixar.
+// de redistribuição de budget. Classifica cada campanha em Classys/Outras
+// pelo nome (tokens conhecidos) e sub-totaliza por classe. Não exige secret
+// (dados já lidos pelo dashboard anon). Resposta text/markdown.
 
 import { NextRequest } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
@@ -22,6 +22,45 @@ const fmtInt = (n: number) =>
   Number(n ?? 0).toLocaleString("pt-BR", { maximumFractionDigits: 0 });
 const pct = (n: number) => `${Number(n ?? 0).toFixed(2)}%`;
 
+// ─── Classificação Classys × Outras ─────────────────────────────────────────
+// Detecta a tecnologia/marca olhando tokens no nome da campanha. Match é por
+// substring na versão normalizada (lowercase + sem espaços/hifens/underscores).
+type BrandClass = "classys" | "outras" | "indefinido";
+
+const BRAND_TOKENS: Array<{ class: BrandClass; brand: string; tokens: string[] }> = [
+  // Classys
+  { class: "classys", brand: "Ultraformer MPT", tokens: ["ultraformermpt", "mpt"] },
+  { class: "classys", brand: "Volformer",       tokens: ["volformer"] },
+  { class: "classys", brand: "Volnewmer",       tokens: ["volnewmer"] },
+  { class: "classys", brand: "Aquapure",        tokens: ["aquapure"] },
+  { class: "classys", brand: "Secret RF",       tokens: ["secretrf"] },
+  { class: "classys", brand: "Secret Duo",      tokens: ["secretduo"] },
+  // Outras marcas
+  { class: "outras",  brand: "Chrome",          tokens: ["chrome"] },
+  { class: "outras",  brand: "Youlaser MT",     tokens: ["youlasermt"] },
+  { class: "outras",  brand: "Youlaser Prime",  tokens: ["youlaserprime"] },
+  { class: "outras",  brand: "Vectra H2",       tokens: ["vectrah2"] },
+];
+
+const normalize = (s: string) => (s ?? "").toLowerCase().replace(/[\s\-_./]+/g, "");
+
+function classifyCampaign(name: string): { class: BrandClass; brand: string } {
+  const n = normalize(name);
+  // Mais específico primeiro (ex: "youlaserprime" antes de "mpt").
+  // Ordena por comprimento desc do maior token de cada entry.
+  const ordered = [...BRAND_TOKENS].sort((a, b) => {
+    const la = Math.max(...a.tokens.map(t => t.length));
+    const lb = Math.max(...b.tokens.map(t => t.length));
+    return lb - la;
+  });
+  for (const entry of ordered) {
+    for (const t of entry.tokens) {
+      if (n.includes(t)) return { class: entry.class, brand: entry.brand };
+    }
+  }
+  return { class: "indefinido", brand: "—" };
+}
+
 interface CampaignAgg {
   platform: "meta" | "google";
   campaign_id: string;
@@ -31,6 +70,8 @@ interface CampaignAgg {
   impressions: number;
   clicks: number;
   leads: number;
+  brand_class: BrandClass;
+  brand: string;
 }
 
 async function buildClientReport(clientSlug: string, since: string, until: string): Promise<string> {
@@ -54,6 +95,7 @@ async function buildClientReport(clientSlug: string, since: string, until: strin
       ex.clicks += Number(r.clicks);
       if (r.status) ex.status = r.status; // último status visto
     } else {
+      const cls = classifyCampaign(r.campaign_name ?? "");
       campMap.set(key, {
         platform: r.platform as "meta" | "google",
         campaign_id: r.campaign_id,
@@ -63,6 +105,8 @@ async function buildClientReport(clientSlug: string, since: string, until: strin
         impressions: Number(r.impressions),
         clicks: Number(r.clicks),
         leads: 0,
+        brand_class: cls.class,
+        brand: cls.brand,
       });
     }
   }
@@ -141,11 +185,26 @@ async function buildClientReport(clientSlug: string, since: string, until: strin
   const campRow = (c: CampaignAgg) => {
     const cpl = c.leads > 0 ? c.spend / c.leads : null;
     const ctr = c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0;
-    return `| ${c.campaign_name} | ${statusLabel(c.status)} | R$ ${fmt(c.spend)} | ${fmtInt(c.leads)} | ${cpl ? `R$ ${fmt(cpl)}` : "—"} | ${pct(ctr)} |`;
+    const brand = c.brand_class === "indefinido" ? "—" : c.brand;
+    const tag = c.brand_class === "classys" ? "**[Classys]**" : c.brand_class === "outras" ? "[Outras]" : "[?]";
+    return `| ${c.campaign_name} | ${tag} ${brand} | ${statusLabel(c.status)} | R$ ${fmt(c.spend)} | ${fmtInt(c.leads)} | ${cpl ? `R$ ${fmt(cpl)}` : "—"} | ${pct(ctr)} |`;
   };
 
   const overallCpl = totalLeads > 0 ? totalSpend / totalLeads : null;
   const overallCtr = totalImps > 0 ? (totalClicks / totalImps) * 100 : 0;
+
+  // ── 3b. Sub-totais por classe (Classys / Outras / Indefinido) ───────────
+  const byClass = (cls: BrandClass) => camps.filter(c => c.brand_class === cls);
+  const classysCamps = byClass("classys");
+  const outrasCamps = byClass("outras");
+  const indefCamps = byClass("indefinido");
+  const classRow = (label: string, list: CampaignAgg[]) => {
+    const s = sumSpend(list);
+    const l = sumLeads(list);
+    const cpl = l > 0 ? s / l : null;
+    const share = totalSpend > 0 ? `${((s / totalSpend) * 100).toFixed(1)}%` : "—";
+    return `| ${label} | R$ ${fmt(s)} | ${fmtInt(l)} | ${cpl ? `R$ ${fmt(cpl)}` : "—"} | ${share} |`;
+  };
 
   // ── 4. Markdown ──────────────────────────────────────────────────────────
   return [
@@ -159,11 +218,18 @@ async function buildClientReport(clientSlug: string, since: string, until: strin
     `| Meta Ads | R$ ${fmt(metaSpend)} | ${fmtInt(metaLeads)} | ${metaLeads > 0 ? `R$ ${fmt(metaSpend / metaLeads)}` : "—"} | ${totalSpend > 0 ? `${((metaSpend / totalSpend) * 100).toFixed(1)}%` : "—"} |`,
     `| Google Ads | R$ ${fmt(googleSpend)} | ${fmtInt(googleLeads)} | ${googleLeads > 0 ? `R$ ${fmt(googleSpend / googleLeads)}` : "—"} | ${totalSpend > 0 ? `${((googleSpend / totalSpend) * 100).toFixed(1)}%` : "—"} |`,
     ``,
+    `### Resumo por classe de marca`,
+    `| Classe | Investimento | Leads | CPL | Share invest |`,
+    `|---|---:|---:|---:|---:|`,
+    classRow("**Classys** (Ultraformer MPT, Volformer, Volnewmer, Aquapure, Secret RF, Secret Duo)", classysCamps),
+    classRow("Outras marcas (Chrome, Youlaser MT, Youlaser Prime, Vectra H2)", outrasCamps),
+    indefCamps.length > 0 ? classRow("_Indefinido_ (nome não casa com nenhuma marca conhecida)", indefCamps) : "",
+    ``,
     meta.length > 0
       ? [
           `### Meta Ads — campanhas`,
-          `| Campanha | Status | Invest | Leads | CPL | CTR |`,
-          `|---|---|---:|---:|---:|---:|`,
+          `| Campanha | Marca | Status | Invest | Leads | CPL | CTR |`,
+          `|---|---|---|---:|---:|---:|---:|`,
           ...meta.map(campRow),
         ].join("\n")
       : `### Meta Ads — campanhas\n_Nenhuma campanha Meta com investimento no período._`,
@@ -171,17 +237,17 @@ async function buildClientReport(clientSlug: string, since: string, until: strin
     google.length > 0
       ? [
           `### Google Ads — campanhas`,
-          `| Campanha | Status | Invest | Leads | CPL | CTR |`,
-          `|---|---|---:|---:|---:|---:|`,
+          `| Campanha | Marca | Status | Invest | Leads | CPL | CTR |`,
+          `|---|---|---|---:|---:|---:|---:|`,
           ...google.map(campRow),
         ].join("\n")
       : `### Google Ads — campanhas\n_Nenhuma campanha Google com investimento no período._`,
     ``,
-  ].join("\n");
+  ].filter(Boolean).join("\n");
 }
 
 export async function GET(req: NextRequest) {
-  const clientsParam = req.nextUrl.searchParams.get("clients") ?? "medsystems,beautysystems";
+  const clientsParam = req.nextUrl.searchParams.get("clients") ?? "medsystems,negocioserredes";
   const days = Math.min(Math.max(parseInt(req.nextUrl.searchParams.get("days") ?? "60", 10), 1), 180);
 
   const today = new Date();
@@ -213,7 +279,19 @@ export async function GET(req: NextRequest) {
     `**Gerado em:** ${new Date().toISOString().slice(0, 19).replace("T", " ")} UTC`,
     `**Clientes incluídos:** ${clientSlugs.join(", ")}`,
     ``,
-    `> Atribuição de leads: cada lead foi atribuído à campanha via cadeia exato → campaign_id → alias → fuzzy → event mapping. Leads sem utm_medium pago e leads do CRM (Negociação criada/atualizada) foram excluídos.`,
+    `### Classificação automática de campanhas`,
+    ``,
+    `Cada campanha foi classificada em **Classys** ou **Outras marcas** pela presença de tokens no nome da campanha.`,
+    ``,
+    `- **Classys:** Ultraformer MPT, Volformer, Volnewmer, Aquapure, Secret RF, Secret Duo`,
+    `- **Outras:** Chrome, Youlaser MT, Youlaser Prime, Vectra H2`,
+    `- Campanhas marcadas como **[?]** não casaram com nenhum token conhecido (revisar manualmente).`,
+    ``,
+    `### Notas metodológicas`,
+    ``,
+    `- Atribuição de leads usa a cadeia exato → campaign_id → alias → fuzzy → event mapping.`,
+    `- Leads sem utm_medium pago e leads do CRM (Negociação criada/atualizada) foram excluídos.`,
+    `- Status "Pausada" indica que a campanha estava pausada na última leitura do sync (não significa que ficou pausada o período todo).`,
     ``,
     `---`,
     ``,
