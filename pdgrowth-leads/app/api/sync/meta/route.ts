@@ -14,6 +14,7 @@ import { createServiceClient } from '@/lib/supabase'
 import {
   syncAccountData,
   getDateRange,
+  cacheThumbnailsForAds,
 } from '@/lib/meta-ads'
 
 const UPSERT_BATCH = 200 // Supabase upsert batch size
@@ -108,8 +109,32 @@ export async function POST(request: Request) {
     }
 
     if (ads.length > 0) {
-      const err = await upsertBatched(supabase, 'ad_creatives', ads, 'platform,ad_id,date')
+      // Baixa e armazena thumbnails no Supabase Storage antes do upsert.
+      // Só baixa uma vez por ad_id (ignora se já tem thumbnail_stored_url).
+      // Falhas silenciosas — o upsert segue com thumbnail_stored_url null.
+      const stored = await cacheThumbnailsForAds(
+        supabase,
+        clientSlug,
+        ads.map(a => ({ ad_id: a.ad_id, thumbnail_url: a.thumbnail_url })),
+      )
+      const adsWithStored = ads.map(a => ({
+        ...a,
+        thumbnail_stored_url: stored.get(a.ad_id) ?? null,
+      }))
+      const err = await upsertBatched(supabase, 'ad_creatives', adsWithStored, 'platform,ad_id,date')
       if (err) { results[clientSlug] = { campaigns: campaigns.length, adSets: adSets.length, ads: 0, regions: 0, placements: 0, error: `ad_creatives: ${err}` }; continue }
+
+      // Backfill retroativo: pra ads que JÁ EXISTIAM no banco mas ainda não
+      // tinham thumbnail_stored_url, propaga a URL nova pra todas as linhas
+      // históricas do mesmo ad_id (ad_creatives tem 1 linha por dia).
+      for (const [adId, url] of Array.from(stored.entries())) {
+        await supabase.from('ad_creatives')
+          .update({ thumbnail_stored_url: url })
+          .eq('platform', 'meta')
+          .eq('client_slug', clientSlug)
+          .eq('ad_id', adId)
+          .is('thumbnail_stored_url', null)
+      }
     }
 
     if (regions.length > 0) {

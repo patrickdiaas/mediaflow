@@ -107,6 +107,11 @@ create table if not exists ad_creatives (
   headline              text,
   body                  text,
   permalink_url         text,
+  -- URL da imagem depois de baixada e guardada no Supabase Storage
+  -- (bucket 'ad-thumbnails'). As URLs originais do fbcdn são assinadas e
+  -- expiram, quebrando as thumbs em relatórios exportados dias depois.
+  -- Preenchida pelo sync-meta quando o download é bem-sucedido.
+  thumbnail_stored_url  text,
   placement             text,                  -- feed, stories, reels, audience_network, etc.
   date                  date not null,
   impressions           bigint default 0,

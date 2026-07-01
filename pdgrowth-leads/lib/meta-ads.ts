@@ -122,6 +122,7 @@ export interface MappedAdDay {
   status: string
   creative_type: 'image' | 'video' | 'carousel' | 'collection' | null
   thumbnail_url: string | null
+  thumbnail_stored_url?: string | null
   video_url: string | null
   headline: string | null
   body: string | null
@@ -216,6 +217,109 @@ export function getDateRange(days: number): { since: string; until: string } {
     since: since.toISOString().split('T')[0],
     until: until.toISOString().split('T')[0],
   }
+}
+
+// ─── Thumbnail caching ─────────────────────────────────────────────────────────
+// URLs de thumbnail da Meta (fbcdn.net) são assinadas e expiram em horas/dias.
+// Pra que PDFs exportados dias depois ainda mostrem imagens, baixamos as thumbs
+// no momento do sync e guardamos no Supabase Storage (bucket 'ad-thumbnails',
+// público). Idempotente: só baixa quando ad_id ainda não tem versão armazenada.
+
+const THUMBNAIL_BUCKET = 'ad-thumbnails'
+const THUMBNAIL_FETCH_TIMEOUT_MS = 10_000
+
+async function downloadImage(url: string): Promise<{ bytes: Uint8Array; contentType: string } | null> {
+  const controller = new AbortController()
+  const timeout = setTimeout(() => controller.abort(), THUMBNAIL_FETCH_TIMEOUT_MS)
+  try {
+    const res = await fetch(url, { signal: controller.signal })
+    if (!res.ok) return null
+    const contentType = res.headers.get('content-type') ?? 'image/jpeg'
+    const buf = await res.arrayBuffer()
+    return { bytes: new Uint8Array(buf), contentType }
+  } catch {
+    return null
+  } finally {
+    clearTimeout(timeout)
+  }
+}
+
+// Baixa a thumbnail e faz upload pro Supabase Storage. Retorna a public URL
+// (ou null em caso de falha). O caller decide se persiste em ad_creatives.
+export async function cacheThumbnailToStorage(
+  supabase: any,
+  clientSlug: string,
+  adId: string,
+  thumbnailUrl: string,
+): Promise<string | null> {
+  const img = await downloadImage(thumbnailUrl)
+  if (!img) return null
+  // Extensão inferida do content-type (fallback jpg)
+  const ext = img.contentType.includes('png')
+    ? 'png'
+    : img.contentType.includes('webp')
+      ? 'webp'
+      : img.contentType.includes('gif')
+        ? 'gif'
+        : 'jpg'
+  const path = `${clientSlug}/${adId}.${ext}`
+  const { error } = await supabase.storage
+    .from(THUMBNAIL_BUCKET)
+    .upload(path, img.bytes, { contentType: img.contentType, upsert: true })
+  if (error) {
+    console.warn(`[meta-ads] falha ao subir thumb ${clientSlug}/${adId}: ${error.message}`)
+    return null
+  }
+  const { data } = supabase.storage.from(THUMBNAIL_BUCKET).getPublicUrl(path)
+  return data?.publicUrl ?? null
+}
+
+// Cachea thumbnails para uma lista de ads em paralelo controlado. Só baixa
+// quando o ad_id ainda não tem versão armazenada (consulta ad_creatives).
+// Retorna Map<ad_id, storage_public_url> apenas dos que foram cacheados agora.
+export async function cacheThumbnailsForAds(
+  supabase: any,
+  clientSlug: string,
+  ads: Array<{ ad_id: string; thumbnail_url: string | null }>,
+  options: { concurrency?: number } = {},
+): Promise<Map<string, string>> {
+  const result = new Map<string, string>()
+  if (ads.length === 0) return result
+
+  // Consulta quem já tem thumbnail_stored_url (evita baixar de novo)
+  const adIds = ads.map(a => a.ad_id)
+  const { data: existing } = await supabase
+    .from('ad_creatives')
+    .select('ad_id, thumbnail_stored_url')
+    .eq('client_slug', clientSlug)
+    .in('ad_id', adIds)
+    .not('thumbnail_stored_url', 'is', null)
+  const alreadyCached = new Set((existing ?? []).map((r: any) => r.ad_id as string))
+
+  // Deduplica por ad_id (podem vir múltiplas linhas do mesmo ad em datas
+  // diferentes) e filtra os que precisam baixar
+  const uniqueByAd = new Map<string, string>() // ad_id -> thumbnail_url
+  for (const a of ads) {
+    if (!a.thumbnail_url) continue
+    if (alreadyCached.has(a.ad_id)) continue
+    if (!uniqueByAd.has(a.ad_id)) uniqueByAd.set(a.ad_id, a.thumbnail_url)
+  }
+
+  const items = Array.from(uniqueByAd.entries())
+  const concurrency = options.concurrency ?? 5
+  for (let i = 0; i < items.length; i += concurrency) {
+    const batch = items.slice(i, i + concurrency)
+    const settled = await Promise.all(
+      batch.map(async ([adId, url]) => {
+        const stored = await cacheThumbnailToStorage(supabase, clientSlug, adId, url)
+        return { adId, stored }
+      })
+    )
+    for (const { adId, stored } of settled) {
+      if (stored) result.set(adId, stored)
+    }
+  }
+  return result
 }
 
 // ─── BM account discovery ──────────────────────────────────────────────────────

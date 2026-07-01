@@ -420,7 +420,7 @@ export async function POST(req: NextRequest) {
     // ── Criativos do período principal ──────────────────────────────────────
     const { data: adCreativesRaw } = await supabase
       .from("ad_creatives")
-      .select("ad_id, ad_name, campaign_name, ad_set_id, ad_set_name, platform, status, creative_type, headline, permalink_url, thumbnail_url, impressions, clicks, spend, date, created_at_meta, updated_at_meta")
+      .select("ad_id, ad_name, campaign_name, ad_set_id, ad_set_name, platform, status, creative_type, headline, permalink_url, thumbnail_url, thumbnail_stored_url, impressions, clicks, spend, date, created_at_meta, updated_at_meta")
       .eq("client_slug", client)
       .gte("date", periodFrom)
       .lte("date", periodTo);
@@ -446,6 +446,8 @@ export async function POST(req: NextRequest) {
         if (!ex.created_at_meta && (c as any).created_at_meta) ex.created_at_meta = (c as any).created_at_meta;
         if (!ex.updated_at_meta && (c as any).updated_at_meta) ex.updated_at_meta = (c as any).updated_at_meta;
         if (!ex.permalink && c.permalink_url) ex.permalink = c.permalink_url;
+        // Prefere URL do Supabase Storage (permanente) sobre a do fbcdn (expira).
+        if (!ex.thumbnail && (c as any).thumbnail_stored_url) ex.thumbnail = (c as any).thumbnail_stored_url;
         if (!ex.thumbnail && (c as any).thumbnail_url) ex.thumbnail = (c as any).thumbnail_url;
         if (!ex.ad_set_name && (c as any).ad_set_name) ex.ad_set_name = (c as any).ad_set_name;
       } else {
@@ -456,7 +458,7 @@ export async function POST(req: NextRequest) {
           platform: c.platform,
           type: c.creative_type, headline: c.headline,
           permalink: c.permalink_url ?? null,
-          thumbnail: (c as any).thumbnail_url ?? null,
+          thumbnail: (c as any).thumbnail_stored_url ?? (c as any).thumbnail_url ?? null,
           spend: Number(c.spend), impressions: Number(c.impressions), clicks: Number(c.clicks), leads: 0,
           status: (c as any).status ?? "",
           created_at_meta: (c as any).created_at_meta ?? null,
