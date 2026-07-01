@@ -41,7 +41,7 @@ export async function POST(request: Request) {
 
   const { data: clients, error: clientsErr } = await supabase
     .from("clients")
-    .select("slug, name, meta_ad_account_id")
+    .select("slug, name, meta_ad_account_id, syncs_whatsapp")
     .eq("active", true)
     .not("meta_ad_account_id", "is", null);
 
@@ -54,7 +54,7 @@ export async function POST(request: Request) {
 
   interface PerClientResult {
     leadform: { forms: number; formsOk: number; formsFailed: number; leadsFound: number; leadsInserted: number; error?: string; formErrors?: { form_id: string; form_name: string; error: string }[] };
-    whatsapp: { adsScanned: number; conversationsTotal: number; leadsInserted: number; error?: string };
+    whatsapp: { adsScanned: number; conversationsTotal: number; leadsInserted: number; skipped?: string; error?: string };
   }
   const results: Record<string, PerClientResult> = {};
 
@@ -96,18 +96,24 @@ export async function POST(request: Request) {
       perClient.leadform.error = String(err);
     }
 
-    // ── 2. Click-to-WhatsApp ─────────────────────────────────────────────────
-    try {
-      const wp = await syncMetaWhatsappForAccount(accountId, clientSlug, token, sinceISO, untilISO);
-      perClient.whatsapp.adsScanned = wp.adsScanned;
-      perClient.whatsapp.conversationsTotal = wp.conversationsTotal;
-      if (wp.leads.length > 0) {
-        const up = await upsertLeads(wp.leads);
-        perClient.whatsapp.leadsInserted = up.inserted;
-        if (up.error) perClient.whatsapp.error = `upsert: ${up.error}`;
+    // ── 2. Click-to-WhatsApp (opt-in por cliente via clients.syncs_whatsapp) ──
+    //    Sem opt-in explícito, a Meta às vezes reporta conversation_started em
+    //    ads não-CtW e polui clientes que rodam só LP tradicional.
+    if (!(client as any).syncs_whatsapp) {
+      perClient.whatsapp.skipped = "cliente não tem syncs_whatsapp=true";
+    } else {
+      try {
+        const wp = await syncMetaWhatsappForAccount(accountId, clientSlug, token, sinceISO, untilISO);
+        perClient.whatsapp.adsScanned = wp.adsScanned;
+        perClient.whatsapp.conversationsTotal = wp.conversationsTotal;
+        if (wp.leads.length > 0) {
+          const up = await upsertLeads(wp.leads);
+          perClient.whatsapp.leadsInserted = up.inserted;
+          if (up.error) perClient.whatsapp.error = `upsert: ${up.error}`;
+        }
+      } catch (err) {
+        perClient.whatsapp.error = String(err);
       }
-    } catch (err) {
-      perClient.whatsapp.error = String(err);
     }
 
     results[clientSlug] = perClient;

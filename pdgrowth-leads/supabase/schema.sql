@@ -13,6 +13,12 @@ create table if not exists clients (
   rdstation_slug          text,               -- slug usado no webhook RD Station (?client=)
   logo_url                text,               -- URL do logo (usado na capa da apresentação)
   active                  boolean default true,
+  -- Sync de Click-to-WhatsApp (Meta conversation_started) precisa ser OPT-IN.
+  -- Se true: sync-meta-leads cria leads sintéticos (source='meta_whatsapp') pra
+  -- cada conversa iniciada nos ads do cliente. Se false: pula esse cliente.
+  -- Default false pra não poluir clientes que rodam LP tradicional com métricas
+  -- de "conversation started" que a Meta às vezes reporta em ads não-CtW.
+  syncs_whatsapp          boolean default false,
   created_at              timestamptz default now()
 );
 
