@@ -581,8 +581,38 @@ export async function POST(req: NextRequest) {
           }
         }
       }
-      // Fallback: criativo dominante da campanha atribuída (inclui leads sem utm_term,
-      // recuperados via event_map/alias). Garante que soma dos criativos = total da campanha.
+      // Fallback 1: utm_term vazio mas utm_content casa com um ad_name. Ocorre
+      //   quando o gestor configura a LP com utm_content={{ad.name}} (ex: MedSystems
+      //   MPT). Sem esse caminho, todos os leads iriam pro criativo dominante.
+      if (!matched && l.utm_content) {
+        const exactMatches = creativesByName.get(l.utm_content);
+        if (exactMatches && exactMatches.length > 0) {
+          let winner;
+          if (exactMatches.length === 1) {
+            winner = exactMatches[0];
+          } else {
+            // Ambíguo: mesmo nome em conjuntos diferentes. Sem utm_term nem outra
+            // pista, cai no maior spend (não temos como distinguir).
+            winner = exactMatches.slice().sort((a, b) => b.spend - a.spend)[0];
+          }
+          winner.leads++;
+          matched = true;
+        }
+        if (!matched) {
+          // Tenta fuzzy no utm_content também
+          const fuzzyCandidates = Array.from(creativeAgg.values()).filter(e => fuzzyMatch(e.name, l.utm_content!));
+          if (fuzzyCandidates.length > 0) {
+            const winner = fuzzyCandidates.length === 1
+              ? fuzzyCandidates[0]
+              : fuzzyCandidates.slice().sort((a, b) => b.spend - a.spend)[0];
+            winner.leads++;
+            matched = true;
+          }
+        }
+      }
+      // Fallback 2: criativo dominante da campanha atribuída (leads sem utm_term
+      // NEM utm_content útil, recuperados via event_map/alias). Garante que soma
+      // dos criativos = total da campanha.
       if (!matched) {
         const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event, (l as any)._brt_date);
         if (r.campaign_name) {
