@@ -686,10 +686,160 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
       </table>`;
     }
 
-    // Remove a seção "Anúncios Meta do Período" do markdown do Claude (pra evitar
-    // duplicação — a versão agrupada é melhor e renderizada acima).
-    const reportTrimmed = report.replace(
+    // ── Meta Ads — Resultados por Campanha (HTML determinístico) ────────────
+    // Substitui a seção que o Claude gerava (era bullet-list feia, dif. de ler).
+    // Renderiza cada campanha como um bloco visual com KPIs, semanal, conjuntos
+    // e criativos em grid de cards (com thumbnail quando disponível).
+    const metaCampaigns: any[] = p.metaCampaigns ?? [];
+    const shortDate = (iso: string | null | undefined) => {
+      if (!iso) return "—";
+      const d = new Date(String(iso).slice(0, 10) + "T12:00:00");
+      return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" });
+    };
+    const creativeStatus = (cr: any) => {
+      const st = String(cr.status ?? "").toUpperCase();
+      const isPaused = st === "PAUSED" || st === "DISABLED" || st === "ARCHIVED";
+      if (isPaused) {
+        const upd = cr.updated_at_meta ? shortDate(cr.updated_at_meta) : null;
+        return { cls: "paused", label: upd ? `Pausado ${upd}` : "Pausado" };
+      }
+      return { cls: "active", label: "Ativo" };
+    };
+
+    const renderCreativeCard = (cr: any) => {
+      const st = creativeStatus(cr);
+      const thumb = cr.thumbnail
+        ? `<div class="crv-thumb" style="background-image:url('${escapeHtml(cr.thumbnail)}')"></div>`
+        : `<div class="crv-thumb crv-thumb-empty">${cr.name.charAt(0).toUpperCase()}</div>`;
+      return `
+        <div class="crv-card">
+          ${thumb}
+          <div class="crv-body">
+            <div class="crv-header">
+              <div class="crv-name" title="${escapeHtml(cr.name)}">${escapeHtml(cr.name)}</div>
+              <span class="crv-status crv-status-${st.cls}">${st.label}</span>
+            </div>
+            <div class="crv-meta">Criado ${shortDate(cr.created_at_meta)}${cr.permalink ? ` · <a href="${cr.permalink}" target="_blank" class="crv-link">ver anúncio ↗</a>` : ""}</div>
+            <div class="crv-kpis">
+              <div class="crv-kpi"><span class="crv-kpi-label">Invest</span><span class="crv-kpi-val blue">R$ ${fmtInt(cr.spend)}</span></div>
+              <div class="crv-kpi"><span class="crv-kpi-label">Leads</span><span class="crv-kpi-val accent">${fmtInt(cr.leads)}</span></div>
+              <div class="crv-kpi"><span class="crv-kpi-label">CPL</span><span class="crv-kpi-val gold">${cr.cpl > 0 ? `R$ ${fmt(cr.cpl)}` : "—"}</span></div>
+              <div class="crv-kpi"><span class="crv-kpi-label">CTR</span><span class="crv-kpi-val">${pct(cr.ctr)}</span></div>
+            </div>
+            ${cr.note ? `<div class="crv-note">${escapeHtml(cr.note)}</div>` : ""}
+            ${cr.ambiguousAttribution ? `<div class="crv-warn">⚠ Atribuição ambígua — nome duplicado no mesmo conjunto</div>` : ""}
+          </div>
+        </div>`;
+    };
+
+    const renderAdSetRow = (s: any) => `
+      <tr>
+        <td class="setname" title="${escapeHtml(s.name)}">${escapeHtml(s.name)}</td>
+        <td class="mono blue">R$ ${fmtInt(s.spend)}</td>
+        <td class="mono accent">${fmtInt(s.leads)}</td>
+        <td class="mono gold">${s.cpl > 0 ? `R$ ${fmt(s.cpl)}` : "—"}</td>
+        <td class="mono">${pct(s.ctr)}</td>
+      </tr>`;
+
+    const renderWeeklyRow = (w: any) => `
+      <tr>
+        <td>${escapeHtml(w.label)}</td>
+        <td class="mono blue">R$ ${fmtInt(w.spend)}</td>
+        <td class="mono accent">${fmtInt(w.leads)}</td>
+        <td class="mono gold">${w.cpl > 0 ? `R$ ${fmt(w.cpl)}` : "—"}</td>
+        <td class="mono">${pct(w.ctr)}</td>
+      </tr>`;
+
+    const renderCampaignBlock = (c: any) => {
+      const isPaused = String(c.status ?? "").toUpperCase() === "PAUSED";
+      const statusBadge = isPaused
+        ? `<span class="camp-status paused">Pausada</span>`
+        : `<span class="camp-status active">Ativa</span>`;
+      const adSets: any[] = Array.isArray(c.adSets) ? c.adSets : [];
+      const hasMultipleSets = adSets.length > 1;
+      const weekly: any[] = Array.isArray(c.weekly) ? c.weekly : [];
+
+      // Se há vários conjuntos, renderiza criativos AGRUPADOS por conjunto
+      // (com sub-cabeçalho). Senão, grid único de todos os criativos da campanha.
+      const creativesHtml = hasMultipleSets
+        ? adSets.map(s => {
+            const creativesInSet = (s.creatives ?? []) as any[];
+            if (creativesInSet.length === 0) return "";
+            return `
+              <div class="crv-set-block">
+                <div class="crv-set-header">
+                  <span class="crv-set-label">Conjunto</span>
+                  <span class="crv-set-name">${escapeHtml(s.name)}</span>
+                  <span class="crv-set-stats">
+                    <span class="blue">R$ ${fmtInt(s.spend)}</span> ·
+                    <span class="accent">${fmtInt(s.leads)} leads</span> ·
+                    <span class="gold">CPL ${s.cpl > 0 ? `R$ ${fmt(s.cpl)}` : "—"}</span>
+                  </span>
+                </div>
+                <div class="crv-grid">${creativesInSet.map(renderCreativeCard).join("")}</div>
+              </div>`;
+          }).join("")
+        : `<div class="crv-grid">${(c.creatives ?? []).map(renderCreativeCard).join("")}</div>`;
+
+      return `
+        <div class="camp-block">
+          <div class="camp-header">
+            <div class="camp-title">
+              <h3 class="camp-name">${escapeHtml(c.name)}</h3>
+              ${statusBadge}
+            </div>
+            <div class="camp-kpi-strip">
+              <div class="camp-kpi"><span class="camp-kpi-label">Invest</span><span class="camp-kpi-val blue">R$ ${fmtInt(c.spend)}</span></div>
+              <div class="camp-kpi"><span class="camp-kpi-label">Leads</span><span class="camp-kpi-val accent">${fmtInt(c.leads)}</span></div>
+              <div class="camp-kpi"><span class="camp-kpi-label">CPL</span><span class="camp-kpi-val gold">${c.cpl > 0 ? `R$ ${fmt(c.cpl)}` : "—"}</span></div>
+              <div class="camp-kpi"><span class="camp-kpi-label">CTR</span><span class="camp-kpi-val">${pct(c.ctr)}</span></div>
+              <div class="camp-kpi"><span class="camp-kpi-label">Impressões</span><span class="camp-kpi-val">${fmtInt(c.impressions)}</span></div>
+              <div class="camp-kpi"><span class="camp-kpi-label">Cliques</span><span class="camp-kpi-val">${fmtInt(c.clicks)}</span></div>
+            </div>
+          </div>
+
+          <div class="camp-tables">
+            ${weekly.length > 1 ? `
+              <div class="camp-sub">
+                <div class="camp-sub-title">Semana a Semana</div>
+                <table class="camp-table">
+                  <thead><tr><th>Semana</th><th>Invest</th><th>Leads</th><th>CPL</th><th>CTR</th></tr></thead>
+                  <tbody>${weekly.map(renderWeeklyRow).join("")}</tbody>
+                </table>
+              </div>` : ""}
+            ${hasMultipleSets ? `
+              <div class="camp-sub">
+                <div class="camp-sub-title">Conjuntos de Anúncios · ${adSets.length}</div>
+                <table class="camp-table">
+                  <thead><tr><th>Conjunto</th><th>Invest</th><th>Leads</th><th>CPL</th><th>CTR</th></tr></thead>
+                  <tbody>${adSets.map(renderAdSetRow).join("")}</tbody>
+                </table>
+              </div>` : ""}
+          </div>
+
+          ${creativesHtml ? `
+            <div class="camp-creatives">
+              <div class="camp-sub-title">Criativos${hasMultipleSets ? "" : ` · ${(c.creatives ?? []).length}`}</div>
+              ${creativesHtml}
+            </div>` : ""}
+        </div>`;
+    };
+
+    const metaCampaignsHtml = metaCampaigns.length > 0 ? `
+      <h2>Meta Ads · Resultados por Campanha</h2>
+      ${metaCampaigns.filter((c: any) => c.leads > 0 || c.spend > 50).map(renderCampaignBlock).join("")}
+    ` : "";
+
+    // Remove seções que agora são renderizadas em HTML determinístico
+    // (evita duplicação com o texto que o Claude ainda pode gerar).
+    // Mantemos "Meta Ads — Resumo Rápido" (tabela curta) e removemos qualquer
+    // versão longa (Resultados por Campanha) caso o Claude ainda gere.
+    let reportTrimmed = report.replace(
       /\*\*\d+\.\s*An[úu]ncios Meta do Per[íi]odo\*\*[\s\S]*?(?=\n\s*\*\*\d+\.\s|\Z)/i,
+      ""
+    );
+    reportTrimmed = reportTrimmed.replace(
+      /\*\*\d+\.\s*Meta Ads\s*[—-]\s*Resultados[\s\S]*?(?=\n\s*\*\*\d+\.\s|\Z)/i,
       ""
     );
 
@@ -767,6 +917,62 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
 
     .callout { background: #14161e; border-left: 3px solid #CAFF04; border-radius: 0 8px 8px 0; padding: 10px 14px; margin: 12px 0; font-size: 11px; color: #c0c0d0; }
 
+    /* ── Campanhas Meta (blocos executivos) ────────────────────────── */
+    .camp-block { background: #14161e; border: 1px solid #24242c; border-radius: 14px; padding: 16px 18px; margin: 14px 0 20px; break-inside: auto; page-break-inside: auto; }
+    .camp-header { border-bottom: 1px solid #24242c; padding-bottom: 12px; margin-bottom: 12px; }
+    .camp-title { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
+    .camp-name { font-size: 15px; font-weight: 800; color: #f2f2f5; margin: 0; padding: 0; background: transparent; border: none; letter-spacing: -0.01em; }
+    .camp-status { display: inline-block; font-size: 9px; font-weight: 800; padding: 3px 8px; border-radius: 8px; text-transform: uppercase; letter-spacing: 0.06em; }
+    .camp-status.active { background: rgba(202,255,4,0.12); color: #CAFF04; border: 1px solid rgba(202,255,4,0.25); }
+    .camp-status.paused { background: rgba(245,158,11,0.12); color: #F59E0B; border: 1px solid rgba(245,158,11,0.25); }
+    .camp-kpi-strip { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+    .camp-kpi { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; background: #0e1018; border-radius: 8px; border: 1px solid #1a1a24; }
+    .camp-kpi-label { font-size: 9px; color: #6a6a7a; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
+    .camp-kpi-val { font-size: 15px; font-weight: 800; font-family: 'DM Mono', monospace; line-height: 1.1; letter-spacing: -0.01em; }
+    .camp-kpi-val.accent { color: #CAFF04; } .camp-kpi-val.blue { color: #60A5FA; } .camp-kpi-val.gold { color: #F59E0B; }
+    .camp-kpi-val:not(.accent):not(.blue):not(.gold) { color: #d0d0dd; }
+
+    .camp-tables { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+    .camp-tables .camp-sub:only-child { grid-column: 1 / -1; }
+    .camp-sub { background: #0e1018; border: 1px solid #1a1a24; border-radius: 10px; padding: 10px 12px; break-inside: avoid; page-break-inside: avoid; }
+    .camp-sub-title { font-size: 10px; color: #8888a0; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; margin-bottom: 8px; }
+    .camp-table { width: 100%; border-collapse: collapse; margin: 0; font-size: 10.5px; }
+    .camp-table th { background: transparent; border-bottom: 1px solid #24242c; padding: 6px 8px; font-size: 9px; color: #6a6a7a; text-align: left; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 700; }
+    .camp-table th:nth-child(n+2) { text-align: right; }
+    .camp-table td { padding: 6px 8px; border-bottom: 1px solid #1a1a24; font-size: 10.5px; color: #d0d0dd; }
+    .camp-table td:nth-child(n+2) { text-align: right; font-family: 'DM Mono', monospace; }
+    .camp-table td.setname { max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: 'DM Mono', monospace; font-size: 10px; color: #b0b0c0; }
+    .camp-table .blue { color: #60A5FA; } .camp-table .accent { color: #CAFF04; font-weight: 700; } .camp-table .gold { color: #F59E0B; } .camp-table .mono { font-family: 'DM Mono', monospace; }
+
+    .camp-creatives { margin-top: 4px; }
+    .crv-set-block { margin: 10px 0 14px; }
+    .crv-set-header { display: flex; align-items: baseline; gap: 10px; padding: 6px 12px; background: rgba(96,165,250,0.05); border-left: 3px solid #60A5FA; border-radius: 0 8px 8px 0; margin-bottom: 8px; page-break-after: avoid; }
+    .crv-set-label { font-size: 8px; color: #6a6a7a; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 700; }
+    .crv-set-name { font-family: 'DM Mono', monospace; font-size: 11px; color: #f2f2f5; font-weight: 700; }
+    .crv-set-stats { margin-left: auto; font-size: 10px; font-family: 'DM Mono', monospace; }
+    .crv-set-stats .blue { color: #60A5FA; } .crv-set-stats .accent { color: #CAFF04; } .crv-set-stats .gold { color: #F59E0B; }
+
+    .crv-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    .crv-card { display: flex; gap: 10px; padding: 10px; background: #0e1018; border: 1px solid #1a1a24; border-radius: 10px; break-inside: avoid; page-break-inside: avoid; }
+    .crv-thumb { width: 68px; height: 68px; flex-shrink: 0; border-radius: 8px; background: #1a1a24; background-size: cover; background-position: center; border: 1px solid #24242c; }
+    .crv-thumb-empty { display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 800; color: #4a4a5a; font-family: 'DM Mono', monospace; }
+    .crv-body { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+    .crv-header { display: flex; justify-content: space-between; align-items: flex-start; gap: 8px; }
+    .crv-name { font-family: 'DM Mono', monospace; font-size: 11px; color: #f2f2f5; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .crv-status { flex-shrink: 0; font-size: 8px; font-weight: 800; padding: 2px 6px; border-radius: 6px; text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap; }
+    .crv-status-active { background: rgba(202,255,4,0.1); color: #CAFF04; border: 1px solid rgba(202,255,4,0.25); }
+    .crv-status-paused { background: rgba(245,158,11,0.1); color: #F59E0B; border: 1px solid rgba(245,158,11,0.25); }
+    .crv-meta { font-size: 9.5px; color: #6a6a7a; }
+    .crv-link { color: #60A5FA; text-decoration: none; }
+    .crv-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 2px; }
+    .crv-kpi { display: flex; flex-direction: column; }
+    .crv-kpi-label { font-size: 8px; color: #6a6a7a; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
+    .crv-kpi-val { font-size: 10.5px; font-family: 'DM Mono', monospace; font-weight: 700; }
+    .crv-kpi-val.accent { color: #CAFF04; } .crv-kpi-val.blue { color: #60A5FA; } .crv-kpi-val.gold { color: #F59E0B; }
+    .crv-kpi-val:not(.accent):not(.blue):not(.gold) { color: #d0d0dd; }
+    .crv-note { font-size: 9.5px; color: #8888a0; font-style: italic; padding: 4px 8px; background: #14161e; border-radius: 6px; margin-top: 2px; }
+    .crv-warn { font-size: 9.5px; color: #F59E0B; margin-top: 2px; }
+
     /* ── Anúncios agrupados ───────────────────────────────────────── */
     .camp-ads-title { display: flex; justify-content: space-between; align-items: center; }
     .camp-ads-count { font-size: 10px; color: #8888a0; font-weight: 500; }
@@ -834,10 +1040,16 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
     ${pacingHtml}
   </section>
 
-  <!-- ───── Conteúdo detalhado (gerado pelo Claude) ───── -->
+  <!-- ───── Conteúdo detalhado ─────
+       - Texto do Claude (análises, comparativo semanal, Google Ads, ações, obs)
+       - Meta Ads: cards visuais gerados deterministicamente (substitui a seção que
+         era feia e bulletada no markdown do Claude)
+       - Lista completa de anúncios Meta agrupados por campanha/conjunto
+  -->
   <div class="body-content">
     <table></table>
     ${mdToHtml(reportTrimmed)}
+    ${metaCampaignsHtml}
     ${adsByCampaignHtml}
   </div>
 

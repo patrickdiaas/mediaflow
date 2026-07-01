@@ -420,7 +420,7 @@ export async function POST(req: NextRequest) {
     // ── Criativos do período principal ──────────────────────────────────────
     const { data: adCreativesRaw } = await supabase
       .from("ad_creatives")
-      .select("ad_id, ad_name, campaign_name, ad_set_id, ad_set_name, platform, status, creative_type, headline, permalink_url, impressions, clicks, spend, date, created_at_meta, updated_at_meta")
+      .select("ad_id, ad_name, campaign_name, ad_set_id, ad_set_name, platform, status, creative_type, headline, permalink_url, thumbnail_url, impressions, clicks, spend, date, created_at_meta, updated_at_meta")
       .eq("client_slug", client)
       .gte("date", periodFrom)
       .lte("date", periodTo);
@@ -435,7 +435,7 @@ export async function POST(req: NextRequest) {
     const notesByAdId = new Map<string, string>();
     for (const n of creativeNotesRaw ?? []) notesByAdId.set(n.ad_id, n.note);
 
-    const creativeAgg = new Map<string, { ad_id: string; name: string; campaign: string; ad_set_name: string; platform: string; type: string | null; headline: string | null; permalink: string | null; spend: number; impressions: number; clicks: number; leads: number; status: string; created_at_meta: string | null; updated_at_meta: string | null; last_active_date: string | null; last_date: string; note: string | null }>();
+    const creativeAgg = new Map<string, { ad_id: string; name: string; campaign: string; ad_set_name: string; platform: string; type: string | null; headline: string | null; permalink: string | null; thumbnail: string | null; spend: number; impressions: number; clicks: number; leads: number; status: string; created_at_meta: string | null; updated_at_meta: string | null; last_active_date: string | null; last_date: string; note: string | null }>();
     for (const c of adCreatives) {
       const ex = creativeAgg.get(c.ad_id);
       const hasSpend = Number(c.spend) > 0;
@@ -446,6 +446,7 @@ export async function POST(req: NextRequest) {
         if (!ex.created_at_meta && (c as any).created_at_meta) ex.created_at_meta = (c as any).created_at_meta;
         if (!ex.updated_at_meta && (c as any).updated_at_meta) ex.updated_at_meta = (c as any).updated_at_meta;
         if (!ex.permalink && c.permalink_url) ex.permalink = c.permalink_url;
+        if (!ex.thumbnail && (c as any).thumbnail_url) ex.thumbnail = (c as any).thumbnail_url;
         if (!ex.ad_set_name && (c as any).ad_set_name) ex.ad_set_name = (c as any).ad_set_name;
       } else {
         creativeAgg.set(c.ad_id, {
@@ -453,7 +454,9 @@ export async function POST(req: NextRequest) {
           name: c.ad_name, campaign: c.campaign_name ?? "",
           ad_set_name: (c as any).ad_set_name ?? "",
           platform: c.platform,
-          type: c.creative_type, headline: c.headline, permalink: c.permalink_url ?? null,
+          type: c.creative_type, headline: c.headline,
+          permalink: c.permalink_url ?? null,
+          thumbnail: (c as any).thumbnail_url ?? null,
           spend: Number(c.spend), impressions: Number(c.impressions), clicks: Number(c.clicks), leads: 0,
           status: (c as any).status ?? "",
           created_at_meta: (c as any).created_at_meta ?? null,
@@ -1047,9 +1050,14 @@ NÃO inclua "nota metodológica" explicando o intervalo do mês anterior — as 
         `Os dados estão em "PACING DE ORÇAMENTO" no contexto. Apresente uma TABELA com colunas: Plataforma | Gasto Real | Orçamento | % Realizado | Previsto até hoje | Status | Recomendado/dia. Linhas devem ser exatamente as plataformas que aparecem no contexto (TOTAL/META/GOOGLE). Use os status como vieram (ex: "No ritmo", "Levemente acima", "ATRASADO"). Após a tabela, comente em 2-3 frases se o cliente está no ritmo da estratégia ou se precisa ajustar (acelerar/conter). Cite o "Recomendado/dia" como guia prático para os dias restantes do mês. NÃO recomende mudar o orçamento — só apontar a velocidade.`]);
     }
 
-    sections.push(["Meta Ads — Resultados por Campanha (período " + brDateFull(periodFrom) + " a " + brDateFull(periodTo) + ")",
+    // NOTA: seção "Meta Ads — Resultados por Campanha" foi REMOVIDA do prompt do
+    // Claude e agora é renderizada como cards visuais deterministicamente no PDF
+    // (exportPDF em relatorios/page.tsx: metaCampaignsHtml). Motivo: bullet-list
+    // com pipes ficava feio e pouco escaneável. O Claude ainda cobre a análise
+    // qualitativa em 'Destaques e Pontos de Atenção' e o resumo semanal/mensal.
+    sections.push(["Meta Ads — Resumo Rápido",
       metaCampaigns.length > 0
-        ? "Inicie a seção com uma TABELA RESUMO baseada em 'RESUMO META ADS — TODAS AS CAMPANHAS NO PERÍODO' (do contexto), com colunas: Campanha | Status | Investimento | Leads | CPL | CTR. Inclua TODAS as campanhas listadas no resumo (não filtre). Após a tabela resumo, faça o detalhamento POR CAMPANHA usando os blocos do contexto. Para cada campanha (do bloco 'META ADS — POR CAMPANHA'): cabeçalho com nome + status, subbloco com investimento/impressões/cliques/CTR/leads/CPL, depois sub-tabela 'Semana a Semana' (colunas: Semana | Investimento | Leads | CPL | CTR) usando os dados de 'Por semana:' do contexto. QUANDO O CONTEXTO TROUXER 'Conjuntos de Anúncios' DENTRO DA CAMPANHA (= mais de um conjunto rodando), apresente uma sub-tabela 'Conjuntos de Anúncios' com colunas: Conjunto | Investimento | Leads | CPL | CTR antes da lista de criativos, e depois liste os criativos AGRUPADOS por conjunto (sub-cabeçalho com o nome do conjunto seguido dos criativos daquele conjunto). Quando a campanha tem apenas 1 conjunto, liste os criativos direto sem essa quebra (o contexto traz como 'Criativos:' nesse caso). Cada criativo: criado em / status / gasto / leads / CTR / CPL / link, com nota como bullet abaixo quando presente. Mencione posicionamentos que mais converteram. NÃO invente semanas além das listadas."
+        ? "Apresente APENAS uma TABELA RESUMO curta baseada em 'RESUMO META ADS — TODAS AS CAMPANHAS NO PERÍODO' com colunas: Campanha | Status | Investimento | Leads | CPL | CTR. Ordene por leads desc. Sem prosa antes ou depois — o detalhamento visual por campanha vem em cards na próxima seção do relatório."
         : "Sem campanhas Meta no período."]);
 
     sections.push(["Google Ads — Resultados por Campanha (período " + brDateFull(periodFrom) + " a " + brDateFull(periodTo) + ")",
@@ -1137,15 +1145,17 @@ IMPORTANTE sobre formatação:
           ad_set_name: cr.ad_set_name ?? "",
           spend: cr.spend,
           leads: cr.leads,
+          impressions: cr.impressions,
+          clicks: cr.clicks,
           ctr: cr.ctr,
           cpl: cr.cpl,
           permalink: cr.permalink,
+          thumbnail: cr.thumbnail ?? null,
           status: cr.status ?? "",
           created_at_meta: cr.created_at_meta ?? null,
           updated_at_meta: cr.updated_at_meta ?? null,
           note: cr.note ?? null,
           ambiguousAttribution: duplicatedNameAdIds.has(cr.ad_id),
-          thumbnail: null,
         });
         const sets = adSetsForCampaign(c.name);
         return {
