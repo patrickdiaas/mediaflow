@@ -650,17 +650,17 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
       }).join("")}
     ` : "";
 
+    // Tabela compacta de anúncios — só referência histórica de "o que rodou":
+    // Anúncio | Criado em | Status | Link. Sem invest/leads (esses já estão
+    // nos cards da seção detalhada). Foco em prestação de contas.
     function renderAdsTable(ads: any[]): string {
       return `<table class="ads-table">
         <thead>
           <tr>
-            <th style="width:30%">Anúncio</th>
-            <th>Início</th>
-            <th>Última ativ.</th>
+            <th style="width:55%">Anúncio</th>
+            <th>Criado</th>
             <th>Status</th>
-            <th style="text-align:right">Invest</th>
-            <th style="text-align:right">Leads</th>
-            <th style="width:36px"></th>
+            <th style="width:36px">Link</th>
           </tr>
         </thead>
         <tbody>
@@ -674,10 +674,7 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
                   ${a.note ? `<div class="ad-note">${escapeHtml(a.note)}</div>` : ""}
                 </td>
                 <td class="mono">${a.first_date ? new Date(a.first_date + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : "—"}</td>
-                <td class="mono">${a.last_active_date ? new Date(a.last_active_date + "T12:00:00").toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" }) : "—"}</td>
                 <td class="${stCls}">${escapeHtml(a.statusLabel ?? "")}</td>
-                <td class="mono num blue">R$ ${fmtInt(a.spend)}</td>
-                <td class="mono num accent">${fmtInt(a.leads)}</td>
                 <td>${a.permalink ? `<a href="${a.permalink}" target="_blank" class="link-icon">↗</a>` : ""}</td>
               </tr>
             `;
@@ -719,7 +716,10 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
               <div class="crv-name" title="${escapeHtml(cr.name)}">${escapeHtml(cr.name)}</div>
               <span class="crv-status crv-status-${st.cls}">${st.label}</span>
             </div>
-            <div class="crv-meta">Criado ${shortDate(cr.created_at_meta)}${cr.permalink ? ` · <a href="${cr.permalink}" target="_blank" class="crv-link">ver anúncio ↗</a>` : ""}</div>
+            <div class="crv-meta">
+              <span>Criado ${shortDate(cr.created_at_meta)}</span>
+              ${cr.permalink ? `<a href="${cr.permalink}" target="_blank" class="crv-link-btn">Ver anúncio ↗</a>` : ""}
+            </div>
             <div class="crv-kpis">
               <div class="crv-kpi"><span class="crv-kpi-label">Invest</span><span class="crv-kpi-val blue">R$ ${fmtInt(cr.spend)}</span></div>
               <div class="crv-kpi"><span class="crv-kpi-label">Leads</span><span class="crv-kpi-val accent">${fmtInt(cr.leads)}</span></div>
@@ -826,14 +826,78 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
     };
 
     const metaCampaignsHtml = metaCampaigns.length > 0 ? `
-      <h2>Meta Ads · Resultados por Campanha</h2>
+      <div class="cards-section-title">Meta Ads · Detalhamento por Campanha</div>
       ${metaCampaigns.filter((c: any) => c.leads > 0 || c.spend > 50).map(renderCampaignBlock).join("")}
+    ` : "";
+
+    // ── Google Ads · cards similares ao Meta, mas sem criativos (não aplicável)
+    // e com top keywords / top search terms lado a lado.
+    const googleCampaigns: any[] = p.googleCampaigns ?? [];
+    const renderKwList = (list: any[], label: string, key: "clicks" | "conversions") => {
+      if (!list || list.length === 0) return "";
+      return `
+        <div class="camp-sub">
+          <div class="camp-sub-title">${label}</div>
+          <table class="camp-table">
+            <thead><tr><th>${label.includes("Termos") ? "Termo" : "Keyword"}</th><th>${key === "clicks" ? "Cliques" : "Conv."}</th></tr></thead>
+            <tbody>
+              ${list.slice(0, 6).map((k: any) => `
+                <tr>
+                  <td class="setname" title="${escapeHtml(k.text ?? k.term ?? "")}">${escapeHtml(k.text ?? k.term ?? "")}</td>
+                  <td class="mono ${key === "clicks" ? "blue" : "accent"}">${fmtInt(k[key])}</td>
+                </tr>
+              `).join("")}
+            </tbody>
+          </table>
+        </div>`;
+    };
+    const renderGoogleCampaignBlock = (c: any) => {
+      const isPaused = String(c.status ?? "").toUpperCase() === "PAUSED";
+      const statusBadge = isPaused
+        ? `<span class="camp-status paused">Pausada</span>`
+        : `<span class="camp-status active">Ativa</span>`;
+      const weekly: any[] = Array.isArray(c.weekly) ? c.weekly : [];
+      const kws: any[] = c.topKeywords ?? [];
+      const sts: any[] = c.topSearchTerms ?? [];
+
+      return `
+        <div class="camp-block">
+          <div class="camp-header">
+            <div class="camp-title">
+              <h3 class="camp-name">${escapeHtml(c.name)}</h3>
+              ${statusBadge}
+            </div>
+            <div class="camp-kpi-strip">
+              <div class="camp-kpi"><span class="camp-kpi-label">Invest</span><span class="camp-kpi-val blue">R$ ${fmtInt(c.spend)}</span></div>
+              <div class="camp-kpi"><span class="camp-kpi-label">Leads</span><span class="camp-kpi-val accent">${fmtInt(c.leads)}</span></div>
+              <div class="camp-kpi"><span class="camp-kpi-label">CPL</span><span class="camp-kpi-val gold">${c.cpl > 0 ? `R$ ${fmt(c.cpl)}` : "—"}</span></div>
+              <div class="camp-kpi"><span class="camp-kpi-label">CTR</span><span class="camp-kpi-val">${pct(c.ctr)}</span></div>
+              <div class="camp-kpi"><span class="camp-kpi-label">Impressões</span><span class="camp-kpi-val">${fmtInt(c.impressions)}</span></div>
+              <div class="camp-kpi"><span class="camp-kpi-label">Cliques</span><span class="camp-kpi-val">${fmtInt(c.clicks)}</span></div>
+            </div>
+          </div>
+
+          <div class="camp-tables">
+            ${weekly.length > 1 ? `
+              <div class="camp-sub">
+                <div class="camp-sub-title">Semana a Semana</div>
+                <table class="camp-table">
+                  <thead><tr><th>Semana</th><th>Invest</th><th>Leads</th><th>CPL</th><th>CTR</th></tr></thead>
+                  <tbody>${weekly.map(renderWeeklyRow).join("")}</tbody>
+                </table>
+              </div>` : ""}
+            ${kws.length > 0 ? renderKwList(kws, "Top Keywords", "conversions") : ""}
+            ${sts.length > 0 ? renderKwList(sts, "Top Termos de Pesquisa", "conversions") : ""}
+          </div>
+        </div>`;
+    };
+    const googleCampaignsHtml = googleCampaigns.length > 0 ? `
+      <div class="cards-section-title">Google Ads · Detalhamento por Campanha</div>
+      ${googleCampaigns.filter((c: any) => c.leads > 0 || c.spend > 50).map(renderGoogleCampaignBlock).join("")}
     ` : "";
 
     // Remove seções que agora são renderizadas em HTML determinístico
     // (evita duplicação com o texto que o Claude ainda pode gerar).
-    // Mantemos "Meta Ads — Resumo Rápido" (tabela curta) e removemos qualquer
-    // versão longa (Resultados por Campanha) caso o Claude ainda gere.
     let reportTrimmed = report.replace(
       /\*\*\d+\.\s*An[úu]ncios Meta do Per[íi]odo\*\*[\s\S]*?(?=\n\s*\*\*\d+\.\s|\Z)/i,
       ""
@@ -917,7 +981,10 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
 
     .callout { background: #14161e; border-left: 3px solid #CAFF04; border-radius: 0 8px 8px 0; padding: 10px 14px; margin: 12px 0; font-size: 11px; color: #c0c0d0; }
 
-    /* ── Campanhas Meta (blocos executivos) ────────────────────────── */
+    /* ── Section title (Meta/Google detalhamento) ────────────────────── */
+    .cards-section-title { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: #CAFF04; border-left: 4px solid #CAFF04; padding-left: 14px; margin: 28px 0 14px; page-break-after: avoid; }
+
+    /* ── Campanhas (blocos executivos) — usado por Meta e Google ─────── */
     .camp-block { background: #14161e; border: 1px solid #24242c; border-radius: 14px; padding: 16px 18px; margin: 14px 0 20px; break-inside: auto; page-break-inside: auto; }
     .camp-header { border-bottom: 1px solid #24242c; padding-bottom: 12px; margin-bottom: 12px; }
     .camp-title { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
@@ -962,8 +1029,9 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
     .crv-status { flex-shrink: 0; font-size: 8px; font-weight: 800; padding: 2px 6px; border-radius: 6px; text-transform: uppercase; letter-spacing: 0.06em; white-space: nowrap; }
     .crv-status-active { background: rgba(202,255,4,0.1); color: #CAFF04; border: 1px solid rgba(202,255,4,0.25); }
     .crv-status-paused { background: rgba(245,158,11,0.1); color: #F59E0B; border: 1px solid rgba(245,158,11,0.25); }
-    .crv-meta { font-size: 9.5px; color: #6a6a7a; }
+    .crv-meta { font-size: 9.5px; color: #6a6a7a; display: flex; align-items: center; gap: 8px; }
     .crv-link { color: #60A5FA; text-decoration: none; }
+    .crv-link-btn { display: inline-flex; align-items: center; gap: 3px; padding: 3px 8px; background: rgba(96,165,250,0.12); border: 1px solid rgba(96,165,250,0.35); border-radius: 6px; color: #60A5FA; text-decoration: none; font-size: 9.5px; font-weight: 700; white-space: nowrap; }
     .crv-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 2px; }
     .crv-kpi { display: flex; flex-direction: column; }
     .crv-kpi-label { font-size: 8px; color: #6a6a7a; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
@@ -1017,6 +1085,17 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
       /* Se a campanha é grande demais pra caber inteira, deixa quebrar mas
          garante que o título fique com pelo menos parte do conteúdo. */
       .campaign-ads-block.large { break-inside: auto; page-break-inside: auto; }
+
+      /* ── Cards de criativos: cada card fica inteiro. Grid não força quebrar. */
+      .crv-card    { break-inside: avoid; page-break-inside: avoid; }
+      .crv-set-block { break-inside: avoid-page; }
+      /* Cabeçalho do conjunto fica junto com pelo menos o primeiro card */
+      .crv-set-header { break-after: avoid; page-break-after: avoid; }
+
+      /* Header da campanha (título + KPIs) fica junto com o primeiro conteúdo */
+      .camp-header { break-after: avoid; page-break-after: avoid; }
+      /* Sub-tabelas dentro da campanha (semanal/conjuntos) ficam inteiras */
+      .camp-sub    { break-inside: avoid; page-break-inside: avoid; }
     }
   </style>
 </head>
@@ -1041,15 +1120,20 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
   </section>
 
   <!-- ───── Conteúdo detalhado ─────
-       - Texto do Claude (análises, comparativo semanal, Google Ads, ações, obs)
-       - Meta Ads: cards visuais gerados deterministicamente (substitui a seção que
-         era feia e bulletada no markdown do Claude)
-       - Lista completa de anúncios Meta agrupados por campanha/conjunto
+       - Texto do Claude (comparativo semanal, mês, pacing, ações, obs, destaques)
+       - Cards de Meta e Google são injetados via marcadores [[META_CARDS_HERE]]
+         e [[GOOGLE_CARDS_HERE]] que o Claude imprime no fim das tabelas resumo
+         — assim mantêm a ordem natural da numeração das seções.
+       - Lista compacta de anúncios Meta (só nome/data/status) no fim como
+         referência de "o que rodou no período".
   -->
   <div class="body-content">
     <table></table>
-    ${mdToHtml(reportTrimmed)}
-    ${metaCampaignsHtml}
+    ${mdToHtml(reportTrimmed)
+      .replace(/<p>\[\[META_CARDS_HERE\]\]<\/p>/i, metaCampaignsHtml || "")
+      .replace(/<p>\[\[GOOGLE_CARDS_HERE\]\]<\/p>/i, googleCampaignsHtml || "")
+      .replace(/\[\[META_CARDS_HERE\]\]/i, metaCampaignsHtml || "")
+      .replace(/\[\[GOOGLE_CARDS_HERE\]\]/i, googleCampaignsHtml || "")}
     ${adsByCampaignHtml}
   </div>
 

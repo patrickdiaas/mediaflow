@@ -1050,19 +1050,20 @@ NÃO inclua "nota metodológica" explicando o intervalo do mês anterior — as 
         `Os dados estão em "PACING DE ORÇAMENTO" no contexto. Apresente uma TABELA com colunas: Plataforma | Gasto Real | Orçamento | % Realizado | Previsto até hoje | Status | Recomendado/dia. Linhas devem ser exatamente as plataformas que aparecem no contexto (TOTAL/META/GOOGLE). Use os status como vieram (ex: "No ritmo", "Levemente acima", "ATRASADO"). Após a tabela, comente em 2-3 frases se o cliente está no ritmo da estratégia ou se precisa ajustar (acelerar/conter). Cite o "Recomendado/dia" como guia prático para os dias restantes do mês. NÃO recomende mudar o orçamento — só apontar a velocidade.`]);
     }
 
-    // NOTA: seção "Meta Ads — Resultados por Campanha" foi REMOVIDA do prompt do
-    // Claude e agora é renderizada como cards visuais deterministicamente no PDF
-    // (exportPDF em relatorios/page.tsx: metaCampaignsHtml). Motivo: bullet-list
-    // com pipes ficava feio e pouco escaneável. O Claude ainda cobre a análise
-    // qualitativa em 'Destaques e Pontos de Atenção' e o resumo semanal/mensal.
+    // NOTA: detalhamento POR CAMPANHA (Meta e Google) foi movido pra HTML
+    // determinístico renderizado no PDF (cards visuais em exportPDF). O Claude
+    // aqui só gera a tabela resumo curta e IMEDIATAMENTE após imprime o marker
+    // [[META_CARDS_HERE]] / [[GOOGLE_CARDS_HERE]] — o exportPDF troca esses
+    // markers pelos blocos de cards em HTML pra que fiquem NA ORDEM natural
+    // do relatório (não empurrados pro final).
     sections.push(["Meta Ads — Resumo Rápido",
       metaCampaigns.length > 0
-        ? "Apresente APENAS uma TABELA RESUMO curta baseada em 'RESUMO META ADS — TODAS AS CAMPANHAS NO PERÍODO' com colunas: Campanha | Status | Investimento | Leads | CPL | CTR. Ordene por leads desc. Sem prosa antes ou depois — o detalhamento visual por campanha vem em cards na próxima seção do relatório."
+        ? "Apresente uma TABELA RESUMO com colunas: Campanha | Status | Investimento | Leads | CPL | CTR usando os dados de 'RESUMO META ADS — TODAS AS CAMPANHAS NO PERÍODO' do contexto. Ordene por leads desc. IMEDIATAMENTE DEPOIS DA TABELA (sem texto entre), escreva EXATAMENTE em uma linha nova: [[META_CARDS_HERE]] — isto é um marcador que será substituído por cards visuais das campanhas. Não escreva mais nada nesta seção depois do marcador."
         : "Sem campanhas Meta no período."]);
 
-    sections.push(["Google Ads — Resultados por Campanha (período " + brDateFull(periodFrom) + " a " + brDateFull(periodTo) + ")",
+    sections.push(["Google Ads — Resumo Rápido",
       googleCampaigns.length > 0
-        ? "Inicie com TABELA RESUMO baseada em 'RESUMO GOOGLE ADS — TODAS AS CAMPANHAS NO PERÍODO' (do contexto), colunas: Campanha | Status | Investimento | Leads | CPL | CTR. Após a tabela resumo, detalhe POR CAMPANHA: cabeçalho com nome + status, métricas agregadas, sub-tabela 'Semana a Semana' (Semana | Investimento | Leads | CPL | CTR), top palavras-chave com cliques e conversões, top termos de pesquisa, destacando termos com alta conversão e termos que gastam sem converter. NÃO invente semanas além das listadas."
+        ? "Apresente uma TABELA RESUMO com colunas: Campanha | Status | Investimento | Leads | CPL | CTR usando os dados de 'RESUMO GOOGLE ADS — TODAS AS CAMPANHAS NO PERÍODO' do contexto. Ordene por leads desc. IMEDIATAMENTE DEPOIS DA TABELA (sem texto entre), escreva EXATAMENTE em uma linha nova: [[GOOGLE_CARDS_HERE]] — marcador substituído por cards visuais. Não escreva mais nada nesta seção depois do marcador."
         : "Sem campanhas Google no período."]);
 
     if (unmatchedLeads.length > 0) {
