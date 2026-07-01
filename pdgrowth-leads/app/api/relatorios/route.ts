@@ -464,11 +464,14 @@ export async function POST(req: NextRequest) {
         });
       }
     }
-    const dominantCreative = new Map<string, string>();
+    // Dominante por campanha = ad_id com maior spend. Guardar por ad_id (não por
+    // ad_name), senão ads com mesmo nome em conjuntos diferentes ficam colados
+    // no primeiro que aparecer.
+    const dominantCreativeId = new Map<string, string>();
     for (const [, c] of Array.from(creativeAgg.entries())) {
-      const cur = dominantCreative.get(c.campaign);
-      const curEntry = cur ? Array.from(creativeAgg.values()).find(x => x.name === cur) : null;
-      if (!cur || c.spend > (curEntry?.spend ?? 0)) dominantCreative.set(c.campaign, c.name);
+      const curId = dominantCreativeId.get(c.campaign);
+      const curSpend = curId ? (creativeAgg.get(curId)?.spend ?? 0) : 0;
+      if (!curId || c.spend > curSpend) dominantCreativeId.set(c.campaign, c.ad_id);
     }
     // Pré-índice: ad_name -> [criativos com esse nome] (pra detectar duplicatas)
     const creativesByName = new Map<string, typeof creativeAgg extends Map<any, infer V> ? V[] : never>();
@@ -583,11 +586,9 @@ export async function POST(req: NextRequest) {
       if (!matched) {
         const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event, (l as any)._brt_date);
         if (r.campaign_name) {
-          const domName = dominantCreative.get(r.campaign_name);
-          if (domName) {
-            const dom = Array.from(creativeAgg.values()).find(c => c.name === domName);
-            if (dom) dom.leads++;
-          }
+          const domId = dominantCreativeId.get(r.campaign_name);
+          const dom = domId ? creativeAgg.get(domId) : undefined;
+          if (dom) dom.leads++;
         }
       }
     }
@@ -936,7 +937,10 @@ ${reportObservations.map((o: any) => {
         // Prefere a data de criação real vinda da Meta (created_time);
         // fallback: primeira data com dados em ad_creatives (= primeira veiculação)
         first_date: a.created_at_meta ? a.created_at_meta.slice(0, 10) : (adFirstDate.get(a.ad_id) ?? a.last_date),
-        leads: Array.from(creativeAgg.values()).find(c => c.name === a.ad_name)?.leads ?? 0,
+        // Match por ad_id (chave única). Antes era por ad_name (`find(c => c.name === a.ad_name)`),
+        // o que fazia ads com MESMO nome em conjuntos diferentes exibirem os mesmos leads
+        // (find sempre retornava a primeira ocorrência).
+        leads: creativeAgg.get(a.ad_id)?.leads ?? 0,
         note: notesByAdId.get(a.ad_id) ?? null,
       }))
       .filter(a => a.spend > 0 || a.leads > 0)

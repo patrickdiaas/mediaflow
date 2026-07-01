@@ -627,23 +627,26 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
     const adsByCampaignHtml = adsList.length > 0 ? `
       <h2>Anúncios Meta no Período · agrupados por campanha</h2>
       ${Array.from(adsByCampaign.entries()).map(([campName, ads]) => {
-        // Sub-agrupa por conjunto quando há mais de 1
         const distinctSets = new Set(ads.map(a => a.ad_set_name).filter(Boolean));
         const hasMultipleSets = distinctSets.size > 1;
         const sectionTitle = `<h3 class="camp-ads-title">${escapeHtml(campName)} <span class="camp-ads-count">${ads.length} anúncios</span></h3>`;
+        // Campanhas grandes (muitos ads) não cabem numa página só — deixa quebrar.
+        const largeClass = ads.length > 8 ? " large" : "";
         if (!hasMultipleSets) {
-          return sectionTitle + renderAdsTable(ads);
+          return `<div class="campaign-ads-block${largeClass}">${sectionTitle}${renderAdsTable(ads)}</div>`;
         }
-        // Agrupa por conjunto
         const bySet = new Map<string, any[]>();
         for (const a of ads) {
           const sk = a.ad_set_name || "(sem conjunto)";
           if (!bySet.has(sk)) bySet.set(sk, []);
           bySet.get(sk)!.push(a);
         }
-        return sectionTitle + Array.from(bySet.entries()).map(([setName, setAds]) =>
+        // O h3 da campanha e o PRIMEIRO conjunto ficam juntos; conjuntos
+        // seguintes têm seu próprio bloco atômico (título + tabela sempre juntos).
+        const setBlocks = Array.from(bySet.entries()).map(([setName, setAds]) =>
           `<div class="ad-set-block"><div class="ad-set-label">Conjunto: ${escapeHtml(setName)}</div>${renderAdsTable(setAds)}</div>`
-        ).join("");
+        );
+        return `<div class="campaign-ads-block${largeClass}">${sectionTitle}${setBlocks.join("")}</div>`;
       }).join("")}
     ` : "";
 
@@ -756,7 +759,9 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
     hr { border: none; border-top: 1px solid #24242c; margin: 18px 0; }
     a { color: #60A5FA; }
 
-    table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 11px; page-break-inside: avoid; }
+    /* Tables: sem page-break-inside no elemento inteiro (permitindo tabelas grandes quebrarem).
+       As linhas (tr) individuais têm break-inside: avoid via @media print. */
+    table { width: 100%; border-collapse: collapse; margin: 10px 0; font-size: 11px; }
     th { background: #14161e; color: #8888a0; font-weight: 600; text-align: left; padding: 7px 10px; border-bottom: 2px solid #24242c; font-size: 10px; text-transform: uppercase; letter-spacing: 0.04em; }
     td { padding: 7px 10px; border-bottom: 1px solid #1a1a24; color: #d0d0dd; font-size: 11px; }
 
@@ -781,12 +786,31 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
 
     @media print {
       body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      h2 { break-after: avoid; }
-      .kpi-row { break-inside: avoid; }
-      .cover-section { break-inside: avoid; }
-      .top-camp-card { break-inside: avoid; }
-      .ads-table { break-inside: auto; }
-      .ad-set-block { break-inside: avoid; }
+
+      /* ── Órfãos/viúvas: mínimo de linhas antes/depois do break */
+      p, li, td { orphans: 3; widows: 3; }
+
+      /* ── Títulos: nunca ficam sozinhos no fim da página */
+      h2, h3 { break-after: avoid; page-break-after: avoid; }
+      h3 { break-before: avoid-page; }
+
+      /* ── Linhas de tabela não podem quebrar no meio */
+      tr, thead, tbody { break-inside: avoid; page-break-inside: avoid; }
+      thead { display: table-header-group; } /* cabeçalho repete em cada página */
+
+      /* ── Blocos atômicos: quando cabem, ficam inteiros na mesma página.
+         Quando são grandes demais, o browser quebra mas com cabeçalho repetido. */
+      .kpi-row       { break-inside: avoid; page-break-inside: avoid; }
+      .cover-section { break-inside: avoid; page-break-inside: avoid; }
+      .top-camp-card { break-inside: avoid; page-break-inside: avoid; }
+      .ad-set-block  { break-inside: avoid; page-break-inside: avoid; }
+      .callout       { break-inside: avoid; page-break-inside: avoid; }
+
+      /* ── Wrapper de campanha: prefere manter tudo junto quando cabe */
+      .campaign-ads-block { break-inside: avoid; page-break-inside: avoid; }
+      /* Se a campanha é grande demais pra caber inteira, deixa quebrar mas
+         garante que o título fique com pelo menos parte do conteúdo. */
+      .campaign-ads-block.large { break-inside: auto; page-break-inside: auto; }
     }
   </style>
 </head>
