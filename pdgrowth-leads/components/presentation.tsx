@@ -591,37 +591,69 @@ function CampaignDetailSlide({ c, platform, weeks }: { c: any; platform: string;
           </div>
         )}
 
-        {/* Top criativos (Meta) ou top keywords (Google) */}
+        {/* Top criativos (Meta) — cards visuais com thumbnail */}
         {isMeta && c.creatives && c.creatives.length > 0 && (
           <div className="bg-card border border-border rounded-2xl overflow-hidden">
             <div className="px-5 py-3 border-b border-border text-xs uppercase tracking-widest text-text-muted">Top Criativos</div>
-            <div className="divide-y divide-border">
-              {c.creatives.slice(0, 5).map((cr: any, i: number) => {
+            <div className="p-3 grid grid-cols-1 gap-2 overflow-auto">
+              {c.creatives.slice(0, 4).map((cr: any, i: number) => {
                 const created = cr.created_at_meta ? String(cr.created_at_meta).slice(0, 10) : null;
                 const isP = String(cr.status ?? "").toUpperCase() === "PAUSED";
                 return (
-                  <div key={i} className="px-5 py-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="text-sm font-mono truncate flex-1" title={cr.name}>{cr.name}</div>
-                      {cr.permalink && <a href={cr.permalink} target="_blank" rel="noopener noreferrer" className="text-blue text-xs flex-shrink-0"><ExternalLink size={12} /></a>}
-                    </div>
-                    {/* Mostrar conjunto apenas quando há mais de um na campanha (senão é ruído visual) */}
-                    {hasMultipleSets && cr.ad_set_name && (
-                      <div className="text-[10px] text-text-muted font-mono mt-0.5 truncate" title={cr.ad_set_name}>
-                        Conjunto: {cr.ad_set_name}
+                  <div key={i} className="flex gap-3 p-3 bg-bg/50 border border-border-light rounded-xl">
+                    {/* Thumbnail */}
+                    {cr.thumbnail ? (
+                      <div
+                        className="w-16 h-16 flex-shrink-0 rounded-lg border border-border bg-cover bg-center"
+                        style={{ backgroundImage: `url('${cr.thumbnail}')` }}
+                      />
+                    ) : (
+                      <div className="w-16 h-16 flex-shrink-0 rounded-lg border border-border bg-card flex items-center justify-center text-xl font-mono text-text-muted">
+                        {cr.name.charAt(0).toUpperCase()}
                       </div>
                     )}
-                    <div className="flex items-center gap-4 mt-1 text-xs">
-                      <span className="text-text-muted">{created ? `Criado ${brDateShort(created)}` : "—"}</span>
-                      <span className={isP ? "text-gold" : "text-accent"}>{statusLabelCamp(cr.status)}</span>
-                      <span className="text-blue font-mono">R$ {fmt(cr.spend)}</span>
-                      <span className="text-accent font-mono">{cr.leads} leads</span>
-                      <span className="text-text-secondary font-mono">{fmtPct(cr.ctr)}</span>
+                    {/* Body */}
+                    <div className="flex-1 min-w-0 flex flex-col gap-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="font-mono text-xs text-text-primary truncate" title={cr.name}>{cr.name}</div>
+                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-md uppercase tracking-wider whitespace-nowrap ${isP ? "bg-gold/10 text-gold border border-gold/25" : "bg-accent/10 text-accent border border-accent/25"}`}>
+                          {isP ? "Pausado" : "Ativo"}
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-2 text-[10px] text-text-muted">
+                        <span>{created ? `Criado ${brDateShort(created)}` : "—"}</span>
+                        {hasMultipleSets && cr.ad_set_name && (
+                          <span className="font-mono truncate" title={cr.ad_set_name}>· {cr.ad_set_name}</span>
+                        )}
+                        {cr.permalink && (
+                          <a href={cr.permalink} target="_blank" rel="noopener noreferrer" className="ml-auto text-blue inline-flex items-center gap-1 px-2 py-0.5 rounded border border-blue/30 bg-blue/5 hover:bg-blue/10">
+                            Ver anúncio <ExternalLink size={9} />
+                          </a>
+                        )}
+                      </div>
+                      <div className="grid grid-cols-4 gap-2 mt-1">
+                        <div className="flex flex-col">
+                          <span className="text-[9px] text-text-muted uppercase tracking-wider">Invest</span>
+                          <span className="font-mono text-xs text-blue font-bold">R$ {fmt(cr.spend)}</span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[9px] text-text-muted uppercase tracking-wider">Leads</span>
+                          <span className="font-mono text-xs text-accent font-bold">{cr.leads}</span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[9px] text-text-muted uppercase tracking-wider">CPL</span>
+                          <span className="font-mono text-xs text-gold font-bold">{cr.cpl > 0 ? `R$ ${fmt(cr.cpl)}` : "—"}</span>
+                        </div>
+                        <div className="flex flex-col">
+                          <span className="text-[9px] text-text-muted uppercase tracking-wider">CTR</span>
+                          <span className="font-mono text-xs text-text-primary font-bold">{fmtPct(cr.ctr)}</span>
+                        </div>
+                      </div>
+                      {cr.ambiguousAttribution && (
+                        <div className="text-[9px] text-gold mt-0.5">⚠ Atribuição ambígua</div>
+                      )}
+                      {cr.note && <div className="text-[10px] text-text-secondary italic mt-0.5">{cr.note}</div>}
                     </div>
-                    {cr.ambiguousAttribution && (
-                      <div className="text-[10px] text-gold mt-1">⚠ Atribuição ambígua — outro ad com mesmo nome compartilha a UTM. Leads foram atribuídos ao de maior spend.</div>
-                    )}
-                    {cr.note && <div className="text-[11px] text-text-secondary mt-1 italic">{cr.note}</div>}
                   </div>
                 );
               })}

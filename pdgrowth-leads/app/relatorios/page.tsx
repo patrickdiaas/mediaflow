@@ -1077,9 +1077,11 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
       p, li, td { orphans: 3; widows: 3; }
 
       /* Títulos nunca ficam sozinhos no fim da página */
-      h2, h3 { break-after: avoid; page-break-after: avoid; }
-      h3 { break-before: avoid-page; }
-      .cards-section-title { break-after: avoid; page-break-after: avoid; }
+      h2, h3 { break-after: avoid-page; page-break-after: avoid; break-inside: avoid; page-break-inside: avoid; }
+      h3 { break-before: avoid-page; page-break-before: avoid; }
+      .cards-section-title { break-after: avoid-page; page-break-after: avoid; break-inside: avoid; page-break-inside: avoid; }
+      /* Cluster título+subhead fica inteiro; ambos grudam com o próximo bloco */
+      .section-header-cluster { break-inside: avoid; page-break-inside: avoid; break-after: avoid-page; page-break-after: avoid; }
 
       /* Linhas de tabela não podem quebrar no meio; cabeçalho repete em cada página */
       tr, thead, tbody { break-inside: avoid; page-break-inside: avoid; }
@@ -1141,17 +1143,27 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
        - Cards de Meta e Google são injetados via marcadores [[META_CARDS_HERE]]
          e [[GOOGLE_CARDS_HERE]] que o Claude imprime no fim das tabelas resumo
          — assim mantêm a ordem natural da numeração das seções.
-       - Lista compacta de anúncios Meta (só nome/data/status) no fim como
-         referência de "o que rodou no período".
+       - Removida a seção 'Anúncios Meta agrupados por campanha' porque as
+         informações já estão nos cards de detalhamento (nome, data criação,
+         status, link) — evita duplicação.
   -->
   <div class="body-content">
     <table></table>
-    ${mdToHtml(reportTrimmed)
-      .replace(/<p>\[\[META_CARDS_HERE\]\]<\/p>/i, metaCampaignsHtml || "")
-      .replace(/<p>\[\[GOOGLE_CARDS_HERE\]\]<\/p>/i, googleCampaignsHtml || "")
-      .replace(/\[\[META_CARDS_HERE\]\]/i, metaCampaignsHtml || "")
-      .replace(/\[\[GOOGLE_CARDS_HERE\]\]/i, googleCampaignsHtml || "")}
-    ${adsByCampaignHtml}
+    ${(() => {
+      let html = mdToHtml(reportTrimmed)
+        .replace(/<p>\[\[META_CARDS_HERE\]\]<\/p>/i, metaCampaignsHtml || "")
+        .replace(/<p>\[\[GOOGLE_CARDS_HERE\]\]<\/p>/i, googleCampaignsHtml || "")
+        .replace(/\[\[META_CARDS_HERE\]\]/i, metaCampaignsHtml || "")
+        .replace(/\[\[GOOGLE_CARDS_HERE\]\]/i, googleCampaignsHtml || "");
+      // Envolve h2 + h3 imediato em cluster que não pode quebrar entre eles.
+      // Sem isso, o Claude gera "6. Google Ads — Resumo Rápido" que fica órfão
+      // no fim de uma página com sua sub-header e tabela na página seguinte.
+      html = html.replace(
+        /(<h2>[\s\S]*?<\/h2>)\s*(<h3>[\s\S]*?<\/h3>)?/g,
+        (_m, h2, h3) => `<div class="section-header-cluster">${h2}${h3 || ""}</div>`
+      );
+      return html;
+    })()}
   </div>
 
   <div class="footer">
