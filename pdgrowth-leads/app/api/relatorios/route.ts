@@ -473,10 +473,28 @@ export async function POST(req: NextRequest) {
     // ad_name), senão ads com mesmo nome em conjuntos diferentes ficam colados
     // no primeiro que aparecer.
     const dominantCreativeId = new Map<string, string>();
+    // Dominante por (campanha + ad_set_name) — usado quando o lead traz
+    // utm_content que casa com um conjunto mas o utm_term não casa com nenhum
+    // ad_name. Sem isso, esses leads vão pro dominante da CAMPANHA, concentrando
+    // tudo no conjunto de maior spend (caso real MPT).
+    const dominantByAdSet = new Map<string, string>(); // key: `${campaign}::${ad_set_name}` → ad_id
+    // Índice reverso: nomes de conjunto → ad_id de maior spend, pra lookup
+    // por normalized ad_set_name (lowercase).
+    const adSetNameToDominantId = new Map<string, string>(); // lowercase ad_set_name → ad_id
     for (const [, c] of Array.from(creativeAgg.entries())) {
       const curId = dominantCreativeId.get(c.campaign);
       const curSpend = curId ? (creativeAgg.get(curId)?.spend ?? 0) : 0;
       if (!curId || c.spend > curSpend) dominantCreativeId.set(c.campaign, c.ad_id);
+
+      if (c.ad_set_name) {
+        const setKey = `${c.campaign}::${c.ad_set_name}`;
+        const curSetId = dominantByAdSet.get(setKey);
+        const curSetSpend = curSetId ? (creativeAgg.get(curSetId)?.spend ?? 0) : 0;
+        if (!curSetId || c.spend > curSetSpend) {
+          dominantByAdSet.set(setKey, c.ad_id);
+          adSetNameToDominantId.set(c.ad_set_name.toLowerCase(), c.ad_id);
+        }
+      }
     }
     // Pré-índice: ad_name -> [criativos com esse nome] (pra detectar duplicatas)
     const creativesByName = new Map<string, typeof creativeAgg extends Map<any, infer V> ? V[] : never>();
@@ -615,7 +633,34 @@ export async function POST(req: NextRequest) {
           }
         }
       }
-      // Fallback 2: criativo dominante da campanha atribuída (leads sem utm_term
+      // Fallback 2: utm_content casa com um ad_set_name (nome de conjunto).
+      //   Caso real MedSystems MPT: gestor configura utm_content=<nome do conjunto>
+      //   e utm_term=<ad_name com sufixo -02>. O utm_term não bate com ad_name real,
+      //   mas o utm_content casa com o conjunto — atribuímos ao dominante DAQUELE
+      //   conjunto (não da campanha inteira). Sem isso, leads do conjunto 02
+      //   iriam pro dominante da campanha (concentrado no conjunto 01).
+      if (!matched && l.utm_content) {
+        const lc = l.utm_content.toLowerCase();
+        // Match exato ad_set_name
+        let dominantId = adSetNameToDominantId.get(lc) ?? null;
+        // Match "contém" — utm_content contém ad_set_name ou vice-versa
+        if (!dominantId) {
+          for (const [setName, adId] of Array.from(adSetNameToDominantId.entries())) {
+            if (lc.includes(setName) || setName.includes(lc)) { dominantId = adId; break; }
+          }
+        }
+        // Match fuzzy
+        if (!dominantId) {
+          for (const [setName, adId] of Array.from(adSetNameToDominantId.entries())) {
+            if (fuzzyMatch(setName, l.utm_content)) { dominantId = adId; break; }
+          }
+        }
+        if (dominantId) {
+          const dom = creativeAgg.get(dominantId);
+          if (dom) { dom.leads++; matched = true; }
+        }
+      }
+      // Fallback 3: criativo dominante da campanha atribuída (leads sem utm_term
       // NEM utm_content útil, recuperados via event_map/alias). Garante que soma
       // dos criativos = total da campanha.
       if (!matched) {

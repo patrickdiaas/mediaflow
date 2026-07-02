@@ -758,6 +758,9 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
       const adSets: any[] = Array.isArray(c.adSets) ? c.adSets : [];
       const hasMultipleSets = adSets.length > 1;
       const weekly: any[] = Array.isArray(c.weekly) ? c.weekly : [];
+      // Bloco grande (>5 criativos) permite quebra natural entre páginas
+      const totalCreatives = (c.creatives ?? []).length + (hasMultipleSets ? adSets.reduce((s, a) => s + (a.creatives?.length ?? 0), 0) : 0);
+      const largeClass = totalCreatives > 5 ? " large" : "";
 
       // Se há vários conjuntos, renderiza criativos AGRUPADOS por conjunto
       // (com sub-cabeçalho). Senão, grid único de todos os criativos da campanha.
@@ -782,7 +785,7 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
         : `<div class="crv-grid">${(c.creatives ?? []).map(renderCreativeCard).join("")}</div>`;
 
       return `
-        <div class="camp-block">
+        <div class="camp-block${largeClass}">
           <div class="camp-header">
             <div class="camp-title">
               <h3 class="camp-name">${escapeHtml(c.name)}</h3>
@@ -859,9 +862,12 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
       const weekly: any[] = Array.isArray(c.weekly) ? c.weekly : [];
       const kws: any[] = c.topKeywords ?? [];
       const sts: any[] = c.topSearchTerms ?? [];
+      // Google raramente cabe em uma página (semanal + 2 top lists)
+      const totalRows = weekly.length + kws.length + sts.length;
+      const largeClass = totalRows > 10 ? " large" : "";
 
       return `
-        <div class="camp-block">
+        <div class="camp-block${largeClass}">
           <div class="camp-header">
             <div class="camp-title">
               <h3 class="camp-name">${escapeHtml(c.name)}</h3>
@@ -913,9 +919,9 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
   <meta charset="utf-8"/>
   <title>Relatório ${typeLabel} — ${clientName}</title>
   <style>
-    @page { size: A4 landscape; margin: 10mm; }
+    @page { size: A4; margin: 12mm 10mm; }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; color: #e2e2e8; font-size: 12px; line-height: 1.5; padding: 18px 22px; background: #0e1018; }
+    body { font-family: 'Inter', system-ui, -apple-system, sans-serif; color: #e2e2e8; font-size: 11.5px; line-height: 1.5; padding: 16px 20px; background: #0e1018; max-width: 100%; }
 
     /* ── Cover page ───────────────────────────────────────────────── */
     .cover { min-height: calc(100vh - 36px); display: flex; flex-direction: column; gap: 18px; page-break-after: always; }
@@ -926,7 +932,8 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
     .cover-meta strong { color: #f2f2f5; }
     .badge { display: inline-block; background: #CAFF04; color: #0a0a0c; font-size: 10px; font-weight: 800; padding: 3px 10px; border-radius: 10px; text-transform: uppercase; letter-spacing: 0.06em; margin-left: 8px; vertical-align: middle; }
 
-    .kpi-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+    /* 4 KPIs em 2x2 no portrait (fica mais legível que 4x1 apertadinho) */
+    .kpi-row { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
     .kpi { background: #14161e; border: 1px solid #24242c; border-radius: 14px; padding: 18px 18px; }
     .kpi-value { font-size: 28px; font-weight: 800; font-family: 'DM Mono', monospace; letter-spacing: -0.01em; line-height: 1.1; }
     .kpi-value.accent { color: #CAFF04; } .kpi-value.blue { color: #60A5FA; } .kpi-value.gold { color: #F59E0B; }
@@ -954,11 +961,13 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
     .pacing-slightly_over, .pacing-slightly_under { color: #F59E0B; font-weight: 700; }
     .pacing-over, .pacing-under { color: #F87171; font-weight: 700; }
 
-    .top-camp-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-    .top-camp-card { background: #0e1018; border: 1px solid #24242c; border-radius: 10px; padding: 12px 14px; }
-    .top-camp-rank { font-size: 10px; color: #6a6a7a; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; }
-    .top-camp-name { font-size: 13px; color: #f2f2f5; font-weight: 700; margin: 4px 0 8px; word-break: break-all; line-height: 1.3; }
-    .top-camp-stats { display: flex; gap: 10px; font-size: 11px; flex-wrap: wrap; }
+    /* Top 3 campanhas: em portrait empilham */
+    .top-camp-grid { display: flex; flex-direction: column; gap: 8px; }
+    /* Card horizontal (rank | nome | stats), mais denso pra portrait */
+    .top-camp-card { background: #0e1018; border: 1px solid #24242c; border-radius: 10px; padding: 10px 12px; display: flex; align-items: center; gap: 12px; }
+    .top-camp-rank { font-size: 9px; color: #6a6a7a; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 700; white-space: nowrap; flex-shrink: 0; }
+    .top-camp-name { font-size: 12px; color: #f2f2f5; font-weight: 700; word-break: break-all; line-height: 1.3; flex: 1; min-width: 0; }
+    .top-camp-stats { display: flex; gap: 10px; font-size: 11px; flex-shrink: 0; }
     .stat-leads { color: #CAFF04; font-weight: 700; font-family: 'DM Mono', monospace; }
     .stat-spend { color: #60A5FA; font-family: 'DM Mono', monospace; }
     .stat-cpl { color: #F59E0B; font-family: 'DM Mono', monospace; }
@@ -985,22 +994,24 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
     .cards-section-title { font-size: 13px; font-weight: 800; text-transform: uppercase; letter-spacing: 0.1em; color: #CAFF04; border-left: 4px solid #CAFF04; padding-left: 14px; margin: 28px 0 14px; page-break-after: avoid; }
 
     /* ── Campanhas (blocos executivos) — usado por Meta e Google ─────── */
-    .camp-block { background: #14161e; border: 1px solid #24242c; border-radius: 14px; padding: 16px 18px; margin: 14px 0 20px; break-inside: auto; page-break-inside: auto; }
+    /* Bloco de campanha: tenta ficar inteiro, mas permite quebra quando é grande. */
+    .camp-block { background: #14161e; border: 1px solid #24242c; border-radius: 14px; padding: 14px 16px; margin: 12px 0 16px; }
     .camp-header { border-bottom: 1px solid #24242c; padding-bottom: 12px; margin-bottom: 12px; }
     .camp-title { display: flex; align-items: center; gap: 12px; margin-bottom: 12px; }
     .camp-name { font-size: 15px; font-weight: 800; color: #f2f2f5; margin: 0; padding: 0; background: transparent; border: none; letter-spacing: -0.01em; }
     .camp-status { display: inline-block; font-size: 9px; font-weight: 800; padding: 3px 8px; border-radius: 8px; text-transform: uppercase; letter-spacing: 0.06em; }
     .camp-status.active { background: rgba(202,255,4,0.12); color: #CAFF04; border: 1px solid rgba(202,255,4,0.25); }
     .camp-status.paused { background: rgba(245,158,11,0.12); color: #F59E0B; border: 1px solid rgba(245,158,11,0.25); }
-    .camp-kpi-strip { display: grid; grid-template-columns: repeat(6, 1fr); gap: 8px; }
+    /* 6 KPIs em 2 linhas de 3 (portrait tem menos largura) */
+    .camp-kpi-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
     .camp-kpi { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; background: #0e1018; border-radius: 8px; border: 1px solid #1a1a24; }
     .camp-kpi-label { font-size: 9px; color: #6a6a7a; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
     .camp-kpi-val { font-size: 15px; font-weight: 800; font-family: 'DM Mono', monospace; line-height: 1.1; letter-spacing: -0.01em; }
     .camp-kpi-val.accent { color: #CAFF04; } .camp-kpi-val.blue { color: #60A5FA; } .camp-kpi-val.gold { color: #F59E0B; }
     .camp-kpi-val:not(.accent):not(.blue):not(.gold) { color: #d0d0dd; }
 
-    .camp-tables { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
-    .camp-tables .camp-sub:only-child { grid-column: 1 / -1; }
+    /* Em portrait, tabelas empilham (senão ficam apertadas demais) */
+    .camp-tables { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
     .camp-sub { background: #0e1018; border: 1px solid #1a1a24; border-radius: 10px; padding: 10px 12px; break-inside: avoid; page-break-inside: avoid; }
     .camp-sub-title { font-size: 10px; color: #8888a0; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 700; margin-bottom: 8px; }
     .camp-table { width: 100%; border-collapse: collapse; margin: 0; font-size: 10.5px; }
@@ -1019,7 +1030,8 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
     .crv-set-stats { margin-left: auto; font-size: 10px; font-family: 'DM Mono', monospace; }
     .crv-set-stats .blue { color: #60A5FA; } .crv-set-stats .accent { color: #CAFF04; } .crv-set-stats .gold { color: #F59E0B; }
 
-    .crv-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; }
+    /* Em portrait, 2 colunas ainda cabem — mas com padding menor pra thumbs */
+    .crv-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
     .crv-card { display: flex; gap: 10px; padding: 10px; background: #0e1018; border: 1px solid #1a1a24; border-radius: 10px; break-inside: avoid; page-break-inside: avoid; }
     .crv-thumb { width: 68px; height: 68px; flex-shrink: 0; border-radius: 8px; background: #1a1a24; background-size: cover; background-position: center; border: 1px solid #24242c; }
     .crv-thumb-empty { display: flex; align-items: center; justify-content: center; font-size: 22px; font-weight: 800; color: #4a4a5a; font-family: 'DM Mono', monospace; }
@@ -1061,41 +1073,46 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
     @media print {
       body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
 
-      /* ── Órfãos/viúvas: mínimo de linhas antes/depois do break */
+      /* Órfãos/viúvas: mínimo de 3 linhas antes/depois do break */
       p, li, td { orphans: 3; widows: 3; }
 
-      /* ── Títulos: nunca ficam sozinhos no fim da página */
+      /* Títulos nunca ficam sozinhos no fim da página */
       h2, h3 { break-after: avoid; page-break-after: avoid; }
       h3 { break-before: avoid-page; }
+      .cards-section-title { break-after: avoid; page-break-after: avoid; }
 
-      /* ── Linhas de tabela não podem quebrar no meio */
+      /* Linhas de tabela não podem quebrar no meio; cabeçalho repete em cada página */
       tr, thead, tbody { break-inside: avoid; page-break-inside: avoid; }
-      thead { display: table-header-group; } /* cabeçalho repete em cada página */
+      thead { display: table-header-group; }
 
-      /* ── Blocos atômicos: quando cabem, ficam inteiros na mesma página.
-         Quando são grandes demais, o browser quebra mas com cabeçalho repetido. */
+      /* Blocos atômicos (executive summary + cards) */
       .kpi-row       { break-inside: avoid; page-break-inside: avoid; }
       .cover-section { break-inside: avoid; page-break-inside: avoid; }
       .top-camp-card { break-inside: avoid; page-break-inside: avoid; }
       .ad-set-block  { break-inside: avoid; page-break-inside: avoid; }
       .callout       { break-inside: avoid; page-break-inside: avoid; }
 
-      /* ── Wrapper de campanha: prefere manter tudo junto quando cabe */
+      /* Campanha inteira prefere ficar junta */
+      .camp-block { break-inside: avoid; page-break-inside: avoid; }
+      /* Se a campanha é grande demais (marca .large aplicada pelo JS quando
+         soma criativos > threshold), deixa quebrar naturalmente */
+      .camp-block.large { break-inside: auto; page-break-inside: auto; }
+
+      /* Header (título + strip KPIs) sempre gruda com o próximo conteúdo */
+      .camp-header    { break-after: avoid; page-break-after: avoid; break-inside: avoid; page-break-inside: avoid; }
+      .camp-kpi-strip { break-inside: avoid; page-break-inside: avoid; }
+      .camp-tables    { break-inside: avoid; page-break-inside: avoid; }
+      .camp-sub       { break-inside: avoid; page-break-inside: avoid; }
+
+      /* Cards de criativos: cada card fica inteiro */
+      .crv-card       { break-inside: avoid; page-break-inside: avoid; }
+      .crv-set-block  { break-inside: avoid-page; }
+      .crv-set-header { break-after: avoid; page-break-after: avoid; break-inside: avoid; page-break-inside: avoid; }
+      .camp-creatives { break-before: avoid; page-break-before: avoid; }
+
+      /* Wrapper velho da lista compacta */
       .campaign-ads-block { break-inside: avoid; page-break-inside: avoid; }
-      /* Se a campanha é grande demais pra caber inteira, deixa quebrar mas
-         garante que o título fique com pelo menos parte do conteúdo. */
       .campaign-ads-block.large { break-inside: auto; page-break-inside: auto; }
-
-      /* ── Cards de criativos: cada card fica inteiro. Grid não força quebrar. */
-      .crv-card    { break-inside: avoid; page-break-inside: avoid; }
-      .crv-set-block { break-inside: avoid-page; }
-      /* Cabeçalho do conjunto fica junto com pelo menos o primeiro card */
-      .crv-set-header { break-after: avoid; page-break-after: avoid; }
-
-      /* Header da campanha (título + KPIs) fica junto com o primeiro conteúdo */
-      .camp-header { break-after: avoid; page-break-after: avoid; }
-      /* Sub-tabelas dentro da campanha (semanal/conjuntos) ficam inteiras */
-      .camp-sub    { break-inside: avoid; page-break-inside: avoid; }
     }
   </style>
 </head>
