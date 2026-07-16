@@ -101,6 +101,30 @@ export async function POST(request: Request) {
     if (campaigns.length > 0) {
       const err = await upsertBatched(supabase, 'ad_campaigns', campaigns, 'platform,campaign_id,date')
       if (err) { results[clientSlug] = { campaigns: 0, adSets: 0, ads: 0, regions: 0, placements: 0, error: `campaigns: ${err}` }; continue }
+
+      // Backfill de renomeações: pra cada campaign_id vindo do sync (que traz o
+      // nome ATUAL da Meta), propaga o nome pra todas as linhas históricas em
+      // ad_campaigns/ad_sets/ad_creatives com o mesmo campaign_id. Sem isso,
+      // uma campanha renomeada aparece como DUAS entidades no relatório —
+      // linhas antigas com o nome velho, novas com o nome novo.
+      const uniqueByCampaignId = new Map<string, string>()
+      for (const c of campaigns) {
+        if (c.campaign_id) uniqueByCampaignId.set(c.campaign_id, c.campaign_name)
+      }
+      for (const [campaignId, campaignName] of Array.from(uniqueByCampaignId.entries())) {
+        await supabase.from('ad_campaigns')
+          .update({ campaign_name: campaignName })
+          .eq('platform', 'meta').eq('client_slug', clientSlug).eq('campaign_id', campaignId)
+          .neq('campaign_name', campaignName)
+        await supabase.from('ad_sets')
+          .update({ campaign_name: campaignName })
+          .eq('platform', 'meta').eq('client_slug', clientSlug).eq('campaign_id', campaignId)
+          .neq('campaign_name', campaignName)
+        await supabase.from('ad_creatives')
+          .update({ campaign_name: campaignName })
+          .eq('platform', 'meta').eq('client_slug', clientSlug).eq('campaign_id', campaignId)
+          .neq('campaign_name', campaignName)
+      }
     }
 
     if (adSets.length > 0) {

@@ -75,8 +75,10 @@ export async function POST(req: NextRequest) {
     const normalizedMedium = utmMedium && utmMedium !== "unknown" ? utmMedium.toLowerCase() : null;
 
     // Normaliza Lead Ads campaign: formulário name → campaign name real
+    // Manter em sincronia com renomeações no Meta. Se a campanha for renomeada,
+    // atualizar o valor de destino aqui pra novos leads já entrarem no nome novo.
     const LEAD_ADS_CAMPAIGN_MAP: Record<string, string> = {
-      "[BEAUTYSYSTEMS] [MPT] [LEAD ADS] [OUT.2025]": "BTS MPT LEAD ADS",
+      "[BEAUTYSYSTEMS] [MPT] [LEAD ADS] [OUT.2025]": "bts-mpt-lead-ads",
     };
     const normalizedCampaign = utmCampaign
       ? (LEAD_ADS_CAMPAIGN_MAP[utmCampaign] ?? utmCampaign)
