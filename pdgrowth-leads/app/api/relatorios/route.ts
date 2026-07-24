@@ -209,12 +209,18 @@ export async function POST(req: NextRequest) {
     const mappedEventsSet = new Set(eventMaps.map(e => e.conversion_event));
     const mappedEventsList = Array.from(mappedEventsSet);
 
+    // PostgREST default é 1000 rows por request. Sem limit explícito, clientes
+    // com muitos leads no range de fetch (jun + jul = 2 meses) tinham os leads
+    // mais RECENTES cortados fora — o comparativo semanal da semana atual ficava
+    // com 0 leads mesmo com dados reais. Bumping para 50k pra cobrir com folga.
     const leadsQ = supabase
       .from("leads")
       .select("id, converted_at, source, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, utm_term")
       .eq("client_slug", client)
       .gte("converted_at", leadFetchSince)
-      .lte("converted_at", leadFetchUntil);
+      .lte("converted_at", leadFetchUntil)
+      .order("converted_at", { ascending: false })
+      .limit(50000);
     const { data: leadsRaw } = await filterCampaignLeads(leadsQ, mappedEventsList);
     const allLeads = (leadsRaw ?? []).filter((l: any) => isCampaignLead(l, mappedEventsSet)).map((l: any) => {
       // Pré-calcula data BRT (YYYY-MM-DD)
@@ -229,7 +235,8 @@ export async function POST(req: NextRequest) {
       .select("campaign_id, campaign_name, platform, date, impressions, clicks, spend, reach, status")
       .eq("client_slug", client)
       .gte("date", fetchSince)
-      .lte("date", fetchUntil);
+      .lte("date", fetchUntil)
+      .limit(50000);
     const allAdCampaigns = adCampaignsRaw ?? [];
 
     // ── Aliases cadastrados pelo gestor ────────────────────────────────────
@@ -423,7 +430,8 @@ export async function POST(req: NextRequest) {
       .select("ad_id, ad_name, campaign_name, ad_set_id, ad_set_name, platform, status, creative_type, headline, permalink_url, thumbnail_url, thumbnail_stored_url, impressions, clicks, spend, date, created_at_meta, updated_at_meta")
       .eq("client_slug", client)
       .gte("date", periodFrom)
-      .lte("date", periodTo);
+      .lte("date", periodTo)
+      .limit(50000);
     const adCreatives = adCreativesRaw ?? [];
 
     // Notas dos criativos (motivo de pausa, observações) — usadas no detalhamento
@@ -714,7 +722,8 @@ export async function POST(req: NextRequest) {
     // ── Keywords + search terms do período principal ────────────────────────
     const { data: kwData } = await supabase
       .from("keywords").select("keyword_text, campaign_name, match_type, impressions, clicks, spend, conversions")
-      .eq("client_slug", client).gte("date", periodFrom).lte("date", periodTo);
+      .eq("client_slug", client).gte("date", periodFrom).lte("date", periodTo)
+      .limit(50000);
     const kwAgg = new Map<string, { campaign: string; matchType: string; clicks: number; spend: number; conversions: number }>();
     for (const k of (kwData ?? [])) {
       if (!k.keyword_text) continue;
@@ -726,7 +735,8 @@ export async function POST(req: NextRequest) {
 
     const { data: stData } = await supabase
       .from("search_terms").select("search_term, campaign_name, impressions, clicks, spend, conversions")
-      .eq("client_slug", client).gte("date", periodFrom).lte("date", periodTo);
+      .eq("client_slug", client).gte("date", periodFrom).lte("date", periodTo)
+      .limit(50000);
     const stAgg = new Map<string, { campaign: string; clicks: number; spend: number; conversions: number }>();
     for (const s of (stData ?? [])) {
       if (!s.search_term) continue;
@@ -739,7 +749,8 @@ export async function POST(req: NextRequest) {
     // Placements do período principal
     const { data: plcData } = await supabase
       .from("ad_placements").select("placement, impressions, clicks, spend, conversions")
-      .eq("client_slug", client).gte("date", periodFrom).lte("date", periodTo);
+      .eq("client_slug", client).gte("date", periodFrom).lte("date", periodTo)
+      .limit(50000);
     const plcAgg = new Map<string, { impressions: number; clicks: number; spend: number; conversions: number }>();
     for (const p of (plcData ?? [])) {
       const e = plcAgg.get(p.placement) ?? { impressions: 0, clicks: 0, spend: 0, conversions: 0 };
@@ -969,7 +980,8 @@ ${reportObservations.map((o: any) => {
     const { data: firstDateRows } = await supabase.from("ad_creatives")
       .select("ad_id, date")
       .eq("client_slug", client)
-      .order("date", { ascending: true });
+      .order("date", { ascending: true })
+      .limit(50000);
     const adFirstDate = new Map<string, string>();
     for (const r of firstDateRows ?? []) {
       if (r.ad_id && r.date && !adFirstDate.has(r.ad_id)) adFirstDate.set(r.ad_id, r.date);
