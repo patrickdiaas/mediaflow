@@ -98,8 +98,19 @@ interface CatalogItem {
   note: string | null;
 }
 
+type PeriodKey = "last7" | "last30" | "last90" | "thisMonth" | "lastMonth" | "custom";
+
+const periodOptions: { value: PeriodKey; label: string }[] = [
+  { value: "last7",     label: "Últimos 7 dias"  },
+  { value: "last30",    label: "Últimos 30 dias" },
+  { value: "last90",    label: "Últimos 90 dias" },
+  { value: "thisMonth", label: "Mês atual"       },
+  { value: "lastMonth", label: "Mês anterior"    },
+  { value: "custom",    label: "Personalizado"   },
+];
+
 export default function CriativosPage() {
-  const { platform, period, client } = useDashboard();
+  const { platform, client } = useDashboard();
   const [view, setView]         = useState<"grid" | "list" | "catalog">("grid");
   const [campaign, setCampaign] = useState<string>("all");
   const [sortBy, setSortBy]     = useState<SortKey>("cpl");
@@ -107,6 +118,12 @@ export default function CriativosPage() {
   const [data, setData]         = useState<CreativeRow[]>([]);
   const [catalogData, setCatalogData] = useState<CatalogItem[]>([]);
   const [loading, setLoading]   = useState(false);
+
+  // Período local da página (independente do context global) — precisamos
+  // quando o gestor quer exportar catálogo de criativos com range específico.
+  const [periodKey, setPeriodKey]     = useState<PeriodKey>("last30");
+  const [customSince, setCustomSince] = useState("");
+  const [customUntil, setCustomUntil] = useState("");
 
   // Creative notes (motivo de pausa, observações)
   const [notesMap, setNotesMap] = useState<Map<string, { id: string; note: string }>>(new Map());
@@ -150,11 +167,31 @@ export default function CriativosPage() {
 
   useEffect(() => { fetchNotes(); }, [client]);
 
+  // Resolve o range de datas conforme o período local escolhido.
+  // Custom: usa os campos since/until. Presets: delega ao getPeriodDates.
+  function resolvedDates(): { since: string; until: string; leadSince: string; leadUntil: string } {
+    if (periodKey === "custom" && customSince && customUntil) {
+      const untilDate = new Date(customUntil + "T00:00:00Z");
+      untilDate.setUTCDate(untilDate.getUTCDate() + 1);
+      const untilNext = untilDate.toISOString().split("T")[0];
+      return {
+        since: customSince,
+        until: customUntil,
+        leadSince: `${customSince}T03:00:00`,
+        leadUntil: `${untilNext}T02:59:59`,
+      };
+    }
+    const { since, until } = getPeriodDates(periodKey);
+    const { since: leadSince, until: leadUntil } = getLeadDates(periodKey);
+    return { since, until, leadSince, leadUntil };
+  }
+
   useEffect(() => {
     let cancelled = false;
     (async () => {
-    const { since, until } = getPeriodDates(period);
-    const { since: leadSince, until: leadUntil } = getLeadDates(period);
+    const { since, until, leadSince, leadUntil } = resolvedDates();
+    // Se custom mas datas incompletas, aguarda o usuário preencher.
+    if (periodKey === "custom" && (!customSince || !customUntil)) { setLoading(false); return; }
     setLoading(true);
     const metaSlug = client !== "all" ? client : null;
 
@@ -167,15 +204,17 @@ export default function CriativosPage() {
     const eventList = eventMaps.map(e => e.conversion_event);
 
     const base = supabase.from("ad_creatives")
-      .select("ad_id,ad_name,campaign_name,platform,creative_type,thumbnail_url,video_url,permalink_url,headline,status,impressions,clicks,spend,frequency,placement,date,created_at_meta")
-      .gte("date", since).lte("date", until);
+      .select("ad_id,ad_name,campaign_name,ad_set_name,platform,creative_type,thumbnail_url,thumbnail_stored_url,video_url,permalink_url,headline,status,impressions,clicks,spend,frequency,placement,date,created_at_meta")
+      .gte("date", since).lte("date", until)
+      .limit(50000);
     const q1 = platform !== "all" ? base.eq("platform", platform) : base;
     const qAds = metaSlug ? q1.eq("client_slug", metaSlug) : q1;
 
     const baseLeads = supabase.from("leads")
-      .select("utm_source, utm_term, utm_campaign, conversion_event, converted_at")
+      .select("utm_source, utm_term, utm_content, utm_campaign, conversion_event, converted_at")
       .gte("converted_at", leadSince)
-      .lte("converted_at", leadUntil);
+      .lte("converted_at", leadUntil)
+      .limit(50000);
     const filteredLeads = filterCampaignLeads(baseLeads, eventList);
     const qLeads = metaSlug ? filteredLeads.eq("client_slug", metaSlug) : filteredLeads;
 
@@ -215,83 +254,147 @@ export default function CriativosPage() {
       }
 
       if (rows && rows.length > 0) {
-        const map = new Map<string, CreativeRow>();
-        const catMap = new Map<string, { status: string; firstDate: string; permalink: string | null; thumbnail: string | null; headline: string | null; type: string | null; campaign: string; platform: Platform; impressions: number; clicks: number; spend: number }>();
-        // Última data com spend > 0, status mais recente, e created_at_meta por ad_id
+        // Chave = `${platform}:${ad_id}` (ad_id é único por criativo — mesmo
+        // ad_name em conjuntos diferentes são ad_ids diferentes)
+        const map = new Map<string, CreativeRow & { ad_set_name?: string }>();
+        const catMap = new Map<string, { status: string; firstDate: string; permalink: string | null; thumbnail: string | null; headline: string | null; type: string | null; campaign: string; ad_set_name: string; platform: Platform; impressions: number; clicks: number; spend: number }>();
         const lastActiveByAdId = new Map<string, string>();
         const statusByAdId = new Map<string, { status: string; date: string }>();
         const createdAtMetaByAdId = new Map<string, string>();
         for (const r of rows) {
           const key = `${r.platform}:${r.ad_id}`;
           const ex = map.get(key);
-          if (ex) { ex.impressions += r.impressions ?? 0; ex.clicks += r.clicks ?? 0; ex.spend += r.spend ?? 0; }
-          else { map.set(key, { ad_id: r.ad_id, ad_name: r.ad_name, campaign_name: r.campaign_name ?? "", platform: r.platform as Platform, creative_type: r.creative_type ?? null, thumbnail_url: r.thumbnail_url ?? null, video_url: r.video_url ?? null, permalink_url: r.permalink_url ?? null, headline: r.headline ?? null, placement: r.placement ?? null, impressions: r.impressions ?? 0, clicks: r.clicks ?? 0, spend: r.spend ?? 0, frequency: r.frequency ?? null, leads: 0, cpl: 0, ctr: 0, cpm: 0, video_3s_rate: null, video_thruplay_rate: null }); }
-          // Última data com spend > 0
+          // Prefere thumbnail_stored_url (permanente) sobre thumbnail_url (efêmera)
+          const thumb = (r as any).thumbnail_stored_url ?? r.thumbnail_url ?? null;
+          if (ex) { ex.impressions += r.impressions ?? 0; ex.clicks += r.clicks ?? 0; ex.spend += r.spend ?? 0; if (!ex.thumbnail_url && thumb) ex.thumbnail_url = thumb; }
+          else { map.set(key, { ad_id: r.ad_id, ad_name: r.ad_name, campaign_name: r.campaign_name ?? "", ad_set_name: (r as any).ad_set_name ?? "", platform: r.platform as Platform, creative_type: r.creative_type ?? null, thumbnail_url: thumb, video_url: r.video_url ?? null, permalink_url: r.permalink_url ?? null, headline: r.headline ?? null, placement: r.placement ?? null, impressions: r.impressions ?? 0, clicks: r.clicks ?? 0, spend: r.spend ?? 0, frequency: r.frequency ?? null, leads: 0, cpl: 0, ctr: 0, cpm: 0, video_3s_rate: null, video_thruplay_rate: null }); }
           if (Number(r.spend ?? 0) > 0 && r.date) {
             const cur = lastActiveByAdId.get(r.ad_id);
             if (!cur || r.date > cur) lastActiveByAdId.set(r.ad_id, r.date);
           }
-          // Status na linha mais recente (data mais nova manda)
           const sExist = statusByAdId.get(r.ad_id);
           if (!sExist || (r.date && r.date > sExist.date)) statusByAdId.set(r.ad_id, { status: r.status ?? "", date: r.date ?? "" });
-          // created_at_meta (vem da Meta como timestamp ISO; pega o primeiro não-nulo)
           if (r.created_at_meta && !createdAtMetaByAdId.has(r.ad_id)) createdAtMetaByAdId.set(r.ad_id, String(r.created_at_meta).slice(0, 10));
-          // Catalog: track first date and status
           const ce = catMap.get(key);
           if (ce) {
             ce.impressions += r.impressions ?? 0; ce.clicks += r.clicks ?? 0; ce.spend += r.spend ?? 0;
             if (r.date && r.date < ce.firstDate) ce.firstDate = r.date;
             if (r.status && r.status !== "REMOVED" && r.status !== "PAUSED") ce.status = r.status;
+            if (!ce.thumbnail && thumb) ce.thumbnail = thumb;
           } else {
-            catMap.set(key, { status: r.status ?? "", firstDate: r.date ?? "", permalink: r.permalink_url ?? null, thumbnail: r.thumbnail_url ?? null, headline: r.headline ?? null, type: r.creative_type ?? null, campaign: r.campaign_name ?? "", platform: r.platform as Platform, impressions: r.impressions ?? 0, clicks: r.clicks ?? 0, spend: r.spend ?? 0 });
+            catMap.set(key, { status: r.status ?? "", firstDate: r.date ?? "", permalink: r.permalink_url ?? null, thumbnail: thumb, headline: r.headline ?? null, type: r.creative_type ?? null, campaign: r.campaign_name ?? "", ad_set_name: (r as any).ad_set_name ?? "", platform: r.platform as Platform, impressions: r.impressions ?? 0, clicks: r.clicks ?? 0, spend: r.spend ?? 0 });
           }
         }
-        // Find dominant creative per campaign (most spend)
         const allCreatives = Array.from(map.values());
-        const domCreativePerCamp = new Map<string, string>();
-        for (const cr of allCreatives) {
-          const cur = domCreativePerCamp.get(cr.campaign_name);
-          const curCr = cur ? allCreatives.find(x => x.ad_name === cur) : null;
-          if (!cur || cr.spend > (curCr?.spend ?? 0)) domCreativePerCamp.set(cr.campaign_name, cr.ad_name);
+
+        // ── Índices por ad_name (pode ter N ad_ids com mesmo nome) ────────
+        // e por ad_set_name pra desempate quando utm_term é ambíguo.
+        const adIdsByName = new Map<string, string[]>();
+        for (const c of allCreatives) {
+          const list = adIdsByName.get(c.ad_name) ?? [];
+          list.push(c.ad_id);
+          adIdsByName.set(c.ad_name, list);
+        }
+        const byAdId = new Map<string, typeof allCreatives[number]>();
+        for (const c of allCreatives) byAdId.set(c.ad_id, c);
+
+        // Dominante por CAMPANHA (ad_id) e por (CAMPANHA + CONJUNTO)
+        const dominantIdByCampaign = new Map<string, string>();
+        const dominantIdByCampaignSet = new Map<string, string>(); // key: `${camp}::${set}`
+        const setNameToDominantId = new Map<string, string>(); // lowercase ad_set_name → ad_id (mais spend)
+        for (const c of allCreatives) {
+          const curCamp = dominantIdByCampaign.get(c.campaign_name);
+          const curCampSpend = curCamp ? (byAdId.get(curCamp)?.spend ?? 0) : 0;
+          if (!curCamp || c.spend > curCampSpend) dominantIdByCampaign.set(c.campaign_name, c.ad_id);
+          if (c.ad_set_name) {
+            const setKey = `${c.campaign_name}::${c.ad_set_name}`;
+            const curSet = dominantIdByCampaignSet.get(setKey);
+            const curSetSpend = curSet ? (byAdId.get(curSet)?.spend ?? 0) : 0;
+            if (!curSet || c.spend > curSetSpend) {
+              dominantIdByCampaignSet.set(setKey, c.ad_id);
+              setNameToDominantId.set(c.ad_set_name.toLowerCase(), c.ad_id);
+            }
+          }
         }
 
-        // Attribute leads: utm_term exato/fuzzy → fallback dominant creative da campanha (com aliases + event maps)
-        const leadCounts = new Map<string, number>();
-        const allAdNames = allCreatives.map(c => c.ad_name);
+        // Atribuir leads AO AD_ID (não ao ad_name). Quando um ad_name tem N
+        // ad_ids, desempate por utm_content vs ad_set_name; se nada casa, maior spend.
+        const leadCountsByAdId = new Map<string, number>();
         const campIndex = buildAttributionIndex(
           allCreatives.map(c => ({ campaign_name: c.campaign_name })),
           aliases,
           eventMaps,
         );
+        const resolveByUtmContent = (candidates: string[], utmContent: string | null | undefined): string | null => {
+          if (!utmContent || candidates.length === 0) return null;
+          const lc = utmContent.toLowerCase();
+          const cands = candidates.map(id => byAdId.get(id)!).filter(Boolean);
+          // exact ad_set_name
+          const exact = cands.find(c => (c.ad_set_name ?? "").toLowerCase() === lc);
+          if (exact) return exact.ad_id;
+          // contains
+          const contains = cands.find(c => {
+            const s = (c.ad_set_name ?? "").toLowerCase();
+            return s && (lc.includes(s) || s.includes(lc));
+          });
+          if (contains) return contains.ad_id;
+          return null;
+        };
         for (const l of leadsData) {
-          // utm_term: tentativa de match exato/fuzzy primeiro
-          let matched = false;
+          let winnerId: string | null = null;
           if (l.utm_term) {
-            if (allAdNames.includes(l.utm_term)) { leadCounts.set(l.utm_term, (leadCounts.get(l.utm_term) ?? 0) + 1); matched = true; }
-            else {
-              const fuzzy = allAdNames.find(n => fuzzyMatch(n, l.utm_term));
-              if (fuzzy) { leadCounts.set(fuzzy, (leadCounts.get(fuzzy) ?? 0) + 1); matched = true; }
+            // Exact match no ad_name
+            const exactList = adIdsByName.get(l.utm_term);
+            if (exactList && exactList.length > 0) {
+              if (exactList.length === 1) winnerId = exactList[0];
+              else winnerId = resolveByUtmContent(exactList, l.utm_content)
+                ?? exactList.slice().sort((a, b) => (byAdId.get(b)?.spend ?? 0) - (byAdId.get(a)?.spend ?? 0))[0];
+            }
+            // Fuzzy match
+            if (!winnerId) {
+              const fuzzyName = Array.from(adIdsByName.keys()).find(n => fuzzyMatch(n, l.utm_term!));
+              if (fuzzyName) {
+                const list = adIdsByName.get(fuzzyName)!;
+                if (list.length === 1) winnerId = list[0];
+                else winnerId = resolveByUtmContent(list, l.utm_content)
+                  ?? list.slice().sort((a, b) => (byAdId.get(b)?.spend ?? 0) - (byAdId.get(a)?.spend ?? 0))[0];
+              }
             }
           }
-          if (matched) continue;
-          // Fallback: dominant creative da campanha resolvida (incluindo via event map)
-          const leadDate = l.converted_at ? String(l.converted_at).slice(0, 10) : null;
-          const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event, leadDate);
-          if (r.campaign_name) {
-            const domName = domCreativePerCamp.get(r.campaign_name);
-            if (domName) leadCounts.set(domName, (leadCounts.get(domName) ?? 0) + 1);
+          // utm_content casa com ad_name (quando utm_term é null mas utm_content = ad_name)
+          if (!winnerId && l.utm_content) {
+            const exactList = adIdsByName.get(l.utm_content);
+            if (exactList && exactList.length > 0) {
+              winnerId = exactList.length === 1 ? exactList[0]
+                : exactList.slice().sort((a, b) => (byAdId.get(b)?.spend ?? 0) - (byAdId.get(a)?.spend ?? 0))[0];
+            }
           }
+          // utm_content casa com ad_set_name → dominante desse conjunto
+          if (!winnerId && l.utm_content) {
+            const lc = l.utm_content.toLowerCase();
+            winnerId = setNameToDominantId.get(lc) ?? null;
+            if (!winnerId) {
+              for (const [setName, adId] of Array.from(setNameToDominantId.entries())) {
+                if (lc.includes(setName) || setName.includes(lc)) { winnerId = adId; break; }
+              }
+            }
+          }
+          // Fallback: dominante da campanha atribuída (via alias/event map)
+          if (!winnerId) {
+            const leadDate = l.converted_at ? String(l.converted_at).slice(0, 10) : null;
+            const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event, leadDate);
+            if (r.campaign_name) winnerId = dominantIdByCampaign.get(r.campaign_name) ?? null;
+          }
+          if (winnerId) leadCountsByAdId.set(winnerId, (leadCountsByAdId.get(winnerId) ?? 0) + 1);
         }
 
         const mapped = Array.from(map.entries()).map(([key, c]) => {
-          const ld = leadCounts.get(c.ad_name) ?? 0;
+          const ld = leadCountsByAdId.get(c.ad_id) ?? 0;
           return { ...c, ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0, cpm: c.impressions > 0 ? (c.spend / c.impressions) * 1000 : 0, leads: ld, cpl: ld > 0 ? c.spend / ld : 0, _key: key };
         });
         setData(mapped);
-        // Build catalog with real first date
         setCatalogData(mapped.map(c => {
           const cat = catMap.get(c._key);
-          // Prefere created_at_meta (data real de criação na Meta) sobre primeira data com dados
           const createdReal = createdAtMetaByAdId.get(c.ad_id);
           const realFirstDate = createdReal ?? firstDateMap.get(c.ad_id) ?? cat?.firstDate ?? "";
           const latestStatus = statusByAdId.get(c.ad_id)?.status ?? cat?.status ?? "";
@@ -310,14 +413,14 @@ export default function CriativosPage() {
     });
     })();
     return () => { cancelled = true; };
-  }, [platform, period, client]);
+  }, [platform, periodKey, customSince, customUntil, client]);
 
   const campaigns = ["all", ...Array.from(new Set(data.map(c => c.campaign_name).filter(Boolean)))];
 
   // Hidrata catálogo com nota mais recente e aplica filtros (campanha + status)
   function isActive(s: string) { return !s || s === "ACTIVE" || s === "ENABLED"; }
   function isPaused(s: string) { return s === "PAUSED" || s === "DISABLED" || s === "ARCHIVED"; }
-  const { since: periodSince } = getPeriodDates(period);
+  const { since: periodSince } = resolvedDates();
   const filteredCatalog = catalogData
     .map(c => ({ ...c, note: notesMap.get(c.ad_id)?.note ?? null }))
     .filter(c => campaign === "all" || c.campaign_name === campaign)
@@ -345,6 +448,9 @@ export default function CriativosPage() {
   function exportCatalogPDF() {
     const clientName = client === "all" ? "Todos os clientes" : client;
     const items = filteredCatalog;
+    const { since: pSince, until: pUntil } = resolvedDates();
+    const brDate = (s: string) => s ? new Date(s + "T12:00:00").toLocaleDateString("pt-BR") : "";
+    const periodLabel = `${brDate(pSince)} a ${brDate(pUntil)}`;
     const statusLabel = (s: string) => {
       if (!s || s === "ACTIVE" || s === "ENABLED") return "Ativo";
       if (s === "PAUSED") return "Pausado";
@@ -439,7 +545,7 @@ export default function CriativosPage() {
     </style></head><body>
     <div class="header">
       <h1>Catálogo de Criativos</h1>
-      <div class="sub">Cliente: <strong>${clientName}</strong> · ${items.length} criativos · Gerado: ${new Date().toLocaleString("pt-BR")}</div>
+      <div class="sub">Cliente: <strong>${clientName}</strong> · Período: <strong>${periodLabel}</strong> · ${items.length} criativos · Gerado: ${new Date().toLocaleString("pt-BR")}</div>
     </div>
     ${cardsHtml}
     <div class="footer"><span>PD Growth // leads.pdgrowth.com.br</span><span>${items.length} criativos</span></div>
@@ -468,6 +574,20 @@ export default function CriativosPage() {
             <p className="text-sm text-text-secondary mt-0.5">Performance por anúncio com prévia do criativo</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            {/* Seletor de período local (independente do context global) */}
+            <select value={periodKey} onChange={e => setPeriodKey(e.target.value as PeriodKey)}
+              className="bg-card border border-border rounded-lg px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-accent/40 cursor-pointer">
+              {periodOptions.map(o => (<option key={o.value} value={o.value}>{o.label}</option>))}
+            </select>
+            {periodKey === "custom" && (
+              <>
+                <input type="date" value={customSince} onChange={e => setCustomSince(e.target.value)}
+                  className="bg-card border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent/40" />
+                <span className="text-xs text-text-muted">até</span>
+                <input type="date" value={customUntil} onChange={e => setCustomUntil(e.target.value)}
+                  className="bg-card border border-border rounded-lg px-2 py-1.5 text-xs text-text-primary focus:outline-none focus:border-accent/40" />
+              </>
+            )}
             <select value={campaign} onChange={e => setCampaign(e.target.value)}
               className="bg-card border border-border rounded-lg px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-accent/40 cursor-pointer max-w-[200px] truncate">
               {campaigns.map(c => (<option key={c} value={c}>{c === "all" ? "Todas as campanhas" : c}</option>))}
