@@ -98,6 +98,11 @@ export default function CreativeCard({ creative: c }: { creative: CreativeRow })
               {c.campaign_name || "—"}
               {c.placement ? ` · ${c.placement}` : ""}
             </p>
+            {(c as any).ad_set_name && (
+              <p className="text-[10px] text-text-muted truncate mt-0.5 font-mono" title={(c as any).ad_set_name}>
+                Conjunto: {(c as any).ad_set_name}
+              </p>
+            )}
           </div>
           {linkUrl && (
             <a href={linkUrl} target="_blank" rel="noopener noreferrer" title="Ver anúncio"

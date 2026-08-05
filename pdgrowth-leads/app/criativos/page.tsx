@@ -63,6 +63,7 @@ const tableColumns: Column<CreativeRow>[] = [
           <div className="flex items-center gap-2 mb-0.5"><PlatformBadge p={row.platform} /><span className="text-text-primary text-sm">{String(v)}</span></div>
           {row.headline && <span className="text-xs text-gold block mb-0.5">{row.headline}</span>}
           <span className="text-xs text-text-muted">{row.campaign_name}{row.placement ? ` · ${row.placement}` : ""}</span>
+          {(row as any).ad_set_name && <span className="text-[10px] text-text-muted block font-mono mt-0.5">Conjunto: {(row as any).ad_set_name}</span>}
         </div>
       </div>
     ),
@@ -81,6 +82,7 @@ interface CatalogItem {
   ad_id: string;
   ad_name: string;
   campaign_name: string;
+  ad_set_name: string;
   platform: Platform;
   creative_type: string | null;
   thumbnail_url: string | null;
@@ -256,7 +258,7 @@ export default function CriativosPage() {
       if (rows && rows.length > 0) {
         // Chave = `${platform}:${ad_id}` (ad_id é único por criativo — mesmo
         // ad_name em conjuntos diferentes são ad_ids diferentes)
-        const map = new Map<string, CreativeRow & { ad_set_name?: string }>();
+        const map = new Map<string, CreativeRow & { ad_set_name: string }>();
         const catMap = new Map<string, { status: string; firstDate: string; permalink: string | null; thumbnail: string | null; headline: string | null; type: string | null; campaign: string; ad_set_name: string; platform: Platform; impressions: number; clicks: number; spend: number }>();
         const lastActiveByAdId = new Map<string, string>();
         const statusByAdId = new Map<string, { status: string; date: string }>();
@@ -399,7 +401,9 @@ export default function CriativosPage() {
           const realFirstDate = createdReal ?? firstDateMap.get(c.ad_id) ?? cat?.firstDate ?? "";
           const latestStatus = statusByAdId.get(c.ad_id)?.status ?? cat?.status ?? "";
           return {
-            ad_id: c.ad_id, ad_name: c.ad_name, campaign_name: c.campaign_name, platform: c.platform,
+            ad_id: c.ad_id, ad_name: c.ad_name, campaign_name: c.campaign_name,
+            ad_set_name: c.ad_set_name ?? "",
+            platform: c.platform,
             creative_type: cat?.type ?? null, thumbnail_url: cat?.thumbnail ?? null,
             permalink_url: cat?.permalink ?? null, headline: cat?.headline ?? null,
             status: latestStatus, first_date: realFirstDate,
@@ -436,9 +440,29 @@ export default function CriativosPage() {
     })
     .sort((a, b) => {
       if (a.campaign_name !== b.campaign_name) return a.campaign_name.localeCompare(b.campaign_name);
+      if (a.ad_set_name !== b.ad_set_name) return (a.ad_set_name || "").localeCompare(b.ad_set_name || "");
       return b.spend - a.spend;
     });
-  // Group for display
+
+  // Quando o usuário seleciona UMA campanha específica E ela tem mais de 1
+  // conjunto, agrupa por conjunto dentro da campanha (assim vira: card do
+  // conjunto A com seus criativos, card do conjunto B com os seus). Se
+  // campanha não foi filtrada ou só tem 1 conjunto, mantém agrupamento simples
+  // por campanha (comportamento original).
+  const showBySet = campaign !== "all" && (() => {
+    const sets = new Set(filteredCatalog.map(c => c.ad_set_name).filter(Boolean));
+    return sets.size > 1;
+  })();
+  const catalogBySet = new Map<string, CatalogItem[]>();
+  if (showBySet) {
+    for (const c of filteredCatalog) {
+      const k = c.ad_set_name || "(sem conjunto)";
+      if (!catalogBySet.has(k)) catalogBySet.set(k, []);
+      catalogBySet.get(k)!.push(c);
+    }
+  }
+
+  // Group for display (fallback quando não estamos agrupando por conjunto)
   const catalogByCampaign = new Map<string, CatalogItem[]>();
   for (const c of filteredCatalog) {
     if (!catalogByCampaign.has(c.campaign_name)) catalogByCampaign.set(c.campaign_name, []);
@@ -486,6 +510,7 @@ export default function CriativosPage() {
           }</div>
           <div class="card-info">
             <div class="ad-name">${c.ad_name}</div>
+            ${c.ad_set_name ? `<div class="ad-set">Conjunto: ${c.ad_set_name}</div>` : ""}
             ${c.headline ? `<div class="headline">${c.headline}</div>` : ""}
             <div class="campaign">${c.campaign_name}</div>
             <div class="meta-row">
@@ -522,6 +547,7 @@ export default function CriativosPage() {
       .thumb-label { font-size: 11px; color: #6a6a7a; font-weight: 700; }
       .card-info { flex: 1; min-width: 0; }
       .ad-name { font-size: 13px; font-weight: 700; color: #f2f2f5; margin-bottom: 2px; }
+      .ad-set { font-size: 10px; color: #8888a0; font-family: 'DM Mono', monospace; margin-bottom: 3px; }
       .headline { font-size: 11px; color: #F59E0B; margin-bottom: 3px; }
       .campaign { font-size: 11px; color: #8888a0; margin-bottom: 4px; }
       .meta-row { display: flex; gap: 8px; align-items: center; }
@@ -635,13 +661,14 @@ export default function CriativosPage() {
           <div className="space-y-6">
             {filteredCatalog.length === 0 ? (
               <div className="text-text-muted text-sm text-center py-12">Nenhum criativo encontrado no período.</div>
-            ) : Array.from(catalogByCampaign.entries()).map(([campName, items]) => (
-              <div key={campName}>
+            ) : Array.from((showBySet ? catalogBySet : catalogByCampaign).entries()).map(([groupKey, items]) => (
+              <div key={groupKey}>
                 <div className="flex items-center gap-2 mb-3">
                   <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-md border ${
                     items[0]?.platform === "meta" ? "text-blue border-blue/30 bg-blue/10" : "text-gold border-gold/30 bg-gold/10"
                   }`}>{items[0]?.platform === "meta" ? "Meta" : "Google"}</span>
-                  <span className="text-sm font-semibold text-text-primary">{campName}</span>
+                  {showBySet && <span className="text-[10px] font-semibold text-text-muted uppercase tracking-wider">Conjunto</span>}
+                  <span className="text-sm font-semibold text-text-primary font-mono">{groupKey}</span>
                   <span className="text-xs text-text-muted">· {items.length} criativos</span>
                 </div>
                 <div className="space-y-2">
@@ -674,6 +701,11 @@ export default function CriativosPage() {
                             {c.creative_type && <span className="text-[10px] text-text-dark">{c.creative_type}</span>}
                           </div>
                           <div className="text-sm font-semibold text-text-primary truncate" title={c.ad_name}>{c.ad_name}</div>
+                          {c.ad_set_name && (
+                            <div className="text-[10px] text-text-muted font-mono mt-0.5 truncate" title={c.ad_set_name}>
+                              Conjunto: {c.ad_set_name}
+                            </div>
+                          )}
                           {c.headline && <div className="text-xs text-gold mt-0.5">{c.headline}</div>}
                           <div className="flex gap-4 mt-2 text-xs">
                             <span><span className="text-accent font-mono font-semibold">{c.leads}</span> <span className="text-text-muted">leads</span></span>
