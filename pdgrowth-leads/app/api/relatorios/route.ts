@@ -209,11 +209,12 @@ export async function POST(req: NextRequest) {
     const mappedEventsSet = new Set(eventMaps.map(e => e.conversion_event));
     const mappedEventsList = Array.from(mappedEventsSet);
 
-    // PostgREST default é 1000 rows por request. Sem limit explícito, clientes
-    // com muitos leads no range de fetch (jun + jul = 2 meses) tinham os leads
-    // mais RECENTES cortados fora — o comparativo semanal da semana atual ficava
-    // com 0 leads mesmo com dados reais. Bumping para 50k pra cobrir com folga.
-    const leadsQ = supabase
+    // Fetch de leads em 2 queries separadas pra evitar o .or() do PostgREST
+    // (frágil com nomes de evento contendo parênteses/vírgulas/aspas — em
+    // negocioserredes causou perda de ~55% dos leads quando havia event maps
+    // cadastrados). Query A: utm_medium pago. Query B: eventos mapeados.
+    // Depois merge dedup por id + filter client-side pra excluir CRM.
+    const baseLeadsQ = () => supabase
       .from("leads")
       .select("id, converted_at, source, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, utm_term")
       .eq("client_slug", client)
@@ -221,13 +222,27 @@ export async function POST(req: NextRequest) {
       .lte("converted_at", leadFetchUntil)
       .order("converted_at", { ascending: false })
       .limit(50000);
-    const { data: leadsRaw } = await filterCampaignLeads(leadsQ, mappedEventsList);
-    const allLeads = (leadsRaw ?? []).filter((l: any) => isCampaignLead(l, mappedEventsSet)).map((l: any) => {
-      // Pré-calcula data BRT (YYYY-MM-DD)
-      const u = new Date(l.converted_at);
-      u.setUTCHours(u.getUTCHours() - 3);
-      return { ...l, _brt_date: u.toISOString().split("T")[0] };
-    });
+
+    const qByMedium = baseLeadsQ().in("utm_medium", ["cpc", "paid", "paid_social", "social", "display"]);
+    const qByEvent = mappedEventsList.length > 0
+      ? baseLeadsQ().in("conversion_event", mappedEventsList)
+      : Promise.resolve({ data: [] as any[] });
+    const [{ data: leadsByMedium }, leadsByEventResult] = await Promise.all([qByMedium, qByEvent]);
+    const leadsByEvent = (leadsByEventResult as any).data ?? [];
+
+    // Dedup por id (leads podem estar em ambas listas)
+    const dedupMap = new Map<string, any>();
+    for (const l of (leadsByMedium ?? [])) dedupMap.set(l.id, l);
+    for (const l of leadsByEvent) if (!dedupMap.has(l.id)) dedupMap.set(l.id, l);
+
+    // Exclusão de CRM client-side (garante consistência com isCampaignLead)
+    const allLeads = Array.from(dedupMap.values())
+      .filter((l: any) => isCampaignLead(l, mappedEventsSet))
+      .map((l: any) => {
+        const u = new Date(l.converted_at);
+        u.setUTCHours(u.getUTCHours() - 3);
+        return { ...l, _brt_date: u.toISOString().split("T")[0] };
+      });
 
     // ── Ad campaigns ────────────────────────────────────────────────────────
     const { data: adCampaignsRaw } = await supabase
