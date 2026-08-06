@@ -209,30 +209,56 @@ export async function POST(req: NextRequest) {
     const mappedEventsSet = new Set(eventMaps.map(e => e.conversion_event));
     const mappedEventsList = Array.from(mappedEventsSet);
 
-    // Fetch de leads em 2 queries separadas pra evitar o .or() do PostgREST
-    // (frágil com nomes de evento contendo parênteses/vírgulas/aspas — em
-    // negocioserredes causou perda de ~55% dos leads quando havia event maps
-    // cadastrados). Query A: utm_medium pago. Query B: eventos mapeados.
-    // Depois merge dedup por id + filter client-side pra excluir CRM.
-    const baseLeadsQ = () => supabase
+    // Fetch de leads em 2 queries separadas + paginação por .range() pra evitar
+    // dois problemas do PostgREST:
+    //   1. .or() com nomes de evento contendo caracteres especiais é frágil
+    //      (perdeu ~55% dos leads em negocioserredes)
+    //   2. .limit(N) pode ser capado pelo db-max-rows do Supabase mesmo com N alto
+    // Paginação: fetch em blocos de 1000 até não sobrar mais.
+    const fetchAllPages = async (
+      makeQuery: (from: number, to: number) => any,
+    ): Promise<any[]> => {
+      const results: any[] = [];
+      let page = 0;
+      const pageSize = 1000;
+      const maxPages = 100; // 100k leads max — safety valve
+      while (page < maxPages) {
+        const from = page * pageSize;
+        const to = from + pageSize - 1;
+        const { data } = await makeQuery(from, to);
+        const rows = (data ?? []) as any[];
+        results.push(...rows);
+        if (rows.length < pageSize) break; // acabou
+        page++;
+      }
+      return results;
+    };
+
+    const baseLeadsSelect = "id, converted_at, source, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, utm_term";
+    const leadsByMedium = await fetchAllPages((from, to) => supabase
       .from("leads")
-      .select("id, converted_at, source, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, utm_term")
+      .select(baseLeadsSelect)
       .eq("client_slug", client)
       .gte("converted_at", leadFetchSince)
       .lte("converted_at", leadFetchUntil)
+      .in("utm_medium", ["cpc", "paid", "paid_social", "social", "display"])
       .order("converted_at", { ascending: false })
-      .limit(50000);
-
-    const qByMedium = baseLeadsQ().in("utm_medium", ["cpc", "paid", "paid_social", "social", "display"]);
-    const qByEvent = mappedEventsList.length > 0
-      ? baseLeadsQ().in("conversion_event", mappedEventsList)
-      : Promise.resolve({ data: [] as any[] });
-    const [{ data: leadsByMedium }, leadsByEventResult] = await Promise.all([qByMedium, qByEvent]);
-    const leadsByEvent = (leadsByEventResult as any).data ?? [];
+      .range(from, to));
+    const leadsByEvent = mappedEventsList.length > 0
+      ? await fetchAllPages((from, to) => supabase
+          .from("leads")
+          .select(baseLeadsSelect)
+          .eq("client_slug", client)
+          .gte("converted_at", leadFetchSince)
+          .lte("converted_at", leadFetchUntil)
+          .in("conversion_event", mappedEventsList)
+          .order("converted_at", { ascending: false })
+          .range(from, to))
+      : [];
 
     // Dedup por id (leads podem estar em ambas listas)
     const dedupMap = new Map<string, any>();
-    for (const l of (leadsByMedium ?? [])) dedupMap.set(l.id, l);
+    for (const l of leadsByMedium) dedupMap.set(l.id, l);
     for (const l of leadsByEvent) if (!dedupMap.has(l.id)) dedupMap.set(l.id, l);
 
     // Exclusão de CRM client-side (garante consistência com isCampaignLead)
