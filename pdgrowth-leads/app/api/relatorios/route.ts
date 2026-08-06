@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
-import { filterCampaignLeads, isCampaignLead } from "@/lib/leads-filter";
+import { isCampaignLead } from "@/lib/leads-filter";
 import { buildAttributionIndex, attributeLead, fetchAliases, fetchEventMaps } from "@/lib/campaign-attribution";
 import { calcBudgetPacing, type BudgetPacingResult } from "@/lib/budget-pacing";
 
@@ -271,14 +271,15 @@ export async function POST(req: NextRequest) {
       });
 
     // ── Ad campaigns ────────────────────────────────────────────────────────
-    const { data: adCampaignsRaw } = await supabase
+    const adCampaignsRaw = await fetchAllPages((from, to) => supabase
       .from("ad_campaigns")
       .select("campaign_id, campaign_name, platform, date, impressions, clicks, spend, reach, status")
       .eq("client_slug", client)
       .gte("date", fetchSince)
       .lte("date", fetchUntil)
-      .limit(50000);
-    const allAdCampaigns = adCampaignsRaw ?? [];
+      .order("date", { ascending: false })
+      .range(from, to));
+    const allAdCampaigns = adCampaignsRaw;
 
     // ── Aliases cadastrados pelo gestor ────────────────────────────────────
     const aliases = await fetchAliases(supabase, client);
@@ -466,14 +467,14 @@ export async function POST(req: NextRequest) {
     }
 
     // ── Criativos do período principal ──────────────────────────────────────
-    const { data: adCreativesRaw } = await supabase
+    const adCreatives = await fetchAllPages((from, to) => supabase
       .from("ad_creatives")
       .select("ad_id, ad_name, campaign_name, ad_set_id, ad_set_name, platform, status, creative_type, headline, permalink_url, thumbnail_url, thumbnail_stored_url, impressions, clicks, spend, date, created_at_meta, updated_at_meta")
       .eq("client_slug", client)
       .gte("date", periodFrom)
       .lte("date", periodTo)
-      .limit(50000);
-    const adCreatives = adCreativesRaw ?? [];
+      .order("date", { ascending: false })
+      .range(from, to));
 
     // Notas dos criativos (motivo de pausa, observações) — usadas no detalhamento
     // de campanha E na seção dedicada de Anúncios Meta abaixo.
@@ -761,12 +762,12 @@ export async function POST(req: NextRequest) {
     };
 
     // ── Keywords + search terms do período principal ────────────────────────
-    const { data: kwData } = await supabase
+    const kwData = await fetchAllPages((from, to) => supabase
       .from("keywords").select("keyword_text, campaign_name, match_type, impressions, clicks, spend, conversions")
       .eq("client_slug", client).gte("date", periodFrom).lte("date", periodTo)
-      .limit(50000);
+      .order("date", { ascending: false }).range(from, to));
     const kwAgg = new Map<string, { campaign: string; matchType: string; clicks: number; spend: number; conversions: number }>();
-    for (const k of (kwData ?? [])) {
+    for (const k of kwData) {
       if (!k.keyword_text) continue;
       const e = kwAgg.get(k.keyword_text) ?? { campaign: k.campaign_name ?? "", matchType: k.match_type ?? "", clicks: 0, spend: 0, conversions: 0 };
       e.clicks += Number(k.clicks); e.spend += Number(k.spend ?? 0); e.conversions += Number(k.conversions ?? 0);
@@ -774,12 +775,12 @@ export async function POST(req: NextRequest) {
     }
     const topKw = Array.from(kwAgg.entries()).map(([text, v]) => ({ text, ...v })).sort((a, b) => b.conversions - a.conversions || b.clicks - a.clicks).slice(0, 15);
 
-    const { data: stData } = await supabase
+    const stData = await fetchAllPages((from, to) => supabase
       .from("search_terms").select("search_term, campaign_name, impressions, clicks, spend, conversions")
       .eq("client_slug", client).gte("date", periodFrom).lte("date", periodTo)
-      .limit(50000);
+      .order("date", { ascending: false }).range(from, to));
     const stAgg = new Map<string, { campaign: string; clicks: number; spend: number; conversions: number }>();
-    for (const s of (stData ?? [])) {
+    for (const s of stData) {
       if (!s.search_term) continue;
       const e = stAgg.get(s.search_term) ?? { campaign: s.campaign_name ?? "", clicks: 0, spend: 0, conversions: 0 };
       e.clicks += Number(s.clicks); e.spend += Number(s.spend ?? 0); e.conversions += Number(s.conversions ?? 0);
@@ -788,12 +789,12 @@ export async function POST(req: NextRequest) {
     const topSt = Array.from(stAgg.entries()).map(([term, v]) => ({ term, ...v })).sort((a, b) => b.conversions - a.conversions || b.clicks - a.clicks).slice(0, 15);
 
     // Placements do período principal
-    const { data: plcData } = await supabase
+    const plcData = await fetchAllPages((from, to) => supabase
       .from("ad_placements").select("placement, impressions, clicks, spend, conversions")
       .eq("client_slug", client).gte("date", periodFrom).lte("date", periodTo)
-      .limit(50000);
+      .order("date", { ascending: false }).range(from, to));
     const plcAgg = new Map<string, { impressions: number; clicks: number; spend: number; conversions: number }>();
-    for (const p of (plcData ?? [])) {
+    for (const p of plcData) {
       const e = plcAgg.get(p.placement) ?? { impressions: 0, clicks: 0, spend: 0, conversions: 0 };
       e.impressions += Number(p.impressions); e.clicks += Number(p.clicks); e.spend += Number(p.spend); e.conversions += Number(p.conversions ?? 0);
       plcAgg.set(p.placement, e);
@@ -1018,13 +1019,13 @@ ${reportObservations.map((o: any) => {
     // Bloco 6: ANÚNCIOS DO PERÍODO — lista automática de criativos que rodaram
     // no range, com data da primeira veiculação (first_date) + link permalink.
     // Usado pelo cliente como prestação de contas das ações de mídia.
-    const { data: firstDateRows } = await supabase.from("ad_creatives")
+    const firstDateRows = await fetchAllPages((from, to) => supabase.from("ad_creatives")
       .select("ad_id, date")
       .eq("client_slug", client)
       .order("date", { ascending: true })
-      .limit(50000);
+      .range(from, to));
     const adFirstDate = new Map<string, string>();
-    for (const r of firstDateRows ?? []) {
+    for (const r of firstDateRows) {
       if (r.ad_id && r.date && !adFirstDate.has(r.ad_id)) adFirstDate.set(r.ad_id, r.date);
     }
 
