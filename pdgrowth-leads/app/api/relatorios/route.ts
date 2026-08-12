@@ -273,7 +273,7 @@ export async function POST(req: NextRequest) {
     // ── Ad campaigns ────────────────────────────────────────────────────────
     const adCampaignsRaw = await fetchAllPages((from, to) => supabase
       .from("ad_campaigns")
-      .select("campaign_id, campaign_name, platform, date, impressions, clicks, spend, reach, status")
+      .select("campaign_id, campaign_name, platform, date, impressions, clicks, spend, reach, landing_page_views, lead_form_submissions, status")
       .eq("client_slug", client)
       .gte("date", fetchSince)
       .lte("date", fetchUntil)
@@ -386,12 +386,14 @@ export async function POST(req: NextRequest) {
 
     // Aggregate de campanhas (período principal) — guarda status mais recente
     // (linha de data mais alta) para diferenciar campanhas ativas das pausadas.
-    const campAgg = new Map<string, { name: string; platform: string; campaignIds: Set<string>; spend: number; impressions: number; clicks: number; reach: number; leads: number; status: string; last_date: string }>();
+    const campAgg = new Map<string, { name: string; platform: string; campaignIds: Set<string>; spend: number; impressions: number; clicks: number; reach: number; landing_page_views: number; lead_form_submissions: number; leads: number; status: string; last_date: string }>();
     for (const c of mainAds) {
       const key = c.campaign_name;
       const ex = campAgg.get(key);
       if (ex) {
         ex.spend += Number(c.spend); ex.impressions += Number(c.impressions); ex.clicks += Number(c.clicks); ex.reach += Number(c.reach);
+        ex.landing_page_views += Number((c as any).landing_page_views ?? 0);
+        ex.lead_form_submissions += Number((c as any).lead_form_submissions ?? 0);
         if (c.campaign_id) ex.campaignIds.add(c.campaign_id);
         if (c.date > ex.last_date) { ex.last_date = c.date; ex.status = (c as any).status ?? ex.status; }
       } else {
@@ -399,6 +401,8 @@ export async function POST(req: NextRequest) {
           name: c.campaign_name, platform: c.platform,
           campaignIds: new Set(c.campaign_id ? [c.campaign_id] : []),
           spend: Number(c.spend), impressions: Number(c.impressions), clicks: Number(c.clicks), reach: Number(c.reach),
+          landing_page_views: Number((c as any).landing_page_views ?? 0),
+          lead_form_submissions: Number((c as any).lead_form_submissions ?? 0),
           leads: 0,
           status: (c as any).status ?? "",
           last_date: c.date,
@@ -431,7 +435,19 @@ export async function POST(req: NextRequest) {
     const unmatchedLeads = Array.from(unmatchedLeadsMap.values()).sort((a, b) => b.count - a.count).slice(0, 20);
 
     const campaignRows = Array.from(campAgg.values())
-      .map(c => ({ ...c, ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0, cpl: c.leads > 0 ? c.spend / c.leads : null }))
+      .map(c => ({
+        ...c,
+        ctr: c.impressions > 0 ? (c.clicks / c.impressions) * 100 : 0,
+        cpl: c.leads > 0 ? c.spend / c.leads : null,
+        // Métricas de mídia expandidas (o que a agência olha em reunião):
+        cpc: c.clicks > 0 ? c.spend / c.clicks : null,           // custo por clique
+        cpm: c.impressions > 0 ? (c.spend / c.impressions) * 1000 : 0, // custo por mil imp
+        frequency: c.reach > 0 ? c.impressions / c.reach : 0,    // impressões por pessoa
+        // Connect rate: quantos cliques efetivamente carregaram a LP (qualidade da LP)
+        connect_rate: c.clicks > 0 && c.landing_page_views > 0 ? (c.landing_page_views / c.clicks) * 100 : 0,
+        // Conversão da LP: quantos leads / views (útil pra avaliar a LP em si)
+        lp_conv_rate: c.landing_page_views > 0 ? (c.leads / c.landing_page_views) * 100 : 0,
+      }))
       .sort((a, b) => (b.leads || 0) - (a.leads || 0));
 
     // ── Stats por (campanha, semana) para sub-tabela semanal no detalhamento ──
@@ -1269,6 +1285,15 @@ IMPORTANTE sobre formatação:
           leads: c.leads,
           ctr: c.ctr,
           cpl: c.cpl,
+          // ── Métricas expandidas (o que agência olha em reunião) ──
+          reach: (c as any).reach ?? 0,
+          frequency: (c as any).frequency ?? 0,
+          cpc: (c as any).cpc,
+          cpm: (c as any).cpm ?? 0,
+          landing_page_views: (c as any).landing_page_views ?? 0,
+          lead_form_submissions: (c as any).lead_form_submissions ?? 0,
+          connect_rate: (c as any).connect_rate ?? 0,
+          lp_conv_rate: (c as any).lp_conv_rate ?? 0,
           weekly: (campaignWeekly.get(c.name) ?? []).map((w, i) => ({
             label: weeks[i]?.label ?? "",
             spend: w.spend,
@@ -1276,8 +1301,6 @@ IMPORTANTE sobre formatação:
             cpl: w.leads > 0 && w.spend > 0 ? w.spend / w.leads : 0,
             ctr: w.impressions > 0 ? (w.clicks / w.impressions) * 100 : 0,
           })),
-          // Quebra por conjunto de anúncios (vazio quando só existe 1 conjunto;
-          // o frontend pode usar `adSets.length > 1` pra decidir se renderiza a seção).
           adSets: sets.map(s => ({
             name: s.ad_set_name,
             spend: s.spend,
@@ -1300,6 +1323,16 @@ IMPORTANTE sobre formatação:
         leads: c.leads,
         ctr: c.ctr,
         cpl: c.cpl,
+        // Métricas expandidas (Google não tem reach/frequency por default nas APIs
+        // usadas hoje, mas mantemos os campos consistentes com Meta pro layout)
+        reach: (c as any).reach ?? 0,
+        frequency: (c as any).frequency ?? 0,
+        cpc: (c as any).cpc,
+        cpm: (c as any).cpm ?? 0,
+        landing_page_views: (c as any).landing_page_views ?? 0,
+        lead_form_submissions: (c as any).lead_form_submissions ?? 0,
+        connect_rate: (c as any).connect_rate ?? 0,
+        lp_conv_rate: (c as any).lp_conv_rate ?? 0,
         weekly: (campaignWeekly.get(c.name) ?? []).map((w, i) => ({
           label: weeks[i]?.label ?? "",
           spend: w.spend,
@@ -1307,7 +1340,6 @@ IMPORTANTE sobre formatação:
           cpl: w.leads > 0 && w.spend > 0 ? w.spend / w.leads : 0,
           ctr: w.impressions > 0 ? (w.clicks / w.impressions) * 100 : 0,
         })),
-        // Top keywords e search terms desta campanha
         topKeywords: topKw.filter(k => k.campaign === c.name).slice(0, 6),
         topSearchTerms: topSt.filter(s => s.campaign === c.name).slice(0, 6),
       })),

@@ -784,6 +784,10 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
           }).join("")
         : `<div class="crv-grid">${(c.creatives ?? []).map(renderCreativeCard).join("")}</div>`;
 
+      // Meta tem funil completo (Impressões → Alcance → Cliques → LP Views → Leads).
+      // Google não expõe reach/frequency/LPV pelas APIs usadas — só mostramos os
+      // campos que fazem sentido pra plataforma.
+      const hasFunnel = (c.reach ?? 0) > 0 || (c.landing_page_views ?? 0) > 0;
       return `
         <div class="camp-block${largeClass}">
           <div class="camp-header">
@@ -796,8 +800,17 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
               <div class="camp-kpi"><span class="camp-kpi-label">Leads</span><span class="camp-kpi-val accent">${fmtInt(c.leads)}</span></div>
               <div class="camp-kpi"><span class="camp-kpi-label">CPL</span><span class="camp-kpi-val gold">${c.cpl > 0 ? `R$ ${fmt(c.cpl)}` : "—"}</span></div>
               <div class="camp-kpi"><span class="camp-kpi-label">CTR</span><span class="camp-kpi-val">${pct(c.ctr)}</span></div>
+              <div class="camp-kpi"><span class="camp-kpi-label">CPC</span><span class="camp-kpi-val">${c.cpc > 0 ? `R$ ${fmt(c.cpc)}` : "—"}</span></div>
+              <div class="camp-kpi"><span class="camp-kpi-label">CPM</span><span class="camp-kpi-val">${c.cpm > 0 ? `R$ ${fmt(c.cpm)}` : "—"}</span></div>
+            </div>
+            <div class="camp-kpi-strip camp-kpi-strip-2">
               <div class="camp-kpi"><span class="camp-kpi-label">Impressões</span><span class="camp-kpi-val">${fmtInt(c.impressions)}</span></div>
+              ${hasFunnel ? `<div class="camp-kpi"><span class="camp-kpi-label">Alcance</span><span class="camp-kpi-val">${fmtInt(c.reach)}</span></div>` : ""}
+              ${hasFunnel ? `<div class="camp-kpi"><span class="camp-kpi-label">Frequência</span><span class="camp-kpi-val">${c.frequency > 0 ? c.frequency.toFixed(2) : "—"}</span></div>` : ""}
               <div class="camp-kpi"><span class="camp-kpi-label">Cliques</span><span class="camp-kpi-val">${fmtInt(c.clicks)}</span></div>
+              ${(c.landing_page_views ?? 0) > 0 ? `<div class="camp-kpi"><span class="camp-kpi-label">LP Views</span><span class="camp-kpi-val">${fmtInt(c.landing_page_views)}</span></div>` : ""}
+              ${(c.connect_rate ?? 0) > 0 ? `<div class="camp-kpi"><span class="camp-kpi-label">Connect Rate</span><span class="camp-kpi-val">${pct(c.connect_rate)}</span></div>` : ""}
+              ${(c.lp_conv_rate ?? 0) > 0 ? `<div class="camp-kpi"><span class="camp-kpi-label">Conv. LP</span><span class="camp-kpi-val accent">${pct(c.lp_conv_rate)}</span></div>` : ""}
             </div>
           </div>
 
@@ -866,6 +879,10 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
       const totalRows = weekly.length + kws.length + sts.length;
       const largeClass = totalRows > 10 ? " large" : "";
 
+      // Meta tem funil completo (Impressões → Alcance → Cliques → LP Views → Leads).
+      // Google não expõe reach/frequency/LPV pelas APIs usadas — só mostramos os
+      // campos que fazem sentido pra plataforma.
+      const hasFunnel = (c.reach ?? 0) > 0 || (c.landing_page_views ?? 0) > 0;
       return `
         <div class="camp-block${largeClass}">
           <div class="camp-header">
@@ -878,8 +895,17 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
               <div class="camp-kpi"><span class="camp-kpi-label">Leads</span><span class="camp-kpi-val accent">${fmtInt(c.leads)}</span></div>
               <div class="camp-kpi"><span class="camp-kpi-label">CPL</span><span class="camp-kpi-val gold">${c.cpl > 0 ? `R$ ${fmt(c.cpl)}` : "—"}</span></div>
               <div class="camp-kpi"><span class="camp-kpi-label">CTR</span><span class="camp-kpi-val">${pct(c.ctr)}</span></div>
+              <div class="camp-kpi"><span class="camp-kpi-label">CPC</span><span class="camp-kpi-val">${c.cpc > 0 ? `R$ ${fmt(c.cpc)}` : "—"}</span></div>
+              <div class="camp-kpi"><span class="camp-kpi-label">CPM</span><span class="camp-kpi-val">${c.cpm > 0 ? `R$ ${fmt(c.cpm)}` : "—"}</span></div>
+            </div>
+            <div class="camp-kpi-strip camp-kpi-strip-2">
               <div class="camp-kpi"><span class="camp-kpi-label">Impressões</span><span class="camp-kpi-val">${fmtInt(c.impressions)}</span></div>
+              ${hasFunnel ? `<div class="camp-kpi"><span class="camp-kpi-label">Alcance</span><span class="camp-kpi-val">${fmtInt(c.reach)}</span></div>` : ""}
+              ${hasFunnel ? `<div class="camp-kpi"><span class="camp-kpi-label">Frequência</span><span class="camp-kpi-val">${c.frequency > 0 ? c.frequency.toFixed(2) : "—"}</span></div>` : ""}
               <div class="camp-kpi"><span class="camp-kpi-label">Cliques</span><span class="camp-kpi-val">${fmtInt(c.clicks)}</span></div>
+              ${(c.landing_page_views ?? 0) > 0 ? `<div class="camp-kpi"><span class="camp-kpi-label">LP Views</span><span class="camp-kpi-val">${fmtInt(c.landing_page_views)}</span></div>` : ""}
+              ${(c.connect_rate ?? 0) > 0 ? `<div class="camp-kpi"><span class="camp-kpi-label">Connect Rate</span><span class="camp-kpi-val">${pct(c.connect_rate)}</span></div>` : ""}
+              ${(c.lp_conv_rate ?? 0) > 0 ? `<div class="camp-kpi"><span class="camp-kpi-label">Conv. LP</span><span class="camp-kpi-val accent">${pct(c.lp_conv_rate)}</span></div>` : ""}
             </div>
           </div>
 
@@ -1002,11 +1028,15 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
     .camp-status { display: inline-block; font-size: 9px; font-weight: 800; padding: 3px 8px; border-radius: 8px; text-transform: uppercase; letter-spacing: 0.06em; }
     .camp-status.active { background: rgba(202,255,4,0.12); color: #CAFF04; border: 1px solid rgba(202,255,4,0.25); }
     .camp-status.paused { background: rgba(245,158,11,0.12); color: #F59E0B; border: 1px solid rgba(245,158,11,0.25); }
-    /* 6 KPIs em 2 linhas de 3 (portrait tem menos largura) */
-    .camp-kpi-strip { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
-    .camp-kpi { display: flex; flex-direction: column; gap: 2px; padding: 8px 10px; background: #0e1018; border-radius: 8px; border: 1px solid #1a1a24; }
-    .camp-kpi-label { font-size: 9px; color: #6a6a7a; text-transform: uppercase; letter-spacing: 0.08em; font-weight: 600; }
-    .camp-kpi-val { font-size: 15px; font-weight: 800; font-family: 'DM Mono', monospace; line-height: 1.1; letter-spacing: -0.01em; }
+    /* KPIs em duas linhas de 6 (métricas expandidas pra apresentação com agência).
+       Linha 1 = performance (Invest, Leads, CPL, CTR, CPC, CPM).
+       Linha 2 = alcance/funil (Impressões, Alcance, Freq, Cliques, LPV, Connect, Conv LP).
+       Grid 6 colunas em ambas; se linha 2 tem menos itens, os primeiros expandem. */
+    .camp-kpi-strip { display: grid; grid-template-columns: repeat(6, 1fr); gap: 6px; }
+    .camp-kpi-strip-2 { margin-top: 6px; }
+    .camp-kpi { display: flex; flex-direction: column; gap: 2px; padding: 6px 8px; background: #0e1018; border-radius: 6px; border: 1px solid #1a1a24; min-width: 0; }
+    .camp-kpi-label { font-size: 8px; color: #6a6a7a; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .camp-kpi-val { font-size: 12px; font-weight: 800; font-family: 'DM Mono', monospace; line-height: 1.1; letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
     .camp-kpi-val.accent { color: #CAFF04; } .camp-kpi-val.blue { color: #60A5FA; } .camp-kpi-val.gold { color: #F59E0B; }
     .camp-kpi-val:not(.accent):not(.blue):not(.gold) { color: #d0d0dd; }
 

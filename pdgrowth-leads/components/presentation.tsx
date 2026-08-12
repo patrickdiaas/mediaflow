@@ -524,12 +524,23 @@ function CampaignDetailSlide({ c, platform, weeks }: { c: any; platform: string;
       title={c.name}
       subtitle={`${isMeta ? "Meta Ads" : "Google Ads"} · ${statusLabelCamp(c.status)}`}
     >
-      {/* KPIs da campanha */}
-      <div className="grid grid-cols-4 gap-4 mb-6">
+      {/* KPIs da campanha — 2 linhas de 6 pra dar visão completa pra reunião com agência */}
+      <div className="grid grid-cols-6 gap-2 mb-3">
         <KpiBoxLarge label="Investimento" value={`R$ ${fmt(c.spend)}`} color="text-blue" />
         <KpiBoxLarge label="Leads" value={String(c.leads)} color="text-accent" />
         <KpiBoxLarge label="CPL" value={c.cpl > 0 ? `R$ ${fmt(c.cpl)}` : "—"} color="text-gold" />
         <KpiBoxLarge label="CTR" value={fmtPct(c.ctr)} color="text-text-primary" />
+        <KpiBoxLarge label="CPC" value={c.cpc > 0 ? `R$ ${fmt(c.cpc)}` : "—"} color="text-text-primary" />
+        <KpiBoxLarge label="CPM" value={c.cpm > 0 ? `R$ ${fmt(c.cpm)}` : "—"} color="text-text-primary" />
+      </div>
+      <div className="grid grid-cols-6 gap-2 mb-6">
+        <KpiBoxLarge label="Impressões" value={new Intl.NumberFormat("pt-BR").format(c.impressions ?? 0)} color="text-text-primary" />
+        {(c.reach ?? 0) > 0 && <KpiBoxLarge label="Alcance" value={new Intl.NumberFormat("pt-BR").format(c.reach)} color="text-text-primary" />}
+        {(c.reach ?? 0) > 0 && <KpiBoxLarge label="Frequência" value={c.frequency > 0 ? c.frequency.toFixed(2) : "—"} color="text-text-primary" />}
+        <KpiBoxLarge label="Cliques" value={new Intl.NumberFormat("pt-BR").format(c.clicks ?? 0)} color="text-text-primary" />
+        {(c.landing_page_views ?? 0) > 0 && <KpiBoxLarge label="LP Views" value={new Intl.NumberFormat("pt-BR").format(c.landing_page_views)} color="text-text-primary" />}
+        {(c.connect_rate ?? 0) > 0 && <KpiBoxLarge label="Connect Rate" value={fmtPct(c.connect_rate)} color="text-text-primary" />}
+        {(c.lp_conv_rate ?? 0) > 0 && <KpiBoxLarge label="Conv. LP" value={fmtPct(c.lp_conv_rate)} color="text-accent" />}
       </div>
 
       {/* Quebra por conjunto de anúncios — só renderiza quando há mais de 1 conjunto */}
@@ -808,9 +819,9 @@ function ContextCallout({ observations }: { analysis?: string | null; observatio
 
 function KpiBoxLarge({ label, value, color }: { label: string; value: string; color: string }) {
   return (
-    <div className="bg-card border border-border rounded-xl p-4">
-      <div className="text-[10px] uppercase tracking-widest text-text-muted">{label}</div>
-      <div className={`text-3xl font-bold font-mono mt-1 ${color}`}>{value}</div>
+    <div className="bg-card border border-border rounded-xl p-3 min-w-0">
+      <div className="text-[9px] uppercase tracking-widest text-text-muted truncate">{label}</div>
+      <div className={`text-xl font-bold font-mono mt-1 truncate ${color}`}>{value}</div>
     </div>
   );
 }
