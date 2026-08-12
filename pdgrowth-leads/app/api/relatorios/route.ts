@@ -443,10 +443,15 @@ export async function POST(req: NextRequest) {
         cpc: c.clicks > 0 ? c.spend / c.clicks : null,           // custo por clique
         cpm: c.impressions > 0 ? (c.spend / c.impressions) * 1000 : 0, // custo por mil imp
         frequency: c.reach > 0 ? c.impressions / c.reach : 0,    // impressões por pessoa
-        // Connect rate: quantos cliques efetivamente carregaram a LP (qualidade da LP)
+        // Connect rate: quantos cliques efetivamente carregaram a LP (qualidade da LP).
+        //   Meta expõe LPV via Graph API. Google Ads não expõe (LPV vem do GA4).
         connect_rate: c.clicks > 0 && c.landing_page_views > 0 ? (c.landing_page_views / c.clicks) * 100 : 0,
-        // Conversão da LP: quantos leads / views (útil pra avaliar a LP em si)
+        // Conversão da LP (Meta): leads / views
         lp_conv_rate: c.landing_page_views > 0 ? (c.leads / c.landing_page_views) * 100 : 0,
+        // Taxa de conversão geral (leads / cliques). Métrica universal — funciona
+        //   pra Google Ads que não tem LPV, e é a "taxa de conversão" que a
+        //   agência conhece do painel do Google.
+        conv_rate: c.clicks > 0 && c.leads > 0 ? (c.leads / c.clicks) * 100 : 0,
       }))
       .sort((a, b) => (b.leads || 0) - (a.leads || 0));
 
@@ -1294,6 +1299,7 @@ IMPORTANTE sobre formatação:
           lead_form_submissions: (c as any).lead_form_submissions ?? 0,
           connect_rate: (c as any).connect_rate ?? 0,
           lp_conv_rate: (c as any).lp_conv_rate ?? 0,
+          conv_rate: (c as any).conv_rate ?? 0,
           weekly: (campaignWeekly.get(c.name) ?? []).map((w, i) => ({
             label: weeks[i]?.label ?? "",
             spend: w.spend,

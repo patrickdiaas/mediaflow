@@ -811,6 +811,7 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
               ${(c.landing_page_views ?? 0) > 0 ? `<div class="camp-kpi"><span class="camp-kpi-label">LP Views</span><span class="camp-kpi-val">${fmtInt(c.landing_page_views)}</span></div>` : ""}
               ${(c.connect_rate ?? 0) > 0 ? `<div class="camp-kpi"><span class="camp-kpi-label">Connect Rate</span><span class="camp-kpi-val">${pct(c.connect_rate)}</span></div>` : ""}
               ${(c.lp_conv_rate ?? 0) > 0 ? `<div class="camp-kpi"><span class="camp-kpi-label">Conv. LP</span><span class="camp-kpi-val accent">${pct(c.lp_conv_rate)}</span></div>` : ""}
+              ${(c.conv_rate ?? 0) > 0 ? `<div class="camp-kpi"><span class="camp-kpi-label">Taxa Conv.</span><span class="camp-kpi-val accent">${pct(c.conv_rate)}</span></div>` : ""}
             </div>
           </div>
 
@@ -906,6 +907,7 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
               ${(c.landing_page_views ?? 0) > 0 ? `<div class="camp-kpi"><span class="camp-kpi-label">LP Views</span><span class="camp-kpi-val">${fmtInt(c.landing_page_views)}</span></div>` : ""}
               ${(c.connect_rate ?? 0) > 0 ? `<div class="camp-kpi"><span class="camp-kpi-label">Connect Rate</span><span class="camp-kpi-val">${pct(c.connect_rate)}</span></div>` : ""}
               ${(c.lp_conv_rate ?? 0) > 0 ? `<div class="camp-kpi"><span class="camp-kpi-label">Conv. LP</span><span class="camp-kpi-val accent">${pct(c.lp_conv_rate)}</span></div>` : ""}
+              ${(c.conv_rate ?? 0) > 0 ? `<div class="camp-kpi"><span class="camp-kpi-label">Taxa Conv.</span><span class="camp-kpi-val accent">${pct(c.conv_rate)}</span></div>` : ""}
             </div>
           </div>
 

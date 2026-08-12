@@ -541,6 +541,7 @@ function CampaignDetailSlide({ c, platform, weeks }: { c: any; platform: string;
         {(c.landing_page_views ?? 0) > 0 && <KpiBoxLarge label="LP Views" value={new Intl.NumberFormat("pt-BR").format(c.landing_page_views)} color="text-text-primary" />}
         {(c.connect_rate ?? 0) > 0 && <KpiBoxLarge label="Connect Rate" value={fmtPct(c.connect_rate)} color="text-text-primary" />}
         {(c.lp_conv_rate ?? 0) > 0 && <KpiBoxLarge label="Conv. LP" value={fmtPct(c.lp_conv_rate)} color="text-accent" />}
+        {(c.conv_rate ?? 0) > 0 && <KpiBoxLarge label="Taxa Conv." value={fmtPct(c.conv_rate)} color="text-accent" />}
       </div>
 
       {/* Quebra por conjunto de anúncios — só renderiza quando há mais de 1 conjunto */}
