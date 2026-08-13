@@ -726,6 +726,13 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
               <div class="crv-kpi"><span class="crv-kpi-label">CPL</span><span class="crv-kpi-val gold">${cr.cpl > 0 ? `R$ ${fmt(cr.cpl)}` : "—"}</span></div>
               <div class="crv-kpi"><span class="crv-kpi-label">CTR</span><span class="crv-kpi-val">${pct(cr.ctr)}</span></div>
             </div>
+            ${cr.type === "video" && (cr.video_3s_views ?? 0) > 0 ? `
+              <div class="crv-video-kpis">
+                <div class="crv-video-kpi"><span class="crv-kpi-label">Views 3s</span><span class="crv-video-val">${fmtInt(cr.video_3s_views)}</span></div>
+                <div class="crv-video-kpi"><span class="crv-kpi-label">VVR</span><span class="crv-video-val">${pct(cr.vvr)}</span></div>
+                <div class="crv-video-kpi"><span class="crv-kpi-label">ThruPlay</span><span class="crv-video-val">${fmtInt(cr.video_thruplay_views)}</span></div>
+                <div class="crv-video-kpi"><span class="crv-kpi-label">Thru Rate</span><span class="crv-video-val">${pct(cr.thruplay_rate)}</span></div>
+              </div>` : ""}
             ${cr.note ? `<div class="crv-note">${escapeHtml(cr.note)}</div>` : ""}
             ${cr.ambiguousAttribution ? `<div class="crv-warn">⚠ Atribuição ambígua — nome duplicado no mesmo conjunto</div>` : ""}
           </div>
@@ -830,6 +837,25 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
                 <table class="camp-table">
                   <thead><tr><th>Conjunto</th><th>Invest</th><th>Leads</th><th>CPL</th><th>CTR</th></tr></thead>
                   <tbody>${adSets.map(renderAdSetRow).join("")}</tbody>
+                </table>
+              </div>` : ""}
+            ${((c.placements ?? []).length > 0) ? `
+              <div class="camp-sub">
+                <div class="camp-sub-title">Posicionamentos · ${c.placements.length}</div>
+                <table class="camp-table">
+                  <thead><tr><th>Posicionamento</th><th>Invest</th><th>Impr.</th><th>Cliques</th><th>Conv.</th><th>CTR</th></tr></thead>
+                  <tbody>
+                    ${c.placements.map((p: any) => `
+                      <tr>
+                        <td class="setname" title="${escapeHtml(p.name)}">${escapeHtml(p.name)}</td>
+                        <td class="mono blue">R$ ${fmtInt(p.spend)}</td>
+                        <td class="mono">${fmtInt(p.impressions)}</td>
+                        <td class="mono">${fmtInt(p.clicks)}</td>
+                        <td class="mono accent">${fmtInt(p.conversions)}</td>
+                        <td class="mono">${pct(p.ctr)}</td>
+                      </tr>
+                    `).join("")}
+                  </tbody>
                 </table>
               </div>` : ""}
           </div>
@@ -1077,6 +1103,10 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
     .crv-link { color: #60A5FA; text-decoration: none; }
     .crv-link-btn { display: inline-flex; align-items: center; gap: 3px; padding: 3px 8px; background: rgba(96,165,250,0.12); border: 1px solid rgba(96,165,250,0.35); border-radius: 6px; color: #60A5FA; text-decoration: none; font-size: 9.5px; font-weight: 700; white-space: nowrap; }
     .crv-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 2px; }
+    /* Métricas de vídeo (só aparece quando type=video E tem video_3s_views > 0) */
+    .crv-video-kpis { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; margin-top: 3px; padding-top: 4px; border-top: 1px dashed #24242c; }
+    .crv-video-kpi { display: flex; flex-direction: column; }
+    .crv-video-val { font-size: 10px; font-family: 'DM Mono', monospace; font-weight: 700; color: #F59E0B; }
     .crv-kpi { display: flex; flex-direction: column; }
     .crv-kpi-label { font-size: 8px; color: #6a6a7a; text-transform: uppercase; letter-spacing: 0.06em; font-weight: 600; }
     .crv-kpi-val { font-size: 10.5px; font-family: 'DM Mono', monospace; font-weight: 700; }

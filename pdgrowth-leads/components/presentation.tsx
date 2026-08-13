@@ -575,6 +575,39 @@ function CampaignDetailSlide({ c, platform, weeks }: { c: any; platform: string;
         </div>
       )}
 
+      {/* Posicionamentos (Meta) — só quando há dados de ad_placements */}
+      {isMeta && Array.isArray(c.placements) && c.placements.length > 0 && (
+        <div className="bg-card border border-border rounded-2xl overflow-hidden mb-6">
+          <div className="px-5 py-3 border-b border-border text-xs uppercase tracking-widest text-text-muted">
+            Posicionamentos · {c.placements.length}
+          </div>
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="text-xs text-text-muted uppercase tracking-wider">
+                <th className="text-left px-5 py-3">Posicionamento</th>
+                <th className="text-right px-4 py-3">Invest</th>
+                <th className="text-right px-4 py-3">Impressões</th>
+                <th className="text-right px-4 py-3">Cliques</th>
+                <th className="text-right px-4 py-3">Conv.</th>
+                <th className="text-right px-4 py-3">CTR</th>
+              </tr>
+            </thead>
+            <tbody>
+              {c.placements.map((p: any, i: number) => (
+                <tr key={i} className={i < c.placements.length - 1 ? "border-b border-border" : ""}>
+                  <td className="px-5 py-3 text-xs font-mono truncate max-w-xs" title={p.name}>{p.name}</td>
+                  <td className="px-4 py-3 text-right font-mono text-blue">R$ {fmt(p.spend)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-text-secondary">{new Intl.NumberFormat("pt-BR").format(p.impressions)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-text-secondary">{new Intl.NumberFormat("pt-BR").format(p.clicks)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-accent">{new Intl.NumberFormat("pt-BR").format(p.conversions)}</td>
+                  <td className="px-4 py-3 text-right font-mono text-text-secondary">{fmtPct(p.ctr)}</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+
       <div className="grid grid-cols-2 gap-6 flex-1 min-h-0">
         {/* Semana a semana */}
         {c.weekly && c.weekly.length > 1 && (
@@ -661,6 +694,26 @@ function CampaignDetailSlide({ c, platform, weeks }: { c: any; platform: string;
                           <span className="font-mono text-xs text-text-primary font-bold">{fmtPct(cr.ctr)}</span>
                         </div>
                       </div>
+                      {cr.type === "video" && (cr.video_3s_views ?? 0) > 0 && (
+                        <div className="grid grid-cols-4 gap-2 mt-1 pt-1 border-t border-dashed border-border">
+                          <div className="flex flex-col">
+                            <span className="text-[9px] text-text-muted uppercase tracking-wider">Views 3s</span>
+                            <span className="font-mono text-xs text-gold font-bold">{new Intl.NumberFormat("pt-BR").format(cr.video_3s_views)}</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[9px] text-text-muted uppercase tracking-wider">VVR</span>
+                            <span className="font-mono text-xs text-gold font-bold">{fmtPct(cr.vvr)}</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[9px] text-text-muted uppercase tracking-wider">ThruPlay</span>
+                            <span className="font-mono text-xs text-gold font-bold">{new Intl.NumberFormat("pt-BR").format(cr.video_thruplay_views)}</span>
+                          </div>
+                          <div className="flex flex-col">
+                            <span className="text-[9px] text-text-muted uppercase tracking-wider">Thru Rate</span>
+                            <span className="font-mono text-xs text-gold font-bold">{fmtPct(cr.thruplay_rate)}</span>
+                          </div>
+                        </div>
+                      )}
                       {cr.ambiguousAttribution && (
                         <div className="text-[9px] text-gold mt-0.5">⚠ Atribuição ambígua</div>
                       )}

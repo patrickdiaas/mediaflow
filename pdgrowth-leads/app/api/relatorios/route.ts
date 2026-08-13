@@ -490,7 +490,7 @@ export async function POST(req: NextRequest) {
     // ── Criativos do período principal ──────────────────────────────────────
     const adCreatives = await fetchAllPages((from, to) => supabase
       .from("ad_creatives")
-      .select("ad_id, ad_name, campaign_name, ad_set_id, ad_set_name, platform, status, creative_type, headline, permalink_url, thumbnail_url, thumbnail_stored_url, impressions, clicks, spend, date, created_at_meta, updated_at_meta")
+      .select("ad_id, ad_name, campaign_name, ad_set_id, ad_set_name, platform, status, creative_type, headline, permalink_url, thumbnail_url, thumbnail_stored_url, impressions, clicks, spend, video_3s_views, video_thruplay_views, date, created_at_meta, updated_at_meta")
       .eq("client_slug", client)
       .gte("date", periodFrom)
       .lte("date", periodTo)
@@ -506,12 +506,14 @@ export async function POST(req: NextRequest) {
     const notesByAdId = new Map<string, string>();
     for (const n of creativeNotesRaw ?? []) notesByAdId.set(n.ad_id, n.note);
 
-    const creativeAgg = new Map<string, { ad_id: string; name: string; campaign: string; ad_set_name: string; platform: string; type: string | null; headline: string | null; permalink: string | null; thumbnail: string | null; spend: number; impressions: number; clicks: number; leads: number; status: string; created_at_meta: string | null; updated_at_meta: string | null; last_active_date: string | null; last_date: string; note: string | null }>();
+    const creativeAgg = new Map<string, { ad_id: string; name: string; campaign: string; ad_set_name: string; platform: string; type: string | null; headline: string | null; permalink: string | null; thumbnail: string | null; spend: number; impressions: number; clicks: number; leads: number; video_3s_views: number; video_thruplay_views: number; status: string; created_at_meta: string | null; updated_at_meta: string | null; last_active_date: string | null; last_date: string; note: string | null }>();
     for (const c of adCreatives) {
       const ex = creativeAgg.get(c.ad_id);
       const hasSpend = Number(c.spend) > 0;
       if (ex) {
         ex.spend += Number(c.spend); ex.impressions += Number(c.impressions); ex.clicks += Number(c.clicks);
+        ex.video_3s_views += Number((c as any).video_3s_views ?? 0);
+        ex.video_thruplay_views += Number((c as any).video_thruplay_views ?? 0);
         if ((c as any).date && (c as any).date > ex.last_date) { ex.last_date = (c as any).date; ex.status = (c as any).status ?? ex.status; }
         if (hasSpend && (c as any).date && (!ex.last_active_date || (c as any).date > ex.last_active_date)) ex.last_active_date = (c as any).date;
         if (!ex.created_at_meta && (c as any).created_at_meta) ex.created_at_meta = (c as any).created_at_meta;
@@ -531,6 +533,8 @@ export async function POST(req: NextRequest) {
           permalink: c.permalink_url ?? null,
           thumbnail: (c as any).thumbnail_stored_url ?? (c as any).thumbnail_url ?? null,
           spend: Number(c.spend), impressions: Number(c.impressions), clicks: Number(c.clicks), leads: 0,
+          video_3s_views: Number((c as any).video_3s_views ?? 0),
+          video_thruplay_views: Number((c as any).video_thruplay_views ?? 0),
           status: (c as any).status ?? "",
           created_at_meta: (c as any).created_at_meta ?? null,
           updated_at_meta: (c as any).updated_at_meta ?? null,
@@ -809,18 +813,52 @@ export async function POST(req: NextRequest) {
     }
     const topSt = Array.from(stAgg.entries()).map(([term, v]) => ({ term, ...v })).sort((a, b) => b.conversions - a.conversions || b.clicks - a.clicks).slice(0, 15);
 
-    // Placements do período principal
+    // Placements do período principal (com campaign_id pra breakdown por campanha)
     const plcData = await fetchAllPages((from, to) => supabase
-      .from("ad_placements").select("placement, impressions, clicks, spend, conversions")
+      .from("ad_placements").select("campaign_id, placement, impressions, clicks, spend, conversions")
       .eq("client_slug", client).gte("date", periodFrom).lte("date", periodTo)
       .order("date", { ascending: false }).range(from, to));
+    // Agregado global (top placements — usado em texto/análise)
     const plcAgg = new Map<string, { impressions: number; clicks: number; spend: number; conversions: number }>();
+    // Agregado por campanha (breakdown "Onde converteu melhor" em cada card Meta)
+    const placementsByCampaignId = new Map<string, Map<string, { impressions: number; clicks: number; spend: number; conversions: number }>>();
     for (const p of plcData) {
       const e = plcAgg.get(p.placement) ?? { impressions: 0, clicks: 0, spend: 0, conversions: 0 };
       e.impressions += Number(p.impressions); e.clicks += Number(p.clicks); e.spend += Number(p.spend); e.conversions += Number(p.conversions ?? 0);
       plcAgg.set(p.placement, e);
+
+      if (p.campaign_id) {
+        let perCamp = placementsByCampaignId.get(p.campaign_id);
+        if (!perCamp) { perCamp = new Map(); placementsByCampaignId.set(p.campaign_id, perCamp); }
+        const pe = perCamp.get(p.placement) ?? { impressions: 0, clicks: 0, spend: 0, conversions: 0 };
+        pe.impressions += Number(p.impressions); pe.clicks += Number(p.clicks); pe.spend += Number(p.spend); pe.conversions += Number(p.conversions ?? 0);
+        perCamp.set(p.placement, pe);
+      }
     }
     const topPlacements = Array.from(plcAgg.entries()).map(([name, v]) => ({ name, ...v })).sort((a, b) => b.conversions - a.conversions).slice(0, 6);
+
+    // Helper: normaliza label do placement pra display (facebook_feed → "Facebook Feed")
+    const placementLabel = (raw: string): string => {
+      if (!raw) return "—";
+      return raw.split("_").map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+    };
+    // Helper: retorna placements de uma campanha ordenados por spend desc
+    const placementsForCampaignId = (campaignId: string) => {
+      const m = placementsByCampaignId.get(campaignId);
+      if (!m) return [];
+      return Array.from(m.entries())
+        .map(([placement, v]) => ({
+          name: placementLabel(placement),
+          spend: v.spend,
+          impressions: v.impressions,
+          clicks: v.clicks,
+          conversions: v.conversions,
+          ctr: v.impressions > 0 ? (v.clicks / v.impressions) * 100 : 0,
+          cpc: v.clicks > 0 ? v.spend / v.clicks : null,
+          cpm: v.impressions > 0 ? (v.spend / v.impressions) * 1000 : 0,
+        }))
+        .sort((a, b) => b.spend - a.spend);
+    };
 
     // Formulários por campanha (última semana)
     const formsByCampaign = new Map<string, Map<string, number>>();
@@ -1263,23 +1301,35 @@ IMPORTANTE sobre formatação:
         deltaCtr: i > 0 ? deltaPct(w.stats.ctr, weekStats[i - 1].stats.ctr) : null,
       })),
       metaCampaigns: metaCampaigns.map(c => {
-        const mapCreative = (cr: any) => ({
-          name: cr.name,
-          ad_set_name: cr.ad_set_name ?? "",
-          spend: cr.spend,
-          leads: cr.leads,
-          impressions: cr.impressions,
-          clicks: cr.clicks,
-          ctr: cr.ctr,
-          cpl: cr.cpl,
-          permalink: cr.permalink,
-          thumbnail: cr.thumbnail ?? null,
-          status: cr.status ?? "",
-          created_at_meta: cr.created_at_meta ?? null,
-          updated_at_meta: cr.updated_at_meta ?? null,
-          note: cr.note ?? null,
-          ambiguousAttribution: duplicatedNameAdIds.has(cr.ad_id),
-        });
+        const mapCreative = (cr: any) => {
+          const v3 = Number(cr.video_3s_views ?? 0);
+          const vtp = Number(cr.video_thruplay_views ?? 0);
+          const imp = Number(cr.impressions ?? 0);
+          return {
+            name: cr.name,
+            ad_set_name: cr.ad_set_name ?? "",
+            type: cr.type ?? null,
+            spend: cr.spend,
+            leads: cr.leads,
+            impressions: imp,
+            clicks: cr.clicks,
+            ctr: cr.ctr,
+            cpl: cr.cpl,
+            permalink: cr.permalink,
+            thumbnail: cr.thumbnail ?? null,
+            status: cr.status ?? "",
+            created_at_meta: cr.created_at_meta ?? null,
+            updated_at_meta: cr.updated_at_meta ?? null,
+            note: cr.note ?? null,
+            ambiguousAttribution: duplicatedNameAdIds.has(cr.ad_id),
+            // Métricas de vídeo (só relevantes quando type === 'video')
+            video_3s_views: v3,
+            video_thruplay_views: vtp,
+            vvr: imp > 0 ? (v3 / imp) * 100 : 0,                    // View Rate (3s/impressões)
+            thruplay_rate: v3 > 0 ? (vtp / v3) * 100 : 0,           // % dos que viram 3s e completaram
+            cost_per_thruplay: vtp > 0 ? cr.spend / vtp : null,     // custo por vídeo completo
+          };
+        };
         const sets = adSetsForCampaign(c.name);
         return {
           name: c.name,
@@ -1300,6 +1350,27 @@ IMPORTANTE sobre formatação:
           connect_rate: (c as any).connect_rate ?? 0,
           lp_conv_rate: (c as any).lp_conv_rate ?? 0,
           conv_rate: (c as any).conv_rate ?? 0,
+          // Breakdown por posicionamento (Feed/Stories/Reels/AudNet). Uma
+          // campanha pode ter múltiplos campaign_ids (via alias), então
+          // agregamos placements de todos e re-somamos por placement name.
+          placements: (() => {
+            const merged = new Map<string, { name: string; spend: number; impressions: number; clicks: number; conversions: number }>();
+            for (const id of Array.from((c as any).campaignIds ?? [])) {
+              for (const p of placementsForCampaignId(String(id))) {
+                const ex = merged.get(p.name) ?? { name: p.name, spend: 0, impressions: 0, clicks: 0, conversions: 0 };
+                ex.spend += p.spend; ex.impressions += p.impressions; ex.clicks += p.clicks; ex.conversions += p.conversions;
+                merged.set(p.name, ex);
+              }
+            }
+            return Array.from(merged.values())
+              .map(p => ({
+                ...p,
+                ctr: p.impressions > 0 ? (p.clicks / p.impressions) * 100 : 0,
+                cpc: p.clicks > 0 ? p.spend / p.clicks : null,
+                cpm: p.impressions > 0 ? (p.spend / p.impressions) * 1000 : 0,
+              }))
+              .sort((a, b) => b.spend - a.spend);
+          })(),
           weekly: (campaignWeekly.get(c.name) ?? []).map((w, i) => ({
             label: weeks[i]?.label ?? "",
             spend: w.spend,
