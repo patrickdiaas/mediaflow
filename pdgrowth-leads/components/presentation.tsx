@@ -575,38 +575,42 @@ function CampaignDetailSlide({ c, platform, weeks }: { c: any; platform: string;
         </div>
       )}
 
-      {/* Posicionamentos (Meta) — só quando há dados de ad_placements */}
-      {isMeta && Array.isArray(c.placements) && c.placements.length > 0 && (
-        <div className="bg-card border border-border rounded-2xl overflow-hidden mb-6">
-          <div className="px-5 py-3 border-b border-border text-xs uppercase tracking-widest text-text-muted">
-            Posicionamentos · {c.placements.length}
-          </div>
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-xs text-text-muted uppercase tracking-wider">
-                <th className="text-left px-5 py-3">Posicionamento</th>
-                <th className="text-right px-4 py-3">Invest</th>
-                <th className="text-right px-4 py-3">Impressões</th>
-                <th className="text-right px-4 py-3">Cliques</th>
-                <th className="text-right px-4 py-3">Conv.</th>
-                <th className="text-right px-4 py-3">CTR</th>
-              </tr>
-            </thead>
-            <tbody>
-              {c.placements.map((p: any, i: number) => (
-                <tr key={i} className={i < c.placements.length - 1 ? "border-b border-border" : ""}>
-                  <td className="px-5 py-3 text-xs font-mono truncate max-w-xs" title={p.name}>{p.name}</td>
-                  <td className="px-4 py-3 text-right font-mono text-blue">R$ {fmt(p.spend)}</td>
-                  <td className="px-4 py-3 text-right font-mono text-text-secondary">{new Intl.NumberFormat("pt-BR").format(p.impressions)}</td>
-                  <td className="px-4 py-3 text-right font-mono text-text-secondary">{new Intl.NumberFormat("pt-BR").format(p.clicks)}</td>
-                  <td className="px-4 py-3 text-right font-mono text-accent">{new Intl.NumberFormat("pt-BR").format(p.conversions)}</td>
-                  <td className="px-4 py-3 text-right font-mono text-text-secondary">{fmtPct(p.ctr)}</td>
+      {/* Posicionamentos (Meta) — top 4 pra caber sem esmagar o grid abaixo (semanal+criativos).
+          PDF mostra todos, apresentação limita pra não perder espaço. */}
+      {isMeta && Array.isArray(c.placements) && c.placements.length > 0 && (() => {
+        const topN = c.placements.slice(0, 4);
+        const hasMais = c.placements.length > 4;
+        return (
+          <div className="bg-card border border-border rounded-2xl overflow-hidden mb-4">
+            <div className="px-4 py-2 border-b border-border text-[10px] uppercase tracking-widest text-text-muted flex items-center gap-2">
+              <span>Top Posicionamentos</span>
+              {hasMais && <span className="text-text-dark">· top 4 de {c.placements.length}</span>}
+            </div>
+            <table className="w-full text-xs">
+              <thead>
+                <tr className="text-[10px] text-text-muted uppercase tracking-wider">
+                  <th className="text-left px-4 py-1.5">Posicionamento</th>
+                  <th className="text-right px-3 py-1.5">Invest</th>
+                  <th className="text-right px-3 py-1.5">Cliques</th>
+                  <th className="text-right px-3 py-1.5">Conv.</th>
+                  <th className="text-right px-3 py-1.5">CTR</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
+              </thead>
+              <tbody>
+                {topN.map((p: any, i: number) => (
+                  <tr key={i} className={i < topN.length - 1 ? "border-b border-border" : ""}>
+                    <td className="px-4 py-1.5 font-mono truncate max-w-xs" title={p.name}>{p.name}</td>
+                    <td className="px-3 py-1.5 text-right font-mono text-blue">R$ {fmt(p.spend)}</td>
+                    <td className="px-3 py-1.5 text-right font-mono text-text-secondary">{new Intl.NumberFormat("pt-BR").format(p.clicks)}</td>
+                    <td className="px-3 py-1.5 text-right font-mono text-accent">{new Intl.NumberFormat("pt-BR").format(p.conversions)}</td>
+                    <td className="px-3 py-1.5 text-right font-mono text-text-secondary">{fmtPct(p.ctr)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        );
+      })()}
 
       <div className="grid grid-cols-2 gap-6 flex-1 min-h-0">
         {/* Semana a semana */}
