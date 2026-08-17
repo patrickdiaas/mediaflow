@@ -586,7 +586,7 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
             </tr>
           </tbody>
         </table>
-        ${p.runRate ? `<div class="run-rate">Projeção (run-rate) — fechamento do mês: <strong>${fmtInt(p.runRate.leads)} leads</strong> · <strong>R$ ${fmtInt(p.runRate.spend)}</strong></div>` : ""}
+${""/* Projeção (run-rate) removida temporariamente a pedido do gestor. */}
       </div>` : "";
 
     // Pacing na capa (quando houver). pacing vem como { total?, meta?, google? }.

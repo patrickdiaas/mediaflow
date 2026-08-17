@@ -920,10 +920,12 @@ VARIAÇÃO MÊS A MÊS (corrente vs anterior — mesmo intervalo de dias):
 - TOTAL  → Leads: ${deltaPct(monthCurStats.leads, monthPrevStats.leads)} | Invest: ${deltaPct(monthCurStats.spend, monthPrevStats.spend)} | CPL: ${deltaPct(monthCurStats.cpl, monthPrevStats.cpl)} | CTR: ${deltaPct(monthCurStats.ctr, monthPrevStats.ctr)}
 - META   → Leads: ${deltaPct(monthCurStats.metaLeads, monthPrevStats.metaLeads)} | Invest: ${deltaPct(monthCurStats.metaSpend, monthPrevStats.metaSpend)} | CPL: ${deltaPct(monthCurStats.metaCpl, monthPrevStats.metaCpl)}
 - GOOGLE → Leads: ${deltaPct(monthCurStats.googleLeads, monthPrevStats.googleLeads)} | Invest: ${deltaPct(monthCurStats.googleSpend, monthPrevStats.googleSpend)} | CPL: ${deltaPct(monthCurStats.googleCpl, monthPrevStats.googleCpl)}
-
-PROJEÇÃO DO MÊS (run-rate, ritmo atual extrapolado para ${monthCur.daysInMonth} dias):
-- Leads projetados: ${runRate.leads} | Investimento projetado: R$${fmt(runRate.spend)}
 `.trim();
+    // NOTA: projeção run-rate removida do contexto/relatório a pedido do gestor.
+    // runRate ainda é calculado (linha ~349) e ainda vai em `presentation` pra
+    // não quebrar o schema, mas nada exibe. Se um dia precisar voltar, é só
+    // adicionar de novo o bloco "PROJEÇÃO DO MÊS" aqui e o div correspondente
+    // em relatorios/page.tsx + presentation.tsx.
 
     // Bloco 2.b: pacing de orçamento (só se houver budget cadastrado)
     const pacingLabel = (s: string) =>
@@ -1195,14 +1197,12 @@ QUANDO HOUVER MÊS CORRENTE vs ANTERIOR:
         weeks.length > 1
           ? "Apresente UMA tabela com TODAS as semanas no formato: Semana | Período | Leads | Δ% | Invest | Δ% | CPL | Δ% | CTR | Δ% (a primeira semana não tem Δ). Logo abaixo, repita o exercício com sub-tabelas por plataforma (Meta e Google). Após as tabelas, em 3-4 frases, comente as principais variações entre semanas — onde houve aceleração, onde houve atenção."
           : "Período principal cabe em uma única semana. Apresente os números agregados sem tabela comparativa entre semanas."],
-      ["Mês Corrente e Projeção",
-        `Apresente o acumulado do mês corrente até a data de fechamento e a comparação com o mesmo intervalo do mês anterior. Inclua a projeção (run-rate) para o fechamento do mês.
+      ["Mês Corrente vs Anterior",
+        `Apresente o acumulado do mês corrente até a data de fechamento e a comparação com o mesmo intervalo do mês anterior.
 
 Use TABELA com colunas: Plataforma | Leads (corrente) | Leads (anterior) | Δ Leads | Invest (corrente) | Invest (anterior) | Δ Invest | CPL (corrente) | CPL (anterior) | Δ CPL. Linhas: TOTAL, Meta, Google. TODAS as linhas DEVEM ter valores do mês anterior preenchidos — estão em "MÊS ANTERIOR" e em "VARIAÇÃO MÊS A MÊS". Não deixe Meta/Google com "—" no anterior.
 
-Após a tabela, mostre a projeção (run-rate). Comente em 2-3 frases se o ritmo está acima ou abaixo do mês anterior.
-
-NÃO inclua "nota metodológica" explicando o intervalo do mês anterior — as datas no contexto já são corretas e o leitor enxerga no cabeçalho da tabela.`],
+Após a tabela, comente em 2-3 frases as principais variações entre os meses (leads, invest, CPL). NÃO inclua projeção run-rate — foi removido a pedido do gestor. NÃO inclua "nota metodológica" explicando o intervalo do mês anterior — as datas no contexto já são corretas e o leitor enxerga no cabeçalho da tabela.`],
     ];
 
     if (hasPacing) {

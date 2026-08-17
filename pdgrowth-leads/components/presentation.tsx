@@ -387,13 +387,7 @@ function MonthlySlide({ d, analysis, observations }: { d: PresentationData; anal
           </tbody>
         </table>
       </div>
-      <div className="mt-6 grid grid-cols-2 gap-6">
-        <div className="bg-card border border-border rounded-2xl p-6">
-          <div className="text-xs uppercase tracking-widest text-text-muted mb-2">Projeção do mês (run-rate)</div>
-          <div className="text-3xl font-bold font-mono text-accent">{d.runRate.leads} leads</div>
-          <div className="text-lg font-mono text-blue mt-1">R$ {fmt(d.runRate.spend)} investimento</div>
-        </div>
-      </div>
+      {/* Projeção (run-rate) removida temporariamente a pedido do gestor. */}
       <ContextCallout analysis={analysis} observations={observations} />
     </SlideShell>
   );
