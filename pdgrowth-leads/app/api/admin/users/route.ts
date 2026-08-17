@@ -1,11 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
-import { verifySession, hashPassword, SESSION_COOKIE_NAME, COOKIE_LEGACY_ADMIN } from "@/lib/auth-session";
+import { verifySession, SESSION_COOKIE_NAME, COOKIE_LEGACY_ADMIN } from "@/lib/auth-session";
+import { hashPassword } from "@/lib/auth-password";
 
 // Endpoints de gestão de usuários — SÓ ADMIN pode chamar.
 // Admin = cookie legado (senha env) OU sessão com uid === "admin".
 
-function requireAdmin(req: NextRequest): { ok: true } | { ok: false; res: NextResponse } {
+async function requireAdmin(req: NextRequest): Promise<{ ok: true } | { ok: false; res: NextResponse }> {
   // Cookie legado (senha admin do env)
   const legacy = req.cookies.get(COOKIE_LEGACY_ADMIN)?.value;
   const expected = process.env.DASHBOARD_PASSWORD;
@@ -13,7 +14,7 @@ function requireAdmin(req: NextRequest): { ok: true } | { ok: false; res: NextRe
 
   // Cookie novo com sessão admin
   const raw = req.cookies.get(SESSION_COOKIE_NAME)?.value;
-  const session = verifySession(raw);
+  const session = await verifySession(raw);
   if (session && session.uid === "admin") return { ok: true };
 
   return { ok: false, res: NextResponse.json({ error: "Apenas admin pode gerenciar usuários." }, { status: 403 }) };
@@ -21,7 +22,7 @@ function requireAdmin(req: NextRequest): { ok: true } | { ok: false; res: NextRe
 
 // GET /api/admin/users — lista todos os usuários (sem hash de senha)
 export async function GET(req: NextRequest) {
-  const gate = requireAdmin(req);
+  const gate = await requireAdmin(req);
   if (!gate.ok) return gate.res;
 
   const supabase = createServiceClient();
@@ -37,7 +38,7 @@ export async function GET(req: NextRequest) {
 // Body: { email, password?, display_name?, allowed_clients[], allowed_pages[], is_readonly, active }
 // Se password vazio em UPDATE, mantém a hash existente.
 export async function POST(req: NextRequest) {
-  const gate = requireAdmin(req);
+  const gate = await requireAdmin(req);
   if (!gate.ok) return gate.res;
 
   const body = await req.json();
@@ -95,7 +96,7 @@ export async function POST(req: NextRequest) {
 
 // DELETE /api/admin/users?id=<uuid>
 export async function DELETE(req: NextRequest) {
-  const gate = requireAdmin(req);
+  const gate = await requireAdmin(req);
   if (!gate.ok) return gate.res;
 
   const id = req.nextUrl.searchParams.get("id");

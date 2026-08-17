@@ -5,7 +5,7 @@ import { verifySession, SESSION_COOKIE_NAME } from "@/lib/auth-session";
 // filtrar sidebar/header). Sem body de request; lê cookie assinado.
 export async function GET(req: NextRequest) {
   const raw = req.cookies.get(SESSION_COOKIE_NAME)?.value;
-  const session = verifySession(raw);
+  const session = await verifySession(raw);
   if (!session) {
     return NextResponse.json({ authenticated: false }, { status: 200 });
   }

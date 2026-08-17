@@ -1,13 +1,12 @@
-// Helpers de autenticação: hash de senha (scrypt) + cookie assinado (HMAC).
-// Sem dependências externas — usa `node:crypto` nativo.
+// Helpers de sessão: cookie assinado (HMAC-SHA256) via Web Crypto API.
+// Funciona no Edge Runtime (middleware) e no Node runtime (API routes).
+// Password hashing (scrypt) fica em lib/auth-password.ts — não importável
+// do middleware por depender de node:crypto.
 //
 // Cookies:
 //   - pdg_auth    (legado) — senha admin do env DASHBOARD_PASSWORD, sem restrições
 //   - pdg_session (novo)   — JSON assinado com dados do usuário (email, permissões)
 
-import { createHmac, randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
-
-// ─── Sessão ────────────────────────────────────────────────────────────────
 export interface SessionData {
   v: 1;                       // versão do schema
   uid: string;                // user id (uuid do Supabase) OU "admin"
@@ -21,35 +20,61 @@ export interface SessionData {
 const SESSION_TTL_MS = 60 * 60 * 24 * 30 * 1000; // 30 dias
 const COOKIE_SESSION = "pdg_session";
 export const COOKIE_LEGACY_ADMIN = "pdg_auth";
+export const SESSION_COOKIE_NAME = COOKIE_SESSION;
 
 function getSecret(): string {
-  // SESSION_SECRET pode ser qualquer string longa; fallback pro DASHBOARD_PASSWORD
-  // quando não configurado (não ideal em prod, mas evita quebrar por config faltando).
   return process.env.SESSION_SECRET ?? process.env.DASHBOARD_PASSWORD ?? "insecure-dev-secret-change-me";
 }
 
-export function signSession(data: Omit<SessionData, "v" | "exp">): string {
-  const payload: SessionData = { ...data, v: 1, exp: Date.now() + SESSION_TTL_MS };
-  const json = JSON.stringify(payload);
-  const b64 = Buffer.from(json).toString("base64url");
-  const sig = createHmac("sha256", getSecret()).update(b64).digest("base64url");
-  return `${b64}.${sig}`;
+// ─── base64url puro (sem depender de Buffer) ─────────────────────────────
+function base64urlEncode(bytes: Uint8Array): string {
+  let str = "";
+  for (let i = 0; i < bytes.length; i++) str += String.fromCharCode(bytes[i]);
+  return btoa(str).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 }
 
-export function verifySession(cookie: string | undefined | null): SessionData | null {
+function base64urlDecode(s: string): Uint8Array {
+  let t = s.replace(/-/g, "+").replace(/_/g, "/");
+  while (t.length % 4) t += "=";
+  const bin = atob(t);
+  const bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return bytes;
+}
+
+async function hmacKey(): Promise<CryptoKey> {
+  return crypto.subtle.importKey(
+    "raw",
+    new TextEncoder().encode(getSecret()),
+    { name: "HMAC", hash: "SHA-256" },
+    false,
+    ["sign", "verify"],
+  );
+}
+
+export async function signSession(data: Omit<SessionData, "v" | "exp">): Promise<string> {
+  const payload: SessionData = { ...data, v: 1, exp: Date.now() + SESSION_TTL_MS };
+  const b64 = base64urlEncode(new TextEncoder().encode(JSON.stringify(payload)));
+  const key = await hmacKey();
+  const sigBuf = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(b64));
+  return `${b64}.${base64urlEncode(new Uint8Array(sigBuf))}`;
+}
+
+export async function verifySession(cookie: string | undefined | null): Promise<SessionData | null> {
   if (!cookie || !cookie.includes(".")) return null;
   const [b64, sig] = cookie.split(".");
   if (!b64 || !sig) return null;
-  const expectedSig = createHmac("sha256", getSecret()).update(b64).digest("base64url");
   try {
-    const a = Buffer.from(sig);
-    const b = Buffer.from(expectedSig);
-    if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
-  } catch {
-    return null;
-  }
-  try {
-    const data = JSON.parse(Buffer.from(b64, "base64url").toString("utf-8")) as SessionData;
+    const key = await hmacKey();
+    const ok = await crypto.subtle.verify(
+      "HMAC",
+      key,
+      base64urlDecode(sig),
+      new TextEncoder().encode(b64),
+    );
+    if (!ok) return null;
+    const json = new TextDecoder().decode(base64urlDecode(b64));
+    const data = JSON.parse(json) as SessionData;
     if (data.v !== 1) return null;
     if (typeof data.exp !== "number" || data.exp < Date.now()) return null;
     return data;
@@ -58,36 +83,6 @@ export function verifySession(cookie: string | undefined | null): SessionData | 
   }
 }
 
-// ─── Password hashing (scrypt nativo) ──────────────────────────────────────
-// Formato armazenado: `scrypt$N=<n>$saltHex$hashHex`
-// N = cost (padrão 16384 = 2^14), r=8, p=1 — parâmetros OWASP-recomendados.
-const SCRYPT_N = 16384;
-const SCRYPT_R = 8;
-const SCRYPT_P = 1;
-const SCRYPT_KEYLEN = 64;
-
-export function hashPassword(plain: string): string {
-  const salt = randomBytes(16);
-  const hash = scryptSync(plain, salt, SCRYPT_KEYLEN, { N: SCRYPT_N, r: SCRYPT_R, p: SCRYPT_P });
-  return `scrypt$${SCRYPT_N}$${salt.toString("hex")}$${hash.toString("hex")}`;
-}
-
-export function verifyPassword(plain: string, stored: string): boolean {
-  const parts = stored.split("$");
-  if (parts.length !== 4 || parts[0] !== "scrypt") return false;
-  const n = parseInt(parts[1], 10);
-  const salt = Buffer.from(parts[2], "hex");
-  const expected = Buffer.from(parts[3], "hex");
-  if (!n || !salt.length || !expected.length) return false;
-  try {
-    const derived = scryptSync(plain, salt, expected.length, { N: n, r: SCRYPT_R, p: SCRYPT_P });
-    return derived.length === expected.length && timingSafeEqual(derived, expected);
-  } catch {
-    return false;
-  }
-}
-
-// ─── Sessão helper ────────────────────────────────────────────────────────
 // Sessão admin sintética (quando entra pela senha única do env).
 export function adminSessionData(): Omit<SessionData, "v" | "exp"> {
   return {
@@ -98,5 +93,3 @@ export function adminSessionData(): Omit<SessionData, "v" | "exp"> {
     ro: false,
   };
 }
-
-export const SESSION_COOKIE_NAME = COOKIE_SESSION;

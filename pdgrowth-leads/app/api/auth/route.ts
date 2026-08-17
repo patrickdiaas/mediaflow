@@ -2,11 +2,11 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
 import {
   signSession,
-  verifyPassword,
   adminSessionData,
   SESSION_COOKIE_NAME,
   COOKIE_LEGACY_ADMIN,
 } from "@/lib/auth-session";
+import { verifyPassword } from "@/lib/auth-password";
 
 // POST /api/auth
 // Body: { email?: string, password: string }
@@ -50,7 +50,7 @@ export async function POST(req: NextRequest) {
       maxAge: 60 * 60 * 24 * 30,
     });
     // Cookie novo com dados de sessão admin
-    res.cookies.set(SESSION_COOKIE_NAME, signSession(adminSessionData()), {
+    res.cookies.set(SESSION_COOKIE_NAME, await signSession(adminSessionData()), {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
   }
 
   const res = NextResponse.json({ ok: true, role: user.is_readonly ? "readonly" : "user" });
-  res.cookies.set(SESSION_COOKIE_NAME, signSession({
+  res.cookies.set(SESSION_COOKIE_NAME, await signSession({
     uid: user.id,
     email: user.email,
     ac: user.allowed_clients ?? [],

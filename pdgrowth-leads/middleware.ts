@@ -3,7 +3,7 @@ import { verifySession, SESSION_COOKIE_NAME, COOKIE_LEGACY_ADMIN } from "@/lib/a
 
 const PUBLIC_PATHS = ["/login", "/api/auth", "/api/webhooks", "/api/sync"];
 
-export function middleware(req: NextRequest) {
+export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
   // Rotas públicas (webhooks, auth endpoints, login page)
@@ -21,7 +21,7 @@ export function middleware(req: NextRequest) {
 
   // ─── Sessão nova (dashboard_users + JWT-like HMAC) ───────────────────
   const raw = req.cookies.get(SESSION_COOKIE_NAME)?.value;
-  const session = verifySession(raw);
+  const session = await verifySession(raw);
 
   if (!session) {
     // Sem sessão válida — vai pro login guardando o path original
