@@ -2,8 +2,10 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useDashboard } from "@/lib/dashboard-context";
-import { LayoutDashboard, Megaphone, Image, Users, Settings, ChevronLeft, ChevronRight, FileBarChart2, Sparkles, KeyRound, X } from "lucide-react";
+import { useSession, canAccessPage } from "@/lib/use-session";
+import { LayoutDashboard, Megaphone, Image, Users, Settings, ChevronLeft, ChevronRight, FileBarChart2, Sparkles, KeyRound, X, LogOut } from "lucide-react";
 import { useState } from "react";
+import { useRouter } from "next/navigation";
 
 function MetaIcon({ size = 14, active = false }: { size?: number; active?: boolean }) {
   const color = active ? "#CAFF04" : "#8888A0";
@@ -47,6 +49,18 @@ function SidebarContent({
 }) {
   const { platform, setPlatform } = useDashboard();
   const pathname = usePathname();
+  const session = useSession();
+  const router = useRouter();
+
+  // Filtra nav items pelas permissões da sessão.
+  // Admin (sessão sintética ou legacy cookie) vê tudo. Usuário limitado
+  // vê só o que allowed_pages permite.
+  const visibleNav = navItems.filter(item => canAccessPage(session, item.href));
+
+  async function handleLogout() {
+    await fetch("/api/auth/logout", { method: "POST" });
+    router.push("/login");
+  }
 
   return (
     <aside
@@ -92,7 +106,7 @@ function SidebarContent({
       )}
 
       <nav className="flex-1 px-2 pt-2 overflow-y-auto">
-        {navItems.map(item => {
+        {visibleNav.map(item => {
           const Icon = item.icon;
           const active = pathname === item.href;
           const platformMuted = item.platform === "google" && platform === "meta";
@@ -123,6 +137,25 @@ function SidebarContent({
           );
         })}
       </nav>
+
+      {/* Rodapé: usuário logado + botão sair (só quando não é o admin legado) */}
+      {!collapsed && session?.authenticated && (
+        <div className="px-3 py-2 border-t border-border">
+          {session.email && session.email !== "admin" && (
+            <div className="text-[10px] text-text-muted truncate mb-1" title={session.email}>
+              {session.email}
+              {session.is_readonly && <span className="ml-1 text-gold">· leitura</span>}
+            </div>
+          )}
+          <button
+            onClick={handleLogout}
+            className="w-full flex items-center gap-2 px-2 py-1.5 rounded text-[11px] text-text-muted hover:text-red hover:bg-card transition-colors"
+          >
+            <LogOut size={11} />
+            Sair
+          </button>
+        </div>
+      )}
 
       {!collapsed && (
         <div className="px-4 py-3 border-t border-border">

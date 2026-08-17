@@ -91,7 +91,7 @@ async function main() {
   const iUrl = col("URL da Conversão");
 
   // UTMs — RD exporta com nomes variados
-  const iUtmSource = col("utm_source");
+  const iUtmSource = col("utm_source") !== -1 ? col("utm_source") : col("utm source");
   const iUtmMedium = col("utm_medium");
   const iUtmCampaign = col("utm_campaign");
   const iUtmTerm = col("utm_term");

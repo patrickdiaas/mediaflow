@@ -6,6 +6,7 @@ import { supabase } from "@/lib/supabase";
 import { useDashboard } from "@/lib/dashboard-context";
 import { RefreshCw, FileText, FileSpreadsheet, Check, Link2, Plus, Trash2, Wallet, FileSearch } from "lucide-react";
 import { calcBudgetPacing, getMonthInfo } from "@/lib/budget-pacing";
+import UsersManagement from "@/components/users-management";
 
 interface BudgetRow {
   id: string;
@@ -744,6 +745,9 @@ export default function ConfiguracoesPage() {
                 </div>
               </section>
             )}
+
+            {/* Gestão de usuários — só admin vê */}
+            <UsersManagement />
           </div>
         )}
       </main>

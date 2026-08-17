@@ -1,13 +1,14 @@
 "use client";
 import { useState, FormEvent, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Lock, Eye, EyeOff, AlertCircle } from "lucide-react";
+import { Lock, Eye, EyeOff, AlertCircle, Mail } from "lucide-react";
 
 function LoginForm() {
   const router       = useRouter();
   const searchParams = useSearchParams();
   const from         = searchParams.get("from") ?? "/";
 
+  const [email,    setEmail]    = useState("");
   const [password, setPassword] = useState("");
   const [show,     setShow]     = useState(false);
   const [error,    setError]    = useState(false);
@@ -21,7 +22,7 @@ function LoginForm() {
     const res = await fetch("/api/auth", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ password }),
+      body: JSON.stringify({ email: email.trim() || undefined, password }),
     });
 
     if (res.ok) {
@@ -40,15 +41,33 @@ function LoginForm() {
         <Lock size={14} className="text-text-secondary" />
         <h1 className="text-sm font-semibold text-text-primary">Acesso restrito</h1>
       </div>
-      <p className="text-xs text-text-muted mb-5">Digite a senha para acessar o dashboard.</p>
+      <p className="text-xs text-text-muted mb-5">
+        Se você tem login de usuário, digite email + senha. Para acesso admin, deixe o email em branco.
+      </p>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
+      <form onSubmit={handleSubmit} className="space-y-3">
+        <div className="relative">
+          <Mail size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-text-muted" />
+          <input
+            type="email"
+            value={email}
+            onChange={e => setEmail(e.target.value)}
+            placeholder="Email (opcional para admin)"
+            autoComplete="username"
+            className={`w-full bg-bg border rounded-lg px-9 py-2.5 text-sm text-text-primary focus:outline-none transition-colors ${
+              error
+                ? "border-red/50 focus:border-red/70"
+                : "border-border focus:border-accent/40"
+            }`}
+          />
+        </div>
         <div className="relative">
           <input
             type={show ? "text" : "password"}
             value={password}
             onChange={e => setPassword(e.target.value)}
             placeholder="Senha"
+            autoComplete="current-password"
             autoFocus
             className={`w-full bg-bg border rounded-lg px-3 py-2.5 text-sm text-text-primary pr-10 focus:outline-none transition-colors ${
               error
@@ -68,7 +87,7 @@ function LoginForm() {
         {error && (
           <div className="flex items-center gap-1.5 text-red text-xs">
             <AlertCircle size={12} />
-            Senha incorreta.
+            Credenciais incorretas.
           </div>
         )}
 

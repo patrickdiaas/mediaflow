@@ -18,6 +18,7 @@ function fuzzyMatch(a: string, b: string): boolean {
   return smaller.length >= 1 && smaller.every(w => larger.includes(w));
 }
 import { useDashboard } from "@/lib/dashboard-context";
+import { useSession, isReadOnly } from "@/lib/use-session";
 import type { CreativeRow, Platform } from "@/lib/types";
 import { supabase } from "@/lib/supabase";
 import { getPeriodDates, getLeadDates } from "@/lib/period";
@@ -113,6 +114,8 @@ const periodOptions: { value: PeriodKey; label: string }[] = [
 
 export default function CriativosPage() {
   const { platform, client } = useDashboard();
+  const session = useSession();
+  const readOnly = isReadOnly(session);
   const [view, setView]         = useState<"grid" | "list" | "catalog">("grid");
   const [campaign, setCampaign] = useState<string>("all");
   const [sortBy, setSortBy]     = useState<SortKey>("cpl");
@@ -721,8 +724,9 @@ export default function CriativosPage() {
                           </a>
                         )}
                       </div>
-                      {/* Notas inline (motivo de pausa, observações) */}
-                      {client !== "all" && (
+                      {/* Notas inline (motivo de pausa, observações).
+                          Somente ADMIN/user com escrita pode adicionar/editar. */}
+                      {client !== "all" && !readOnly && (
                         <div className="mt-3 pt-3 border-t border-border">
                           {editingNote === c.ad_id ? (
                             <div className="space-y-2">

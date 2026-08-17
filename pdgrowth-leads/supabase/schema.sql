@@ -373,3 +373,32 @@ create policy "anon read ad_regions"     on ad_regions     for select using (tru
 create policy "anon read tracked_forms"  on tracked_forms  for select using (true);
 create policy "anon read keywords"       on keywords       for select using (true);
 create policy "anon read search_terms"   on search_terms   for select using (true);
+
+-- ─── Dashboard users ─────────────────────────────────────────────────────
+-- Usuários com acesso ao dashboard além do admin (senha única do env).
+-- Cada user pode ser restrito a certos clientes e páginas, com flag read-only.
+-- Cadastro manual (SQL) — sem UI de gestão por enquanto.
+--
+-- allowed_clients: array de slugs (ex: ARRAY['medsystems','negocioserredes'])
+--                  ou ARRAY['*'] pra permitir todos.
+-- allowed_pages:   array de rotas (ex: ARRAY['/','/campanhas','/criativos'])
+--                  ou ARRAY['*'] pra permitir todas.
+-- is_readonly:     esconde ações de escrita (edição de notas, aliases, etc).
+create table if not exists dashboard_users (
+  id                uuid primary key default gen_random_uuid(),
+  email             text unique not null,
+  password_hash     text not null,       -- formato: scrypt$N$saltHex$hashHex
+  display_name      text,
+  allowed_clients   text[] not null default '{}',
+  allowed_pages     text[] not null default '{}',
+  is_readonly       boolean not null default true,
+  active            boolean not null default true,
+  created_at        timestamptz default now(),
+  updated_at        timestamptz default now()
+);
+
+-- RLS: só service role acessa (frontend nunca lê essa tabela — endpoints com
+-- service key fazem toda validação).
+alter table dashboard_users enable row level security;
+-- Nenhuma policy pra anon → 0 acesso via anon key.
+
