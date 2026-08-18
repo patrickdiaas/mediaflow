@@ -33,13 +33,14 @@ function base64urlEncode(bytes: Uint8Array): string {
   return btoa(str).replace(/=/g, "").replace(/\+/g, "-").replace(/\//g, "_");
 }
 
-function base64urlDecode(s: string): Uint8Array {
+function base64urlDecode(s: string): ArrayBuffer {
   let t = s.replace(/-/g, "+").replace(/_/g, "/");
   while (t.length % 4) t += "=";
   const bin = atob(t);
-  const bytes = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
-  return bytes;
+  const buffer = new ArrayBuffer(bin.length);
+  const view = new Uint8Array(buffer);
+  for (let i = 0; i < bin.length; i++) view[i] = bin.charCodeAt(i);
+  return buffer;
 }
 
 async function hmacKey(): Promise<CryptoKey> {
