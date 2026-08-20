@@ -1396,6 +1396,7 @@ IMPORTANTE sobre formatação:
               }
             }
             return Array.from(merged.values())
+              .filter(p => p.spend > 0) // Só posicionamentos com investimento real
               .map(p => ({
                 ...p,
                 ctr: p.impressions > 0 ? (p.clicks / p.impressions) * 100 : 0,
