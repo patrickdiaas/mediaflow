@@ -234,7 +234,7 @@ export async function POST(req: NextRequest) {
       return results;
     };
 
-    const baseLeadsSelect = "id, converted_at, source, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, utm_term";
+    const baseLeadsSelect = "id, converted_at, source, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, utm_term, meta_ad_id, meta_adset_id, meta_campaign_id";
     const leadsByMedium = await fetchAllPages((from, to) => supabase
       .from("leads")
       .select(baseLeadsSelect)
@@ -416,11 +416,24 @@ export async function POST(req: NextRequest) {
       eventMaps,
     );
 
+    // Índice reverso: campaign_id → campaign_name (pra atribuição exata via
+    // meta_campaign_id em leads sem UTM útil — Meta Lead Ads nativo).
+    const campaignIdToName = new Map<string, string>();
+    for (const c of campAgg.values()) {
+      for (const id of c.campaignIds) campaignIdToName.set(id, c.name);
+    }
+
     // Atribui leads à campanha + identifica leads "sem match"
     // Agrupa por (utm_campaign + conversion_event) pra que leads sem utm_campaign
     // ainda apareçam separados por formulário/LP de origem (identificação útil).
     const unmatchedLeadsMap = new Map<string, { utm_campaign: string; conversion_event: string; utm_source: string | null; utm_content: string | null; count: number }>();
     for (const l of mainLeads) {
+      // Prioridade 0: match exato por meta_campaign_id (Meta Lead Ads / WhatsApp)
+      const metaCampId = (l as any).meta_campaign_id;
+      if (metaCampId) {
+        const name = campaignIdToName.get(metaCampId);
+        if (name) { campAgg.get(name)!.leads++; continue; }
+      }
       const result = attributeLead(l.utm_campaign, campIndex, l.conversion_event, (l as any)._brt_date);
       if (result.campaign_name) {
         campAgg.get(result.campaign_name)!.leads++;
@@ -481,9 +494,15 @@ export async function POST(req: NextRequest) {
     for (const l of mainLeads) {
       const wIdx = findWeekIdx(l._brt_date);
       if (wIdx === -1) continue;
-      const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event, l._brt_date);
-      if (!r.campaign_name) continue;
-      const arr = ensureCampaignWeekly(r.campaign_name);
+      let campName: string | null = null;
+      const metaCampId = (l as any).meta_campaign_id;
+      if (metaCampId) campName = campaignIdToName.get(metaCampId) ?? null;
+      if (!campName) {
+        const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event, l._brt_date);
+        campName = r.campaign_name ?? null;
+      }
+      if (!campName) continue;
+      const arr = ensureCampaignWeekly(campName);
       arr[wIdx].leads++;
     }
 
@@ -643,8 +662,16 @@ export async function POST(req: NextRequest) {
 
     for (const l of mainLeads) {
       let matched = false;
+      // Match 0: lead tem meta_ad_id preenchido (só meta_leadform/meta_whatsapp).
+      // Atribuição EXATA — resolve ambiguidade de ad_name duplicado entre conjuntos.
+      // Se o ad_id do lead não bate com nenhum criativo carregado no período (ex:
+      // sync desalinhado, criativo pausado sem spend), cai nos fallbacks normais.
+      if ((l as any).meta_ad_id) {
+        const byId = creativeAgg.get((l as any).meta_ad_id);
+        if (byId) { byId.leads++; matched = true; }
+      }
       // Tenta primeiro por utm_term (nome do criativo)
-      if (l.utm_term) {
+      if (!matched && l.utm_term) {
         // 1) Match exato. Quando há N candidatos com mesmo ad_name (criativo
         //    duplicado em ad sets diferentes), tenta desempatar via utm_content
         //    contra ad_set_name; só cai pro "maior spend" se nada casar.
@@ -736,12 +763,18 @@ export async function POST(req: NextRequest) {
         }
       }
       // Fallback 3: criativo dominante da campanha atribuída (leads sem utm_term
-      // NEM utm_content útil, recuperados via event_map/alias). Garante que soma
-      // dos criativos = total da campanha.
+      // NEM utm_content útil, recuperados via event_map/alias/meta_campaign_id).
+      // Garante que soma dos criativos = total da campanha.
       if (!matched) {
-        const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event, (l as any)._brt_date);
-        if (r.campaign_name) {
-          const domId = dominantCreativeId.get(r.campaign_name);
+        let campName: string | null = null;
+        const metaCampId = (l as any).meta_campaign_id;
+        if (metaCampId) campName = campaignIdToName.get(metaCampId) ?? null;
+        if (!campName) {
+          const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event, (l as any)._brt_date);
+          campName = r.campaign_name ?? null;
+        }
+        if (campName) {
+          const domId = dominantCreativeId.get(campName);
           const dom = domId ? creativeAgg.get(domId) : undefined;
           if (dom) dom.leads++;
         }

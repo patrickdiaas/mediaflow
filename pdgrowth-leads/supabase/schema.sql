@@ -42,6 +42,11 @@ create table if not exists leads (
   utm_campaign      text,
   utm_content       text,
   utm_term          text,
+  -- IDs deterministicos do Meta (só populados quando source in ('meta_leadform','meta_whatsapp'))
+  -- Usados pra atribuição exata quando o mesmo ad_name está em vários ad_sets.
+  meta_ad_id        text,
+  meta_adset_id     text,
+  meta_campaign_id  text,
   -- Timestamps
   converted_at      timestamptz,              -- quando converteu
   created_at        timestamptz default now(),

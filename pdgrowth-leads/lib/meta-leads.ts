@@ -54,6 +54,10 @@ export interface MappedLead {
   utm_campaign: string | null;
   utm_content: string | null;
   utm_term: string | null;
+  // IDs Meta pra atribuição exata quando ad_name está duplicado em múltiplos conjuntos
+  meta_ad_id: string | null;
+  meta_adset_id: string | null;
+  meta_campaign_id: string | null;
   converted_at: string;
   raw_payload: Record<string, unknown>;
 }
@@ -161,6 +165,9 @@ function mapLead(l: MetaLead, clientSlug: string): MappedLead {
     utm_campaign: l.campaign_name ?? null,
     utm_content:  l.ad_name ?? null,
     utm_term:     null,
+    meta_ad_id:       l.ad_id ?? null,
+    meta_adset_id:    l.adset_id ?? null,
+    meta_campaign_id: l.campaign_id ?? null,
     converted_at: l.created_time,
     raw_payload:  l as unknown as Record<string, unknown>,
   };
@@ -267,6 +274,9 @@ export async function syncMetaWhatsappForAccount(
         utm_campaign: row.campaign_name ?? null,
         utm_content: row.ad_name ?? null,
         utm_term: null,
+        meta_ad_id:       adId || null,
+        meta_adset_id:    row.adset_id ?? null,
+        meta_campaign_id: row.campaign_id ?? null,
         converted_at: convertedAt,
         raw_payload: {
           ad_id: adId,
