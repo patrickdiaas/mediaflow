@@ -419,8 +419,8 @@ export async function POST(req: NextRequest) {
     // Índice reverso: campaign_id → campaign_name (pra atribuição exata via
     // meta_campaign_id em leads sem UTM útil — Meta Lead Ads nativo).
     const campaignIdToName = new Map<string, string>();
-    for (const c of campAgg.values()) {
-      for (const id of c.campaignIds) campaignIdToName.set(id, c.name);
+    for (const c of Array.from(campAgg.values())) {
+      for (const id of Array.from(c.campaignIds)) campaignIdToName.set(id, c.name);
     }
 
     // Atribui leads à campanha + identifica leads "sem match"
