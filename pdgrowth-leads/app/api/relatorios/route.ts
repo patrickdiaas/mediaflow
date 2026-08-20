@@ -660,124 +660,117 @@ export async function POST(req: NextRequest) {
       return null;
     };
 
+    // ── Índices pré-computados: criativos POR CAMPANHA e POR (CAMPANHA + NOME) ──
+    // Restringir a atribuição de criativo ao pool da campanha atribuída elimina
+    // contaminação cruzada (leads de outras campanhas que "casam" por fuzzy match
+    // não vazam mais pra criativos desta).
+    type CreativeAggValue = ReturnType<typeof creativeAgg.get> extends infer T ? Exclude<T, undefined> : never;
+    const creativesByCampaignMap = new Map<string, CreativeAggValue[]>();
+    const creativesByCampaignAndName = new Map<string, Map<string, CreativeAggValue[]>>();
+    for (const c of Array.from(creativeAgg.values())) {
+      const arr = creativesByCampaignMap.get(c.campaign) ?? [];
+      arr.push(c);
+      creativesByCampaignMap.set(c.campaign, arr);
+
+      let byName = creativesByCampaignAndName.get(c.campaign);
+      if (!byName) { byName = new Map(); creativesByCampaignAndName.set(c.campaign, byName); }
+      const list = byName.get(c.name) ?? [];
+      list.push(c);
+      byName.set(c.name, list);
+    }
+
     for (const l of mainLeads) {
+      // ── Passo 1: descobre a CAMPANHA do lead. Sem campanha atribuída, o lead
+      //    NÃO conta em nenhum criativo (elimina contaminação cross-campanha).
+      let campName: string | null = null;
+      const metaCampId = (l as any).meta_campaign_id;
+      if (metaCampId) campName = campaignIdToName.get(metaCampId) ?? null;
+      if (!campName) {
+        const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event, (l as any)._brt_date);
+        campName = r.campaign_name ?? null;
+      }
+      if (!campName) continue; // lead não pertence a nenhuma campanha carregada
+
+      const campCreatives = creativesByCampaignMap.get(campName) ?? [];
+      if (campCreatives.length === 0) continue; // campanha sem criativos com spend
+
+      const campByName = creativesByCampaignAndName.get(campName) ?? new Map<string, CreativeAggValue[]>();
       let matched = false;
-      // Match 0: lead tem meta_ad_id preenchido (só meta_leadform/meta_whatsapp).
-      // Atribuição EXATA — resolve ambiguidade de ad_name duplicado entre conjuntos.
-      // Se o ad_id do lead não bate com nenhum criativo carregado no período (ex:
-      // sync desalinhado, criativo pausado sem spend), cai nos fallbacks normais.
+
+      // Passo 2a: meta_ad_id exato (só se pertence à mesma campanha)
       if ((l as any).meta_ad_id) {
         const byId = creativeAgg.get((l as any).meta_ad_id);
-        if (byId) { byId.leads++; matched = true; }
+        if (byId && byId.campaign === campName) { byId.leads++; matched = true; }
       }
-      // Tenta primeiro por utm_term (nome do criativo)
+
+      // Passo 2b: utm_term exato ou fuzzy — mas SÓ dentro dos criativos da campanha
       if (!matched && l.utm_term) {
-        // 1) Match exato. Quando há N candidatos com mesmo ad_name (criativo
-        //    duplicado em ad sets diferentes), tenta desempatar via utm_content
-        //    contra ad_set_name; só cai pro "maior spend" se nada casar.
-        const exactMatches = creativesByName.get(l.utm_term);
-        if (exactMatches && exactMatches.length > 0) {
-          let winner;
-          if (exactMatches.length === 1) {
-            winner = exactMatches[0];
-          } else {
-            winner = resolveAmbiguous(exactMatches, l.utm_content, l.utm_term)
-              ?? exactMatches.slice().sort((a, b) => b.spend - a.spend)[0];
-          }
-          winner.leads++;
-          matched = true;
+        const exact = campByName.get(l.utm_term);
+        if (exact && exact.length > 0) {
+          const winner = exact.length === 1
+            ? exact[0]
+            : (resolveAmbiguous(exact, l.utm_content, l.utm_term)
+                ?? exact.slice().sort((a, b) => b.spend - a.spend)[0]);
+          winner.leads++; matched = true;
         }
-        // 2) Senão, fuzzy match. Coleta TODOS os candidatos que casam e usa
-        //    o mesmo desempate por utm_content vs ad_set_name quando há N>1.
-        //    (Caso real: utm_term=`<ad_name>-02` não casa exato com `<ad_name>`,
-        //    mas casa fuzzy com os criativos de mesmo nome em ambos os conjuntos.)
         if (!matched) {
-          const fuzzyCandidates = Array.from(creativeAgg.values()).filter(e => fuzzyMatch(e.name, l.utm_term!));
-          if (fuzzyCandidates.length > 0) {
-            let winner;
-            if (fuzzyCandidates.length === 1) {
-              winner = fuzzyCandidates[0];
-            } else {
-              winner = resolveAmbiguous(fuzzyCandidates, l.utm_content, l.utm_term)
-                ?? fuzzyCandidates.slice().sort((a, b) => b.spend - a.spend)[0];
-            }
-            winner.leads++;
-            matched = true;
+          const fuzzy = campCreatives.filter(e => fuzzyMatch(e.name, l.utm_term!));
+          if (fuzzy.length > 0) {
+            const winner = fuzzy.length === 1
+              ? fuzzy[0]
+              : (resolveAmbiguous(fuzzy, l.utm_content, l.utm_term)
+                  ?? fuzzy.slice().sort((a, b) => b.spend - a.spend)[0]);
+            winner.leads++; matched = true;
           }
         }
       }
-      // Fallback 1: utm_term vazio mas utm_content casa com um ad_name. Ocorre
-      //   quando o gestor configura a LP com utm_content={{ad.name}} (ex: MedSystems
-      //   MPT). Sem esse caminho, todos os leads iriam pro criativo dominante.
+
+      // Passo 2c: utm_content = ad_name (SEM utm_term) — só dentro da campanha
       if (!matched && l.utm_content) {
-        const exactMatches = creativesByName.get(l.utm_content);
-        if (exactMatches && exactMatches.length > 0) {
-          let winner;
-          if (exactMatches.length === 1) {
-            winner = exactMatches[0];
-          } else {
-            // Ambíguo: mesmo nome em conjuntos diferentes. Sem utm_term nem outra
-            // pista, cai no maior spend (não temos como distinguir).
-            winner = exactMatches.slice().sort((a, b) => b.spend - a.spend)[0];
-          }
-          winner.leads++;
-          matched = true;
+        const exact = campByName.get(l.utm_content);
+        if (exact && exact.length > 0) {
+          const winner = exact.length === 1
+            ? exact[0]
+            : exact.slice().sort((a, b) => b.spend - a.spend)[0];
+          winner.leads++; matched = true;
         }
         if (!matched) {
-          // Tenta fuzzy no utm_content também
-          const fuzzyCandidates = Array.from(creativeAgg.values()).filter(e => fuzzyMatch(e.name, l.utm_content!));
-          if (fuzzyCandidates.length > 0) {
-            const winner = fuzzyCandidates.length === 1
-              ? fuzzyCandidates[0]
-              : fuzzyCandidates.slice().sort((a, b) => b.spend - a.spend)[0];
-            winner.leads++;
-            matched = true;
+          const fuzzy = campCreatives.filter(e => fuzzyMatch(e.name, l.utm_content!));
+          if (fuzzy.length > 0) {
+            const winner = fuzzy.length === 1
+              ? fuzzy[0]
+              : fuzzy.slice().sort((a, b) => b.spend - a.spend)[0];
+            winner.leads++; matched = true;
           }
         }
       }
-      // Fallback 2: utm_content casa com um ad_set_name (nome de conjunto).
-      //   Caso real MedSystems MPT: gestor configura utm_content=<nome do conjunto>
-      //   e utm_term=<ad_name com sufixo -02>. O utm_term não bate com ad_name real,
-      //   mas o utm_content casa com o conjunto — atribuímos ao dominante DAQUELE
-      //   conjunto (não da campanha inteira). Sem isso, leads do conjunto 02
-      //   iriam pro dominante da campanha (concentrado no conjunto 01).
+
+      // Passo 2d: utm_content casa com ad_set_name — restringe ao conjunto DA campanha
       if (!matched && l.utm_content) {
         const lc = l.utm_content.toLowerCase();
-        // Match exato ad_set_name
-        let dominantId = adSetNameToDominantId.get(lc) ?? null;
-        // Match "contém" — utm_content contém ad_set_name ou vice-versa
-        if (!dominantId) {
-          for (const [setName, adId] of Array.from(adSetNameToDominantId.entries())) {
-            if (lc.includes(setName) || setName.includes(lc)) { dominantId = adId; break; }
+        // dominante do ad_set (dentro da campanha) com esse nome
+        let winnerId: string | null = null;
+        for (const c of campCreatives) {
+          const setName = (c.ad_set_name ?? "").toLowerCase();
+          if (!setName) continue;
+          if (setName === lc || lc.includes(setName) || setName.includes(lc) || fuzzyMatch(setName, l.utm_content)) {
+            // pega o dominante desse ad_set (maior spend)
+            const setKey = `${campName}::${c.ad_set_name}`;
+            winnerId = dominantByAdSet.get(setKey) ?? c.ad_id;
+            break;
           }
         }
-        // Match fuzzy
-        if (!dominantId) {
-          for (const [setName, adId] of Array.from(adSetNameToDominantId.entries())) {
-            if (fuzzyMatch(setName, l.utm_content)) { dominantId = adId; break; }
-          }
-        }
-        if (dominantId) {
-          const dom = creativeAgg.get(dominantId);
-          if (dom) { dom.leads++; matched = true; }
+        if (winnerId) {
+          const w = creativeAgg.get(winnerId);
+          if (w) { w.leads++; matched = true; }
         }
       }
-      // Fallback 3: criativo dominante da campanha atribuída (leads sem utm_term
-      // NEM utm_content útil, recuperados via event_map/alias/meta_campaign_id).
-      // Garante que soma dos criativos = total da campanha.
+
+      // Passo 2e: fallback final — dominante da campanha
       if (!matched) {
-        let campName: string | null = null;
-        const metaCampId = (l as any).meta_campaign_id;
-        if (metaCampId) campName = campaignIdToName.get(metaCampId) ?? null;
-        if (!campName) {
-          const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event, (l as any)._brt_date);
-          campName = r.campaign_name ?? null;
-        }
-        if (campName) {
-          const domId = dominantCreativeId.get(campName);
-          const dom = domId ? creativeAgg.get(domId) : undefined;
-          if (dom) dom.leads++;
-        }
+        const domId = dominantCreativeId.get(campName);
+        const dom = domId ? creativeAgg.get(domId) : undefined;
+        if (dom) dom.leads++;
       }
     }
     const allCreativesWithSpend = Array.from(creativeAgg.values())
