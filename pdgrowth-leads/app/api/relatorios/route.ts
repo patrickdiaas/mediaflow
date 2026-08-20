@@ -1389,7 +1389,7 @@ IMPORTANTE sobre formatação:
               }
             }
             return Array.from(merged.values())
-              .filter(p => p.spend > 0) // Só posicionamentos com investimento real
+              .filter(p => p.conversions > 0) // Só posicionamentos que geraram conversão
               .map(p => ({
                 ...p,
                 ctr: p.impressions > 0 ? (p.clicks / p.impressions) * 100 : 0,
