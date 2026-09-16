@@ -27,6 +27,7 @@ import { filterCampaignLeads } from "@/lib/leads-filter";
 import { buildAttributionIndex, attributeLead, type CampaignAlias, type EventToCampaign } from "@/lib/campaign-attribution";
 import { getPeriodDates, getLeadDates } from "@/lib/period";
 import { fetchCampaignGroups, type CampaignBudgetGroup } from "@/lib/campaign-groups";
+import { fetchAllRows } from "@/lib/fetch-all-rows";
 import Funnel from "@/components/funnel";
 import Image from "next/image";
 
@@ -134,26 +135,52 @@ export default function CampanhasPage() {
       const groups = await fetchCampaignGroups(supabase, client);
       setCampaignGroups(groups);
 
-      const baseCamp = supabase.from("ad_campaigns").select("campaign_id,campaign_name,platform,status,impressions,clicks,spend,landing_page_views,lead_form_submissions").gte("date", since).lte("date", until);
-      const baseSets = supabase.from("ad_sets").select("ad_set_id,ad_set_name,campaign_name,platform,status,impressions,clicks,spend").gte("date", since).lte("date", until);
-      const baseAds  = supabase.from("ad_creatives").select("ad_id,ad_name,campaign_name,platform,status,creative_type,thumbnail_url,video_url,permalink_url,headline,impressions,clicks,spend,frequency,placement").gte("date", since).lte("date", until);
-
-      const qCamp = metaSlug ? (platform !== "all" ? baseCamp.eq("platform", platform) : baseCamp).eq("client_slug", metaSlug) : (platform !== "all" ? baseCamp.eq("platform", platform) : baseCamp);
-      const qSets = metaSlug ? (platform !== "all" ? baseSets.eq("platform", platform) : baseSets).eq("client_slug", metaSlug) : (platform !== "all" ? baseSets.eq("platform", platform) : baseSets);
-      const qAds  = metaSlug ? (platform !== "all" ? baseAds.eq("platform", platform) : baseAds).eq("client_slug", metaSlug) : (platform !== "all" ? baseAds.eq("platform", platform) : baseAds);
-
-      const baseLeads = supabase.from("leads").select("id, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, utm_term, converted_at").gte("converted_at", leadSince).lte("converted_at", leadUntil);
-      const filteredLeads = filterCampaignLeads(baseLeads, eventList);
-      const qLeads = metaSlug ? filteredLeads.eq("client_slug", metaSlug) : filteredLeads;
+      // Supabase corta em 1000 linhas por request sem .range() explícito —
+      // com mais clientes/dias/campanhas, "Todas as contas" já passa disso
+      // e perde campanhas de forma dependente da ordem física da tabela
+      // (foi assim que a Demand Gen sumiu da tabela de Campanhas).
+      const makeCampQ = (from: number, to: number) => {
+        let q = supabase.from("ad_campaigns").select("campaign_id,campaign_name,platform,status,impressions,clicks,spend,landing_page_views,lead_form_submissions").gte("date", since).lte("date", until);
+        if (platform !== "all") q = q.eq("platform", platform);
+        if (metaSlug) q = q.eq("client_slug", metaSlug);
+        return q.range(from, to);
+      };
+      const makeSetsQ = (from: number, to: number) => {
+        let q = supabase.from("ad_sets").select("ad_set_id,ad_set_name,campaign_name,platform,status,impressions,clicks,spend").gte("date", since).lte("date", until);
+        if (platform !== "all") q = q.eq("platform", platform);
+        if (metaSlug) q = q.eq("client_slug", metaSlug);
+        return q.range(from, to);
+      };
+      const makeAdsQ = (from: number, to: number) => {
+        let q = supabase.from("ad_creatives").select("ad_id,ad_name,campaign_name,platform,status,creative_type,thumbnail_url,video_url,permalink_url,headline,impressions,clicks,spend,frequency,placement").gte("date", since).lte("date", until);
+        if (platform !== "all") q = q.eq("platform", platform);
+        if (metaSlug) q = q.eq("client_slug", metaSlug);
+        return q.range(from, to);
+      };
+      const makeLeadsQ = (from: number, to: number) => {
+        const base = supabase.from("leads").select("id, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, utm_term, converted_at").gte("converted_at", leadSince).lte("converted_at", leadUntil);
+        let q = filterCampaignLeads(base, eventList);
+        if (metaSlug) q = q.eq("client_slug", metaSlug);
+        return q.range(from, to);
+      };
 
       const aliasQ = metaSlug
         ? supabase.from("campaign_aliases").select("alias_utm_campaign, target_campaign_name, since, until").eq("client_slug", metaSlug)
         : supabase.from("campaign_aliases").select("alias_utm_campaign, target_campaign_name, since, until");
 
-      Promise.all([qCamp, qSets, qAds, qLeads, aliasQ]).then(([campRes, setsRes, adsRes, leadsRes, aliasRes]) => {
+      Promise.all([
+        fetchAllRows(makeCampQ),
+        fetchAllRows(makeSetsQ),
+        fetchAllRows(makeAdsQ),
+        fetchAllRows(makeLeadsQ),
+        aliasQ,
+      ]).then(([campRows, setsRows, adsRows, leadsRows, aliasRes]) => {
         if (cancelled) return;
+        const campRes = { data: campRows };
+        const setsRes = { data: setsRows };
+        const adsRes = { data: adsRows };
         const aliases = (aliasRes.data ?? []) as CampaignAlias[];
-      const allLeadsData = leadsRes.data ?? [];
+      const allLeadsData = leadsRows ?? [];
       // Filtra leads pela plataforma selecionada
       const leadsData = platform === "all" ? allLeadsData : allLeadsData.filter((l: any) => {
         const src = (l.utm_source ?? "").toLowerCase();

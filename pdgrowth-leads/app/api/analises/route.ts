@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase";
 import { filterCampaignLeads, isCampaignLead } from "@/lib/leads-filter";
 import { buildAttributionIndex, attributeLead, fetchAliases, fetchEventMaps } from "@/lib/campaign-attribution";
+import { fetchAllRows } from "@/lib/fetch-all-rows";
 
 export const maxDuration = 300; // 5 min — Vercel Pro
 
@@ -83,16 +84,17 @@ REGRAS:
     const mappedEventsSet = new Set(eventMaps.map(e => e.conversion_event));
     const mappedEventsList = Array.from(mappedEventsSet);
 
-    const leadsBase = supabase
-      .from("leads")
-      .select("id, converted_at, source, lead_email, lead_name, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, utm_term")
-      .eq("client_slug", client)
-      .gte("converted_at", leadSince)
-      .lte("converted_at", leadUntil);
-    const { data: leadsRawAll } = await filterCampaignLeads(leadsBase, mappedEventsList);
-    const leadsRaw = (leadsRawAll ?? []).filter((l: any) => isCampaignLead(l, mappedEventsSet));
-
-    const leads = leadsRaw ?? [];
+    // Supabase corta em 1000 linhas por request sem .range() — pagina com fetchAllRows.
+    const leadsRawAll = await fetchAllRows((from, to) => {
+      const leadsBase = supabase
+        .from("leads")
+        .select("id, converted_at, source, lead_email, lead_name, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, utm_term")
+        .eq("client_slug", client)
+        .gte("converted_at", leadSince)
+        .lte("converted_at", leadUntil);
+      return filterCampaignLeads(leadsBase, mappedEventsList).range(from, to);
+    });
+    const leads = leadsRawAll.filter((l: any) => isCampaignLead(l, mappedEventsSet));
 
     if (leads.length === 0) {
       return NextResponse.json({ error: "Nenhum lead encontrado no período selecionado." }, { status: 400 });
@@ -120,12 +122,13 @@ REGRAS:
     }
 
     // ── 2. Ad Campaigns (Meta + Google) ──────────────────────────────────────
-    const { data: adCampaigns } = await supabase
+    const adCampaigns = await fetchAllRows((from, to) => supabase
       .from("ad_campaigns")
       .select("campaign_id, campaign_name, platform, status, impressions, clicks, spend, reach, landing_page_views, lead_form_submissions")
       .eq("client_slug", client)
       .gte("date", dateSince)
-      .lte("date", dateUntil);
+      .lte("date", dateUntil)
+      .range(from, to));
 
     const campAgg = new Map<string, {
       name: string; platform: string; campaignIds: Set<string>; status: string;

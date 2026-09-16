@@ -15,6 +15,7 @@ import {
   fetchEventMaps,
 } from "@/lib/campaign-attribution";
 import { isCampaignLead } from "@/lib/leads-filter";
+import { fetchAllRows } from "@/lib/fetch-all-rows";
 
 const fmt = (n: number) =>
   Number(n ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -78,15 +79,17 @@ async function buildClientReport(clientSlug: string, since: string, until: strin
   const supabase = createServiceClient();
 
   // ── 1. Campanhas (somatório do período) ───────────────────────────────────
-  const { data: campsRaw } = await supabase
+  // Supabase corta em 1000 linhas por request sem .range() — pagina com fetchAllRows.
+  const campsRaw = await fetchAllRows((from, to) => supabase
     .from("ad_campaigns")
     .select("platform, campaign_id, campaign_name, status, spend, impressions, clicks, date")
     .eq("client_slug", clientSlug)
     .gte("date", since)
-    .lte("date", until);
+    .lte("date", until)
+    .range(from, to));
 
   const campMap = new Map<string, CampaignAgg>();
-  for (const r of campsRaw ?? []) {
+  for (const r of campsRaw) {
     const key = `${r.platform}::${r.campaign_id}`;
     const ex = campMap.get(key);
     if (ex) {
@@ -119,14 +122,15 @@ async function buildClientReport(clientSlug: string, since: string, until: strin
   // BRT adjustment para alinhar com período
   const since00 = `${since}T00:00:00Z`;
   const until23 = `${until}T23:59:59Z`;
-  const { data: leadsRaw } = await supabase
+  const leadsRaw = await fetchAllRows((from, to) => supabase
     .from("leads")
     .select("converted_at, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, utm_term, source")
     .eq("client_slug", clientSlug)
     .gte("converted_at", since00)
-    .lte("converted_at", until23);
+    .lte("converted_at", until23)
+    .range(from, to));
 
-  const leads = (leadsRaw ?? []).filter(l => isCampaignLead(l, eventSet));
+  const leads = leadsRaw.filter(l => isCampaignLead(l, eventSet));
 
   // Constrói índice de atribuição
   const campsForIndex = Array.from(campMap.values()).map(c => ({

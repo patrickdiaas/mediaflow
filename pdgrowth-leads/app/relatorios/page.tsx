@@ -9,6 +9,7 @@ import {
   ListChecks, Plus, Trash2, ChevronDown, ChevronRight, BookmarkPlus, NotebookPen, Presentation as PresentationIcon, Wallet,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
+import { fetchAllRows } from "@/lib/fetch-all-rows";
 import Presentation from "@/components/presentation";
 
 type ReportType = "semanal" | "quinzenal" | "mensal";
@@ -267,12 +268,13 @@ export default function RelatoriosPage() {
   async function fetchCampaignNames() {
     if (client === "all") { setCampaignNames([]); return; }
     const since = new Date(); since.setDate(since.getDate() - 90);
-    const { data } = await supabase
+    const data = await fetchAllRows((from, to) => supabase
       .from("ad_campaigns")
       .select("campaign_name")
       .eq("client_slug", client)
-      .gte("date", since.toISOString().slice(0, 10));
-    const names = Array.from(new Set((data ?? []).map((c: any) => c.campaign_name).filter(Boolean))).sort() as string[];
+      .gte("date", since.toISOString().slice(0, 10))
+      .range(from, to));
+    const names = Array.from(new Set(data.map((c: any) => c.campaign_name).filter(Boolean))).sort() as string[];
     setCampaignNames(names);
   }
 

@@ -14,6 +14,7 @@ import { filterCampaignLeads, isCampaignLead } from "@/lib/leads-filter";
 import { buildAttributionIndex, attributeLead, fetchAliases, fetchEventMaps, type CampaignAlias, type EventToCampaign } from "@/lib/campaign-attribution";
 import { calcBudgetPacing, getMonthInfo, type BudgetPacingResult } from "@/lib/budget-pacing";
 import { fetchCampaignGroups, splitByBudgetGroup } from "@/lib/campaign-groups";
+import { fetchAllRows } from "@/lib/fetch-all-rows";
 import type { Platform, KPIData, DonutSlice, HorizontalBarItem, TrendPoint, RegionRow, FunnelStep } from "@/lib/types";
 import { RefreshCw, Calendar, Building2, Menu, Megaphone, Trophy, CalendarDays, CalendarRange, Wallet } from "lucide-react";
 
@@ -247,30 +248,37 @@ export default function OverviewPage() {
     const mappedEventsList = Array.from(mappedEventsSet);
 
     // Leads no período (BRT) — só leads de campanha (utm_medium whitelist OU event mapeado, exceto CRM)
-    const leadsBase = supabase
-      .from("leads")
-      .select("id, lead_email, lead_name, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, converted_at, source")
-      .gte("converted_at", leadSince)
-      .lte("converted_at", leadUntil);
-    const leadsQ = filterCampaignLeads(leadsBase, mappedEventsList);
-    if (metaSlug) leadsQ.eq("client_slug", metaSlug);
-    const { data: leadsData } = await leadsQ;
+    // Supabase corta em 1000 linhas por request sem .range() explícito — com mais
+    // clientes/dias/campanhas, "Todas as contas" já passa disso e perde registros
+    // de forma dependente da ordem física da tabela. Pagina com fetchAllRows.
+    const leadsData = await fetchAllRows((from, to) => {
+      const leadsBase = supabase
+        .from("leads")
+        .select("id, lead_email, lead_name, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, converted_at, source")
+        .gte("converted_at", leadSince)
+        .lte("converted_at", leadUntil);
+      let q = filterCampaignLeads(leadsBase, mappedEventsList);
+      if (metaSlug) q = q.eq("client_slug", metaSlug);
+      return q.range(from, to);
+    });
     // Filtra leads por plataforma: facebook/instagram = meta, google = google
-    const allLeads = (leadsData ?? []).filter((l: any) => isCampaignLead(l, mappedEventsSet));
+    const allLeads = leadsData.filter((l: any) => isCampaignLead(l, mappedEventsSet));
     // Campanhas (spend, impressions, clicks, reach) — carregado ANTES de filtrar plataforma
     // porque precisamos do mapa nome→plataforma pra inferir a plataforma de leads
     // sem utm_source válido (atribuídos via event_map ou alias).
-    const adQ = supabase.from("ad_campaigns")
-      .select("campaign_id, campaign_name, date, spend, impressions, clicks, reach, landing_page_views, lead_form_submissions, platform")
-      .gte("date", since).lte("date", until);
-    if (metaSlug) adQ.eq("client_slug", metaSlug);
-    const { data: adData } = await adQ;
+    const adData = await fetchAllRows((from, to) => {
+      let q = supabase.from("ad_campaigns")
+        .select("campaign_id, campaign_name, date, spend, impressions, clicks, reach, landing_page_views, lead_form_submissions, platform")
+        .gte("date", since).lte("date", until);
+      if (metaSlug) q = q.eq("client_slug", metaSlug);
+      return q.range(from, to);
+    });
 
     // Campanhas com verba separada (ex: Keep It Real) não entram no investimento
     // total nem no pacing — são reportadas à parte, agrupadas por group_name.
     const campaignGroups = await fetchCampaignGroups(supabase, client);
     const { regular: allAdsUnfiltered, grouped: groupedAdsMap } = splitByBudgetGroup(
-      (adData ?? []) as any[],
+      adData as any[],
       campaignGroups,
     );
     setBudgetGroups(
@@ -379,13 +387,15 @@ export default function OverviewPage() {
     }
     // Buscar conversões Google por campaign_id (keywords)
     const googleConvByCamp = new Map<string, number>();
-    const kwQ = supabase.from("keywords")
-      .select("campaign_id, conversions")
-      .eq("platform", "google")
-      .gte("date", since).lte("date", until);
-    if (metaSlug) kwQ.eq("client_slug", metaSlug);
-    const { data: kwData } = await kwQ;
-    for (const k of (kwData ?? [])) {
+    const kwData = await fetchAllRows((from, to) => {
+      let q = supabase.from("keywords")
+        .select("campaign_id, conversions")
+        .eq("platform", "google")
+        .gte("date", since).lte("date", until);
+      if (metaSlug) q = q.eq("client_slug", metaSlug);
+      return q.range(from, to);
+    });
+    for (const k of kwData) {
       const cid = k.campaign_id;
       googleConvByCamp.set(cid, (googleConvByCamp.get(cid) ?? 0) + Number(k.conversions ?? 0));
     }
@@ -557,12 +567,13 @@ export default function OverviewPage() {
       const mi = getMonthInfo();
       const monthStart = `${mi.yearMonth}-01`;
       const monthEnd = `${mi.yearMonth}-${String(mi.daysInMonth).padStart(2, "0")}`;
-      const { data: monthAds } = await supabase.from("ad_campaigns")
+      const monthAds = await fetchAllRows((from, to) => supabase.from("ad_campaigns")
         .select("campaign_name, date, platform, spend")
         .eq("client_slug", metaSlug)
-        .gte("date", monthStart).lte("date", monthEnd);
+        .gte("date", monthStart).lte("date", monthEnd)
+        .range(from, to));
       // Verba separada não conta pro pacing do orçamento regular.
-      const { regular: monthAdsRegular } = splitByBudgetGroup((monthAds ?? []) as any[], campaignGroups);
+      const { regular: monthAdsRegular } = splitByBudgetGroup(monthAds as any[], campaignGroups);
       const realByPlat = { total: 0, meta: 0, google: 0 };
       for (const r of monthAdsRegular) {
         const v = Number(r.spend);

@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";
 import Sidebar from "@/components/sidebar";
 import Header from "@/components/header";
 import { supabase } from "@/lib/supabase";
+import { fetchAllRows } from "@/lib/fetch-all-rows";
 import { useDashboard } from "@/lib/dashboard-context";
 import { RefreshCw, FileText, FileSpreadsheet, Check, Link2, Plus, Trash2, Wallet, FileSearch, SplitSquareHorizontal } from "lucide-react";
 import { calcBudgetPacing, getMonthInfo } from "@/lib/budget-pacing";
@@ -141,12 +142,13 @@ export default function ConfiguracoesPage() {
   async function fetchCampaignNames() {
     if (client === "all") { setAdCampaignNames([]); return; }
     const since = new Date(); since.setDate(since.getDate() - 90);
-    const { data } = await supabase
+    const data = await fetchAllRows((from, to) => supabase
       .from("ad_campaigns")
       .select("campaign_name")
       .eq("client_slug", client)
-      .gte("date", since.toISOString().slice(0, 10));
-    const names = Array.from(new Set((data ?? []).map((c: any) => c.campaign_name).filter(Boolean))).sort() as string[];
+      .gte("date", since.toISOString().slice(0, 10))
+      .range(from, to));
+    const names = Array.from(new Set(data.map((c: any) => c.campaign_name).filter(Boolean))).sort() as string[];
     setAdCampaignNames(names);
   }
 

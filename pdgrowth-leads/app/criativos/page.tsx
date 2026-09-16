@@ -24,6 +24,7 @@ import { supabase } from "@/lib/supabase";
 import { getPeriodDates, getLeadDates } from "@/lib/period";
 import { filterCampaignLeads } from "@/lib/leads-filter";
 import { buildAttributionIndex, attributeLead, type CampaignAlias, type EventToCampaign } from "@/lib/campaign-attribution";
+import { fetchAllRows } from "@/lib/fetch-all-rows";
 import { LayoutGrid, List, ArrowUpDown, Download, ExternalLink, BookOpen } from "lucide-react";
 import Image from "next/image";
 
@@ -208,32 +209,46 @@ export default function CriativosPage() {
     const eventMaps = (evMapData ?? []) as EventToCampaign[];
     const eventList = eventMaps.map(e => e.conversion_event);
 
-    const base = supabase.from("ad_creatives")
-      .select("ad_id,ad_name,campaign_name,ad_set_name,platform,creative_type,thumbnail_url,thumbnail_stored_url,video_url,permalink_url,headline,status,impressions,clicks,spend,frequency,placement,date,created_at_meta")
-      .gte("date", since).lte("date", until)
-      .limit(50000);
-    const q1 = platform !== "all" ? base.eq("platform", platform) : base;
-    const qAds = metaSlug ? q1.eq("client_slug", metaSlug) : q1;
+    // Supabase corta em 1000 linhas por request (db-max-rows), mesmo com
+    // .limit(50000) explícito — só pagina de verdade com .range() em loop.
+    const makeAdsQ = (from: number, to: number) => {
+      let q = supabase.from("ad_creatives")
+        .select("ad_id,ad_name,campaign_name,ad_set_name,platform,creative_type,thumbnail_url,thumbnail_stored_url,video_url,permalink_url,headline,status,impressions,clicks,spend,frequency,placement,date,created_at_meta")
+        .gte("date", since).lte("date", until);
+      if (platform !== "all") q = q.eq("platform", platform);
+      if (metaSlug) q = q.eq("client_slug", metaSlug);
+      return q.range(from, to);
+    };
 
-    const baseLeads = supabase.from("leads")
-      .select("utm_source, utm_term, utm_content, utm_campaign, conversion_event, converted_at")
-      .gte("converted_at", leadSince)
-      .lte("converted_at", leadUntil)
-      .limit(50000);
-    const filteredLeads = filterCampaignLeads(baseLeads, eventList);
-    const qLeads = metaSlug ? filteredLeads.eq("client_slug", metaSlug) : filteredLeads;
+    const makeLeadsQ = (from: number, to: number) => {
+      const baseLeads = supabase.from("leads")
+        .select("utm_source, utm_term, utm_content, utm_campaign, conversion_event, converted_at")
+        .gte("converted_at", leadSince)
+        .lte("converted_at", leadUntil);
+      let q = filterCampaignLeads(baseLeads, eventList);
+      if (metaSlug) q = q.eq("client_slug", metaSlug);
+      return q.range(from, to);
+    };
 
     // Query for real first date of each creative (no period filter)
-    const baseFirstDate = supabase.from("ad_creatives")
-      .select("ad_id, date")
-      .order("date", { ascending: true });
-    const qFirstDate = metaSlug ? baseFirstDate.eq("client_slug", metaSlug) : baseFirstDate;
+    const makeFirstDateQ = (from: number, to: number) => {
+      let q = supabase.from("ad_creatives")
+        .select("ad_id, date")
+        .order("date", { ascending: true });
+      if (metaSlug) q = q.eq("client_slug", metaSlug);
+      return q.range(from, to);
+    };
 
     const aliasQ = metaSlug
       ? supabase.from("campaign_aliases").select("alias_utm_campaign, target_campaign_name, since, until").eq("client_slug", metaSlug)
       : supabase.from("campaign_aliases").select("alias_utm_campaign, target_campaign_name, since, until");
 
-    Promise.all([qAds, qLeads, qFirstDate, aliasQ]).then(([{ data: rows }, { data: rawLeads }, { data: firstDateRows }, { data: aliasData }]) => {
+    Promise.all([
+      fetchAllRows(makeAdsQ),
+      fetchAllRows(makeLeadsQ),
+      fetchAllRows(makeFirstDateQ),
+      aliasQ,
+    ]).then(([rows, rawLeads, firstDateRows, { data: aliasData }]) => {
       if (cancelled) return;
       const aliases = (aliasData ?? []) as CampaignAlias[];
       setLoading(false);

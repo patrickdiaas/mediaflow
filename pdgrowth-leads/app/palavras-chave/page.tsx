@@ -6,6 +6,7 @@ import DataTable, { Column } from "@/components/data-table";
 import { useDashboard } from "@/lib/dashboard-context";
 import { supabase } from "@/lib/supabase";
 import { getPeriodDates } from "@/lib/period";
+import { fetchAllRows } from "@/lib/fetch-all-rows";
 import type { KeywordRow, SearchTermRow } from "@/lib/types";
 import { AlertCircle, Search, Tag } from "lucide-react";
 
@@ -85,17 +86,24 @@ export default function PalavrasChavePage() {
     setLoading(true);
     const slug = client !== "all" ? client : null;
 
-    const kBase = supabase.from("keywords")
-      .select("keyword_id,campaign_name,ad_group_name,keyword_text,match_type,impressions,clicks,spend,conversions")
-      .gte("date", since).lte("date", until);
-    const kQuery = slug ? kBase.eq("client_slug", slug) : kBase;
+    // Supabase corta em 1000 linhas por request sem .range() — pagina com fetchAllRows.
+    const makeKQuery = (from: number, to: number) => {
+      let q = supabase.from("keywords")
+        .select("keyword_id,campaign_name,ad_group_name,keyword_text,match_type,impressions,clicks,spend,conversions")
+        .gte("date", since).lte("date", until);
+      if (slug) q = q.eq("client_slug", slug);
+      return q.range(from, to);
+    };
 
-    const stBase = supabase.from("search_terms")
-      .select("campaign_name,ad_group_name,keyword_text,search_term,impressions,clicks,spend,conversions")
-      .gte("date", since).lte("date", until);
-    const stQuery = slug ? stBase.eq("client_slug", slug) : stBase;
+    const makeStQuery = (from: number, to: number) => {
+      let q = supabase.from("search_terms")
+        .select("campaign_name,ad_group_name,keyword_text,search_term,impressions,clicks,spend,conversions")
+        .gte("date", since).lte("date", until);
+      if (slug) q = q.eq("client_slug", slug);
+      return q.range(from, to);
+    };
 
-    Promise.all([kQuery, stQuery]).then(([{ data: kRows }, { data: stRows }]) => {
+    Promise.all([fetchAllRows(makeKQuery), fetchAllRows(makeStQuery)]).then(([kRows, stRows]) => {
       setLoading(false);
 
       // Extrair nomes de campanhas para o seletor

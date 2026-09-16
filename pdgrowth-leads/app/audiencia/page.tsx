@@ -4,6 +4,7 @@ import Sidebar from "@/components/sidebar";
 import Header from "@/components/header";
 import { supabase } from "@/lib/supabase";
 import { useDashboard } from "@/lib/dashboard-context";
+import { fetchAllRows } from "@/lib/fetch-all-rows";
 import { RefreshCw, FileSpreadsheet, AlertCircle } from "lucide-react";
 
 interface TrackedForm {
@@ -79,11 +80,15 @@ export default function AudienciaPage() {
 
     // Busca emails dos leads para cruzar conversão
     const slug = client === "all" ? null : client;
-    const leadsQ = supabase.from("leads").select("lead_email");
-    const { data: leadsData } = await (slug ? leadsQ.eq("client_slug", slug) : leadsQ);
+    // Supabase corta em 1000 linhas por request sem .range() — pagina com fetchAllRows.
+    const leadsData = await fetchAllRows((from, to) => {
+      let q = supabase.from("leads").select("lead_email");
+      if (slug) q = q.eq("client_slug", slug);
+      return q.range(from, to);
+    });
 
     const leadEmails = new Set(
-      (leadsData ?? []).map((l: any) => l.lead_email?.toLowerCase()).filter(Boolean)
+      leadsData.map((l: any) => l.lead_email?.toLowerCase()).filter(Boolean)
     );
 
     const questionCols = sheetHeaders.filter((h: string) => {
