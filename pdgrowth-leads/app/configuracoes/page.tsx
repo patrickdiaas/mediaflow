@@ -4,7 +4,7 @@ import Sidebar from "@/components/sidebar";
 import Header from "@/components/header";
 import { supabase } from "@/lib/supabase";
 import { useDashboard } from "@/lib/dashboard-context";
-import { RefreshCw, FileText, FileSpreadsheet, Check, Link2, Plus, Trash2, Wallet, FileSearch } from "lucide-react";
+import { RefreshCw, FileText, FileSpreadsheet, Check, Link2, Plus, Trash2, Wallet, FileSearch, SplitSquareHorizontal } from "lucide-react";
 import { calcBudgetPacing, getMonthInfo } from "@/lib/budget-pacing";
 import UsersManagement from "@/components/users-management";
 
@@ -24,6 +24,15 @@ interface EventCampaignRow {
   client_slug: string;
   conversion_event: string;
   target_campaign_name: string;
+  notes: string | null;
+  created_at: string;
+}
+
+interface CampaignBudgetGroupRow {
+  id: string;
+  client_slug: string;
+  campaign_name: string;
+  group_name: string;
   notes: string | null;
   created_at: string;
 }
@@ -98,6 +107,13 @@ export default function ConfiguracoesPage() {
   const [newEventTarget, setNewEventTarget] = useState("");
   const [newEventNotes, setNewEventNotes] = useState("");
   const [savingEvent, setSavingEvent] = useState(false);
+
+  // Campanhas com verba separada (fora do investimento total)
+  const [budgetGroups, setBudgetGroups] = useState<CampaignBudgetGroupRow[]>([]);
+  const [newGroupCampaign, setNewGroupCampaign] = useState("");
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupNotes, setNewGroupNotes] = useState("");
+  const [savingGroup, setSavingGroup] = useState(false);
 
   async function fetchForms() {
     setLoading(true);
@@ -255,7 +271,43 @@ export default function ConfiguracoesPage() {
     if (res.ok) fetchEventMaps();
   }
 
-  useEffect(() => { fetchForms(); fetchAliases(); fetchCampaignNames(); fetchBudgets(); fetchEventMaps(); }, [client]);
+  async function fetchBudgetGroups() {
+    if (client === "all") { setBudgetGroups([]); return; }
+    const res = await fetch(`/api/admin/campaign-groups?client=${encodeURIComponent(client)}`);
+    const json = await res.json();
+    if (res.ok) setBudgetGroups(json.data ?? []);
+  }
+
+  async function addBudgetGroup() {
+    if (!newGroupCampaign.trim() || !newGroupName.trim() || client === "all") return;
+    setSavingGroup(true);
+    setError(null);
+    const res = await fetch("/api/admin/campaign-groups", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        client_slug: client,
+        campaign_name: newGroupCampaign.trim(),
+        group_name: newGroupName.trim(),
+        notes: newGroupNotes.trim() || null,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) setError("Erro ao salvar verba separada: " + (json.error ?? "desconhecido"));
+    else {
+      setNewGroupCampaign(""); setNewGroupName(""); setNewGroupNotes("");
+      fetchBudgetGroups();
+    }
+    setSavingGroup(false);
+  }
+
+  async function deleteBudgetGroup(id: string) {
+    if (!confirm("Remover esta campanha da verba separada? Ela volta a contar no investimento total.")) return;
+    const res = await fetch(`/api/admin/campaign-groups?id=${id}`, { method: "DELETE" });
+    if (res.ok) fetchBudgetGroups();
+  }
+
+  useEffect(() => { fetchForms(); fetchAliases(); fetchCampaignNames(); fetchBudgets(); fetchEventMaps(); fetchBudgetGroups(); }, [client]);
 
   async function saveSheetId(form: TrackedForm, sheetId: string) {
     setSavingSheet(form.id);
@@ -647,6 +699,86 @@ export default function ConfiguracoesPage() {
                       {m.notes && <span className="text-xs text-text-muted truncate flex-1">{m.notes}</span>}
                       <button
                         onClick={() => deleteEventMap(m.id)}
+                        className="ml-auto text-text-muted hover:text-red transition-colors"
+                        title="Remover"
+                      >
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </>
+          )}
+        </section>
+
+        {/* ─── Verba separada (campanhas com orçamento próprio) ─── */}
+        <section className="mb-8">
+          <div className="flex items-center gap-2 mb-3">
+            <SplitSquareHorizontal size={14} className="text-accent" />
+            <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-widest">Verba Separada</h2>
+          </div>
+          <p className="text-xs text-text-muted mb-3 leading-relaxed">
+            Campanhas com orçamento PRÓPRIO, à parte do investimento regular do cliente (ex: <span className="font-mono text-text-secondary">Keep It Real</span>). O gasto delas sai do Investimento total e do pacing em Overview, Campanhas e Relatórios, e passa a aparecer como uma linha separada, agrupada pelo nome do grupo.
+          </p>
+
+          {client === "all" ? (
+            <div className="bg-card border border-border rounded-xl p-4 text-xs text-text-muted">
+              Selecione um cliente específico no topo para gerenciar verba separada.
+            </div>
+          ) : (
+            <>
+              <div className="bg-card border border-border rounded-xl p-4 mb-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 mb-2">
+                  <input
+                    type="text"
+                    list="campaign-name-list"
+                    value={newGroupCampaign}
+                    onChange={e => setNewGroupCampaign(e.target.value)}
+                    placeholder="Campanha (ex: keep-it-real-conversao)"
+                    className="bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary font-mono placeholder:text-text-dark focus:outline-none focus:border-accent/40"
+                  />
+                  <input
+                    type="text"
+                    value={newGroupName}
+                    onChange={e => setNewGroupName(e.target.value)}
+                    placeholder="Nome do grupo (ex: Keep It Real)"
+                    className="bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary placeholder:text-text-dark focus:outline-none focus:border-accent/40"
+                  />
+                </div>
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={newGroupNotes}
+                    onChange={e => setNewGroupNotes(e.target.value)}
+                    placeholder="Notas (opcional)"
+                    className="flex-1 bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary placeholder:text-text-dark focus:outline-none focus:border-accent/40"
+                  />
+                  <button
+                    onClick={addBudgetGroup}
+                    disabled={savingGroup || !newGroupCampaign.trim() || !newGroupName.trim()}
+                    className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-accent/10 border border-accent/30 text-accent hover:bg-accent/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+                  >
+                    <Plus size={12} />
+                    {savingGroup ? "Salvando..." : "Adicionar"}
+                  </button>
+                </div>
+              </div>
+
+              {budgetGroups.length === 0 ? (
+                <div className="bg-card border border-border rounded-xl p-4 text-xs text-text-muted">
+                  Nenhuma campanha com verba separada cadastrada.
+                </div>
+              ) : (
+                <div className="bg-card border border-border rounded-xl overflow-hidden">
+                  {budgetGroups.map((g, i) => (
+                    <div key={g.id} className={`px-4 py-3 flex items-center gap-3 ${i < budgetGroups.length - 1 ? "border-b border-border" : ""}`}>
+                      <code className="text-xs text-blue font-mono px-2 py-0.5 bg-blue/5 rounded">{g.campaign_name}</code>
+                      <span className="text-text-muted text-xs">→</span>
+                      <code className="text-xs text-accent font-mono px-2 py-0.5 bg-accent/5 rounded">{g.group_name}</code>
+                      {g.notes && <span className="text-xs text-text-muted truncate flex-1">{g.notes}</span>}
+                      <button
+                        onClick={() => deleteBudgetGroup(g.id)}
                         className="ml-auto text-text-muted hover:text-red transition-colors"
                         title="Remover"
                       >

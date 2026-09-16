@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase";
 import { isCampaignLead } from "@/lib/leads-filter";
 import { buildAttributionIndex, attributeLead, fetchAliases, fetchEventMaps } from "@/lib/campaign-attribution";
 import { calcBudgetPacing, type BudgetPacingResult } from "@/lib/budget-pacing";
+import { fetchCampaignGroups, splitByBudgetGroup } from "@/lib/campaign-groups";
 
 export const maxDuration = 60;
 
@@ -281,6 +282,13 @@ export async function POST(req: NextRequest) {
       .range(from, to));
     const allAdCampaigns = adCampaignsRaw;
 
+    // Campanhas com verba separada (ex: Keep It Real) — excluídas dos
+    // agregados de investimento total/pacing (regularAdCampaigns), mas
+    // continuam em allAdCampaigns pra aparecer no detalhamento por campanha
+    // e serem somadas à parte em `kpis.budgetGroups`/`presentation.budgetGroups`.
+    const campaignGroups = await fetchCampaignGroups(supabase, client);
+    const { regular: regularAdCampaigns } = splitByBudgetGroup(allAdCampaigns as any[], campaignGroups);
+
     // ── Aliases cadastrados pelo gestor ────────────────────────────────────
     const aliases = await fetchAliases(supabase, client);
 
@@ -341,9 +349,9 @@ export async function POST(req: NextRequest) {
     const reportObservations = obsRaw ?? [];
 
     // ── Stats por janela ────────────────────────────────────────────────────
-    const weekStats = weeks.map(w => ({ ...w, stats: computeRangeStats(allLeads, allAdCampaigns, w.since, w.until) }));
-    const monthCurStats = computeRangeStats(allLeads, allAdCampaigns, monthCur.since, monthCur.until);
-    const monthPrevStats = computeRangeStats(allLeads, allAdCampaigns, monthPrev.since, monthPrev.until);
+    const weekStats = weeks.map(w => ({ ...w, stats: computeRangeStats(allLeads, regularAdCampaigns, w.since, w.until) }));
+    const monthCurStats = computeRangeStats(allLeads, regularAdCampaigns, monthCur.since, monthCur.until);
+    const monthPrevStats = computeRangeStats(allLeads, regularAdCampaigns, monthPrev.since, monthPrev.until);
 
     // Run-rate do mês corrente
     const runRate = monthCur.daysElapsed > 0 ? {
@@ -375,7 +383,7 @@ export async function POST(req: NextRequest) {
     const hasPacing = Object.keys(pacingByPlatform).length > 0;
 
     // ── Período principal (= range escolhido pelo usuário; é o período do detalhamento) ──
-    const mainStats = computeRangeStats(allLeads, allAdCampaigns, periodFrom, periodTo);
+    const mainStats = computeRangeStats(allLeads, regularAdCampaigns, periodFrom, periodTo);
     const mainLeads = allLeads.filter((l: any) => inRange(l._brt_date, periodFrom, periodTo));
     const mainAds = allAdCampaigns.filter((a: any) => inRange(a.date, periodFrom, periodTo));
 
@@ -467,6 +475,26 @@ export async function POST(req: NextRequest) {
         conv_rate: c.clicks > 0 && c.leads > 0 ? (c.leads / c.clicks) * 100 : 0,
       }))
       .sort((a, b) => (b.leads || 0) - (a.leads || 0));
+
+    // ── Verba separada (ex: Keep It Real) — soma à parte do investimento total,
+    // usando os números já corretos de campaignRows (leads já atribuídos). ──
+    const groupNameByCampaign = new Map(campaignGroups.map(g => [g.campaign_name, g.group_name]));
+    const budgetGroupTotals = new Map<string, { spend: number; impressions: number; clicks: number; leads: number }>();
+    for (const c of campaignRows) {
+      const groupName = groupNameByCampaign.get(c.name);
+      if (!groupName) continue;
+      const acc = budgetGroupTotals.get(groupName) ?? { spend: 0, impressions: 0, clicks: 0, leads: 0 };
+      acc.spend += c.spend; acc.impressions += c.impressions; acc.clicks += c.clicks; acc.leads += c.leads ?? 0;
+      budgetGroupTotals.set(groupName, acc);
+    }
+    const budgetGroups = Array.from(budgetGroupTotals.entries()).map(([group_name, t]) => ({
+      group_name,
+      spend: t.spend,
+      impressions: t.impressions,
+      clicks: t.clicks,
+      leads: t.leads,
+      cpl: t.leads > 0 ? t.spend / t.leads : null,
+    }));
 
     // ── Stats por (campanha, semana) para sub-tabela semanal no detalhamento ──
     // Passada única sobre mainAds e mainLeads, indexando pelo bucket de semana.
@@ -910,6 +938,8 @@ export async function POST(req: NextRequest) {
       impressions: mainStats.impressions,
       clicks: mainStats.clicks,
       ctr: mainStats.ctr,
+      // Campanhas com verba própria (ex: Keep It Real) — não somadas acima.
+      budgetGroups,
     };
 
     // ── Build context para Claude ────────────────────────────────────────────
@@ -973,6 +1003,14 @@ ${(["total", "meta", "google"] as const)
       `         Previsto até hoje pela estratégia: R$${fmt(p.expectedSpend)} | Restante: R$${fmt(p.remaining)} em ${p.daysRemaining}d | Recomendado/dia: R$${fmt(p.recommendedDailySpend)}`,
     ].join("\n");
   }).join("\n")}
+`.trim() : "";
+
+    // Bloco 2.c: verba separada (campanhas com orçamento próprio, ex: Keep It Real)
+    // — NÃO está somada em nenhum dos totais acima. Instrui a Claude a tratar
+    // como uma linha à parte, nunca somando ao investimento total do cliente.
+    const budgetGroupsContext = budgetGroups.length > 0 ? `
+VERBA SEPARADA — campanha(s) com orçamento PRÓPRIO, fora do investimento total do período (${periodLabel}). NÃO some estes valores ao investimento total acima nem trate como parte do orçamento regular:
+${budgetGroups.map(g => `- ${g.group_name}: R$${fmt(g.spend)} investido | ${g.leads} leads | CPL ${g.cpl ? `R$${fmt(g.cpl)}` : "—"}`).join("\n")}
 `.trim() : "";
 
     // Bloco 3: detalhamento do PERÍODO PRINCIPAL (range escolhido pelo usuário)
@@ -1189,7 +1227,7 @@ ${adsList.map(a => {
 Total: ${adsList.length} anúncios Meta.
 `.trim() : "";
 
-    const context = [weeklyTableContext, monthlyContext, pacingContext, mainDetailContext, unmatchedContext, actionsContext, observationsContext, adsListContext].filter(Boolean).join("\n\n");
+    const context = [weeklyTableContext, monthlyContext, pacingContext, budgetGroupsContext, mainDetailContext, unmatchedContext, actionsContext, observationsContext, adsListContext].filter(Boolean).join("\n\n");
 
     // ── Prompts ──────────────────────────────────────────────────────────────
     const systemPrompt = `Você é o gestor de tráfego sênior redigindo um relatório de performance para apresentar ao cliente e à equipe na reunião semanal.
@@ -1465,6 +1503,9 @@ IMPORTANTE sobre formatação:
       unmatchedLeads,
       googleTopKeywords: topKw.slice(0, 10),
       googleTopSearchTerms: topSt.slice(0, 10),
+      // Campanhas com verba própria (ex: Keep It Real) — fora do investimento
+      // total acima, reportadas à parte.
+      budgetGroups,
     };
 
     return NextResponse.json({ context, kpis, reportType, systemPrompt, userPrompt, presentation, step: "data" });

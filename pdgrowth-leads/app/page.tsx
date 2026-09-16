@@ -13,6 +13,7 @@ import { getPeriodDates, getLeadDates, toBRTDate } from "@/lib/period";
 import { filterCampaignLeads, isCampaignLead } from "@/lib/leads-filter";
 import { buildAttributionIndex, attributeLead, fetchAliases, fetchEventMaps, type CampaignAlias, type EventToCampaign } from "@/lib/campaign-attribution";
 import { calcBudgetPacing, getMonthInfo, type BudgetPacingResult } from "@/lib/budget-pacing";
+import { fetchCampaignGroups, splitByBudgetGroup } from "@/lib/campaign-groups";
 import type { Platform, KPIData, DonutSlice, HorizontalBarItem, TrendPoint, RegionRow, FunnelStep } from "@/lib/types";
 import { RefreshCw, Calendar, Building2, Menu, Megaphone, Trophy, CalendarDays, CalendarRange, Wallet } from "lucide-react";
 
@@ -225,6 +226,7 @@ export default function OverviewPage() {
   const [dailyRows,     setDailyRows]     = useState<DailyRow[]>([]);
   const [weeklyRows,    setWeeklyRows]    = useState<WeeklyRow[]>([]);
   const [pacing,        setPacing]        = useState<{ total?: BudgetPacingResult; meta?: BudgetPacingResult; google?: BudgetPacingResult } | null>(null);
+  const [budgetGroups,  setBudgetGroups]  = useState<{ group_name: string; spend: number }[]>([]);
   const [loading,       setLoading]       = useState(true);
   const [updatedAt,     setUpdatedAt]     = useState("");
 
@@ -263,7 +265,20 @@ export default function OverviewPage() {
       .gte("date", since).lte("date", until);
     if (metaSlug) adQ.eq("client_slug", metaSlug);
     const { data: adData } = await adQ;
-    const allAdsUnfiltered = adData ?? [];
+
+    // Campanhas com verba separada (ex: Keep It Real) não entram no investimento
+    // total nem no pacing — são reportadas à parte, agrupadas por group_name.
+    const campaignGroups = await fetchCampaignGroups(supabase, client);
+    const { regular: allAdsUnfiltered, grouped: groupedAdsMap } = splitByBudgetGroup(
+      (adData ?? []) as any[],
+      campaignGroups,
+    );
+    setBudgetGroups(
+      Array.from(groupedAdsMap.entries()).map(([group_name, rows]) => ({
+        group_name,
+        spend: rows.reduce((s, r: any) => s + Number(r.spend), 0),
+      })).filter(g => g.spend > 0)
+    );
 
     // Mapa nome → plataforma + index global pra inferência de plataforma
     const campNameToPlatform = new Map<string, "meta" | "google">();
@@ -543,11 +558,13 @@ export default function OverviewPage() {
       const monthStart = `${mi.yearMonth}-01`;
       const monthEnd = `${mi.yearMonth}-${String(mi.daysInMonth).padStart(2, "0")}`;
       const { data: monthAds } = await supabase.from("ad_campaigns")
-        .select("date, platform, spend")
+        .select("campaign_name, date, platform, spend")
         .eq("client_slug", metaSlug)
         .gte("date", monthStart).lte("date", monthEnd);
+      // Verba separada não conta pro pacing do orçamento regular.
+      const { regular: monthAdsRegular } = splitByBudgetGroup((monthAds ?? []) as any[], campaignGroups);
       const realByPlat = { total: 0, meta: 0, google: 0 };
-      for (const r of monthAds ?? []) {
+      for (const r of monthAdsRegular) {
         const v = Number(r.spend);
         realByPlat.total += v;
         if (r.platform === "meta")   realByPlat.meta   += v;
@@ -712,6 +729,19 @@ export default function OverviewPage() {
           <div className="grid grid-cols-2 sm:grid-cols-5 gap-3">
             {kpis.slice(5).map(kpi => <KPICard key={kpi.label} {...kpi} />)}
           </div>
+
+          {/* Verba separada — fora do Investimento acima, orçamento próprio */}
+          {budgetGroups.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 text-xs bg-card border border-border rounded-xl px-4 py-2.5">
+              <Wallet size={13} className="text-gold flex-shrink-0" />
+              <span className="text-text-muted">Verba separada (fora do investimento acima):</span>
+              {budgetGroups.map(g => (
+                <span key={g.group_name} className="font-mono text-gold">
+                  {g.group_name}: R$ {g.spend.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+              ))}
+            </div>
+          )}
 
           {/* Pacing do mês */}
           {pacing && <PacingCard pacing={pacing} />}

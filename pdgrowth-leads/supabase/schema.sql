@@ -246,6 +246,26 @@ create table if not exists client_budgets (
   unique (client_slug, year_month, platform)
 );
 
+-- ─── Campaign Budget Groups ──────────────────────────────────────────────────
+-- Campanhas com verba PRÓPRIA, separada do orçamento regular do cliente
+-- (ex: "Keep It Real" em MedSystems/Negócios e Redes). O gasto dessas
+-- campanhas é excluído do investimento total (KPIs, pacing) em Overview,
+-- Campanhas e Relatórios, e reportado à parte como uma linha própria
+-- ("verba separada"), identificada por group_name.
+create table if not exists campaign_budget_groups (
+  id             uuid primary key default gen_random_uuid(),
+  client_slug    text not null references clients(slug),
+  campaign_name  text not null,             -- nome exato da campanha em ad_campaigns
+  group_name     text not null,             -- ex: 'Keep It Real'
+  notes          text,
+  created_at     timestamptz default now(),
+  unique (client_slug, campaign_name)
+);
+
+alter table public.campaign_budget_groups enable row level security;
+drop policy if exists "anon read" on public.campaign_budget_groups;
+create policy "anon read" on public.campaign_budget_groups for select using (true);
+
 -- ─── Report Observations ────────────────────────────────────────────────────
 -- Observações livres do gestor com vigência (since/until). Aparecem em
 -- qualquer relatório cujo período se sobreponha. Diferente de report_actions

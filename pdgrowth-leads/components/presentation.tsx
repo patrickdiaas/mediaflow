@@ -25,6 +25,7 @@ interface PresentationData {
   unmatchedLeads: any[];
   googleTopKeywords?: any[];
   googleTopSearchTerms?: any[];
+  budgetGroups?: { group_name: string; spend: number; leads: number; cpl: number | null }[];
 }
 
 interface Props {
@@ -252,6 +253,16 @@ function OverviewSlide({ d, kpis }: { d: PresentationData; kpis: any }) {
           </div>
         ))}
       </div>
+      {d.budgetGroups && d.budgetGroups.length > 0 && (
+        <div className="mt-6 flex flex-wrap items-center gap-3 text-sm bg-card border border-border rounded-2xl px-6 py-4">
+          <span className="text-xs uppercase tracking-widest text-text-muted font-semibold">Verba separada (fora do investimento acima):</span>
+          {d.budgetGroups.map(g => (
+            <span key={g.group_name} className="font-mono text-gold">
+              {g.group_name}: R$ {fmt(g.spend)} · {g.leads} leads{g.cpl ? ` · CPL R$ ${g.cpl.toFixed(2)}` : ""}
+            </span>
+          ))}
+        </div>
+      )}
     </SlideShell>
   );
 }

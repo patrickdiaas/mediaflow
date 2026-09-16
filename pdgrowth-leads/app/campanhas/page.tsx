@@ -26,6 +26,7 @@ import { supabase } from "@/lib/supabase";
 import { filterCampaignLeads } from "@/lib/leads-filter";
 import { buildAttributionIndex, attributeLead, type CampaignAlias, type EventToCampaign } from "@/lib/campaign-attribution";
 import { getPeriodDates, getLeadDates } from "@/lib/period";
+import { fetchCampaignGroups, type CampaignBudgetGroup } from "@/lib/campaign-groups";
 import Funnel from "@/components/funnel";
 import Image from "next/image";
 
@@ -112,6 +113,7 @@ export default function CampanhasPage() {
   const [funnelMetrics, setFunnelMetrics] = useState<{ cpm: number; ctr: number; pageConvRate: number | null; checkoutConvRate: number | null; overallConvRate: number } | null>(null);
   const [allCampRowsRef, setAllCampRowsRef] = useState<any[]>([]);
   const [allLeadsRef, setAllLeadsRef] = useState<any[]>([]);
+  const [campaignGroups, setCampaignGroups] = useState<CampaignBudgetGroup[]>([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -128,6 +130,9 @@ export default function CampanhasPage() {
       const { data: evMapData } = await evMapQ;
       const eventMaps = (evMapData ?? []) as EventToCampaign[];
       const eventList = eventMaps.map(e => e.conversion_event);
+
+      const groups = await fetchCampaignGroups(supabase, client);
+      setCampaignGroups(groups);
 
       const baseCamp = supabase.from("ad_campaigns").select("campaign_id,campaign_name,platform,status,impressions,clicks,spend,landing_page_views,lead_form_submissions").gte("date", since).lte("date", until);
       const baseSets = supabase.from("ad_sets").select("ad_set_id,ad_set_name,campaign_name,platform,status,impressions,clicks,spend").gte("date", since).lte("date", until);
@@ -289,9 +294,25 @@ export default function CampanhasPage() {
   const filteredAds = (selectedCampaign === "all" ? ads : ads.filter(c => c.campaign_name === selectedCampaign)).filter(c => statusFilter === "all" || activeCampNames.has(c.campaign_name));
   const activeData = tab === "campanhas" ? filteredCampaigns : tab === "conjuntos" ? filteredAdSets : filteredAds;
   const campaignOptions = ["all", ...Array.from(new Set(statusCampaigns.map(c => c.campaign_name)))];
-  const totalSpend = activeData.reduce((s, c) => s + c.spend, 0);
-  const totalLeads = activeData.reduce((s, c) => s + c.leads, 0);
+
+  // Campanhas com verba separada (ex: Keep It Real) saem do total "Investimento"
+  // quando vendo todas as campanhas juntas — mas continuam selecionáveis
+  // individualmente no dropdown, com seus próprios números.
+  const groupNameByCampaign = new Map(campaignGroups.map(g => [g.campaign_name, g.group_name]));
+  const totalsData = selectedCampaign === "all"
+    ? activeData.filter(c => !groupNameByCampaign.has(c.campaign_name))
+    : activeData;
+  const totalSpend = totalsData.reduce((s, c) => s + c.spend, 0);
+  const totalLeads = totalsData.reduce((s, c) => s + c.leads, 0);
   const overallCpl = totalLeads > 0 ? totalSpend / totalLeads : 0;
+
+  const budgetGroupTotals = Array.from(
+    activeData.reduce((acc, c) => {
+      const g = groupNameByCampaign.get(c.campaign_name);
+      if (g) acc.set(g, (acc.get(g) ?? 0) + c.spend);
+      return acc;
+    }, new Map<string, number>()).entries()
+  ).filter(([, spend]) => spend > 0);
 
   const tabs: { id: Tab; label: string }[] = [
     { id: "campanhas", label: "Campanhas" },
@@ -336,6 +357,14 @@ export default function CampanhasPage() {
           <Stat label="Leads" value={String(totalLeads)} color="text-accent" />
           <div className="w-px bg-border" />
           <Stat label="CPL Geral" value={overallCpl > 0 ? `R$ ${overallCpl.toFixed(2)}` : "—"} color={overallCpl > 0 ? cplColor(overallCpl) : "text-text-muted"} />
+          {budgetGroupTotals.length > 0 && (
+            <>
+              <div className="w-px bg-border" />
+              {budgetGroupTotals.map(([groupName, spend]) => (
+                <Stat key={groupName} label={`${groupName} (verba separada)`} value={`R$ ${spend.toLocaleString("pt-BR")}`} color="text-gold" />
+              ))}
+            </>
+          )}
         </div>
 
         {loading ? (

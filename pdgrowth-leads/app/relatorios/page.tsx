@@ -6,7 +6,7 @@ import { useDashboard } from "@/lib/dashboard-context";
 import {
   FileBarChart2, RefreshCw, AlertCircle, Download, Send,
   TrendingUp, Megaphone, Image, Sparkles, Users, Target, MessageSquare,
-  ListChecks, Plus, Trash2, ChevronDown, ChevronRight, BookmarkPlus, NotebookPen, Presentation as PresentationIcon,
+  ListChecks, Plus, Trash2, ChevronDown, ChevronRight, BookmarkPlus, NotebookPen, Presentation as PresentationIcon, Wallet,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import Presentation from "@/components/presentation";
@@ -530,7 +530,8 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
           <div class="kpi-value">${fmtInt(kpis.metaLeads)}<span class="kpi-split">/</span>${fmtInt(kpis.googleLeads)}</div>
           <div class="kpi-label">Meta · Google (leads)</div>
         </div>
-      </div>` : "";
+      </div>
+      ${kpis.budgetGroups?.length > 0 ? `<div class="callout"><strong>Verba separada</strong> (fora do investimento acima): ${kpis.budgetGroups.map((g: any) => `${g.group_name}: R$ ${fmtInt(g.spend)} · ${g.leads} leads`).join(" &nbsp;|&nbsp; ")}</div>` : ""}` : "";
 
     // Top 3 campanhas por leads (mistura Meta + Google), com mini-stats
     const allCamps: any[] = [
@@ -1543,6 +1544,19 @@ ${""/* Projeção (run-rate) removida temporariamente a pedido do gestor. */}
             <KpiCard label="Investimento" value={`R$ ${kpis.spend?.toLocaleString("pt-BR", { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`} color="blue" />
             <KpiCard label="CPL" value={kpis.cpl > 0 ? `R$ ${kpis.cpl.toFixed(2)}` : "—"} color="gold" />
             <KpiCard label="CTR" value={`${kpis.ctr?.toFixed(2)}%`} sub={`${kpis.clicks?.toLocaleString("pt-BR")} cliques`} color="blue" />
+          </div>
+        )}
+
+        {/* Verba separada — fora do Investimento acima */}
+        {kpis && !loading && kpis.budgetGroups?.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 text-xs bg-card border border-border rounded-xl px-4 py-2.5 mb-5">
+            <Wallet size={13} className="text-gold flex-shrink-0" />
+            <span className="text-text-muted">Verba separada (fora do investimento acima):</span>
+            {kpis.budgetGroups.map((g: any) => (
+              <span key={g.group_name} className="font-mono text-gold">
+                {g.group_name}: R$ {g.spend.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · {g.leads} leads
+              </span>
+            ))}
           </div>
         )}
 
