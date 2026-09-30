@@ -28,6 +28,7 @@ import { buildAttributionIndex, attributeLead, type CampaignAlias, type EventToC
 import { getPeriodDates, getLeadDates } from "@/lib/period";
 import { fetchCampaignGroups, type CampaignBudgetGroup } from "@/lib/campaign-groups";
 import { fetchAllRows } from "@/lib/fetch-all-rows";
+import { fetchExcludedEvents } from "@/lib/excluded-events";
 import Funnel from "@/components/funnel";
 import Image from "next/image";
 
@@ -131,6 +132,8 @@ export default function CampanhasPage() {
       const { data: evMapData } = await evMapQ;
       const eventMaps = (evMapData ?? []) as EventToCampaign[];
       const eventList = eventMaps.map(e => e.conversion_event);
+      // conversion_events de terceiros (outra agência etc.) — excluídos por completo dos KPIs.
+      const excludedEventsList = (await fetchExcludedEvents(supabase)).map(e => e.conversion_event);
 
       const groups = await fetchCampaignGroups(supabase, client);
       setCampaignGroups(groups);
@@ -159,7 +162,7 @@ export default function CampanhasPage() {
       };
       const makeLeadsQ = (from: number, to: number) => {
         const base = supabase.from("leads").select("id, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, utm_term, converted_at").gte("converted_at", leadSince).lte("converted_at", leadUntil);
-        let q = filterCampaignLeads(base, eventList);
+        let q = filterCampaignLeads(base, eventList, excludedEventsList);
         if (metaSlug) q = q.eq("client_slug", metaSlug);
         return q.range(from, to);
       };

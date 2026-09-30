@@ -5,7 +5,7 @@ import Header from "@/components/header";
 import { supabase } from "@/lib/supabase";
 import { fetchAllRows } from "@/lib/fetch-all-rows";
 import { useDashboard } from "@/lib/dashboard-context";
-import { RefreshCw, FileText, FileSpreadsheet, Check, Link2, Plus, Trash2, Wallet, FileSearch, SplitSquareHorizontal } from "lucide-react";
+import { RefreshCw, FileText, FileSpreadsheet, Check, Link2, Plus, Trash2, Wallet, FileSearch, SplitSquareHorizontal, ShieldOff } from "lucide-react";
 import { calcBudgetPacing, getMonthInfo } from "@/lib/budget-pacing";
 import UsersManagement from "@/components/users-management";
 
@@ -26,6 +26,13 @@ interface EventCampaignRow {
   conversion_event: string;
   target_campaign_name: string;
   notes: string | null;
+  created_at: string;
+}
+
+interface ExcludedEventRow {
+  id: string;
+  conversion_event: string;
+  reason: string | null;
   created_at: string;
 }
 
@@ -115,6 +122,12 @@ export default function ConfiguracoesPage() {
   const [newGroupName, setNewGroupName] = useState("");
   const [newGroupNotes, setNewGroupNotes] = useState("");
   const [savingGroup, setSavingGroup] = useState(false);
+
+  // conversion_events de terceiros a excluir por completo (global, não por cliente)
+  const [excludedEvents, setExcludedEvents] = useState<ExcludedEventRow[]>([]);
+  const [newExcludedEvent, setNewExcludedEvent] = useState("");
+  const [newExcludedReason, setNewExcludedReason] = useState("");
+  const [savingExcluded, setSavingExcluded] = useState(false);
 
   async function fetchForms() {
     setLoading(true);
@@ -309,7 +322,40 @@ export default function ConfiguracoesPage() {
     if (res.ok) fetchBudgetGroups();
   }
 
-  useEffect(() => { fetchForms(); fetchAliases(); fetchCampaignNames(); fetchBudgets(); fetchEventMaps(); fetchBudgetGroups(); }, [client]);
+  async function fetchExcludedEventsList() {
+    const res = await fetch("/api/admin/excluded-events");
+    const json = await res.json();
+    if (res.ok) setExcludedEvents(json.data ?? []);
+  }
+
+  async function addExcludedEvent() {
+    if (!newExcludedEvent.trim()) return;
+    setSavingExcluded(true);
+    setError(null);
+    const res = await fetch("/api/admin/excluded-events", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        conversion_event: newExcludedEvent.trim(),
+        reason: newExcludedReason.trim() || null,
+      }),
+    });
+    const json = await res.json();
+    if (!res.ok) setError("Erro ao salvar exclusão: " + (json.error ?? "desconhecido"));
+    else {
+      setNewExcludedEvent(""); setNewExcludedReason("");
+      fetchExcludedEventsList();
+    }
+    setSavingExcluded(false);
+  }
+
+  async function deleteExcludedEvent(id: string) {
+    if (!confirm("Remover esta exclusão? Os leads desse conversion_event voltam a contar nos KPIs.")) return;
+    const res = await fetch(`/api/admin/excluded-events?id=${id}`, { method: "DELETE" });
+    if (res.ok) fetchExcludedEventsList();
+  }
+
+  useEffect(() => { fetchForms(); fetchAliases(); fetchCampaignNames(); fetchBudgets(); fetchEventMaps(); fetchBudgetGroups(); fetchExcludedEventsList(); }, [client]);
 
   async function saveSheetId(form: TrackedForm, sheetId: string) {
     setSavingSheet(form.id);
@@ -791,6 +837,68 @@ export default function ConfiguracoesPage() {
                 </div>
               )}
             </>
+          )}
+        </section>
+
+        {/* ─── Exclusão de leads de terceiros (global) ─── */}
+        <section className="mb-8">
+          <div className="flex items-center gap-2 mb-3">
+            <ShieldOff size={14} className="text-red" />
+            <h2 className="text-xs font-semibold text-text-secondary uppercase tracking-widest">Excluir Leads de Terceiros</h2>
+          </div>
+          <p className="text-xs text-text-muted mb-3 leading-relaxed">
+            Leads de campanhas que NÃO são mídia do PD Growth (ex: programática de outra agência) mas passam no filtro de "lead pago". Diferente de Verba Separada — aqui o lead é excluído por completo dos KPIs (Leads, CPL) em todas as telas, não só separado. Vale global, não por cliente. Identifique pelo <span className="font-mono text-text-secondary">conversion_event</span> exato do lead.
+          </p>
+
+          <div className="bg-card border border-border rounded-xl p-4 mb-4">
+            <div className="grid grid-cols-1 gap-2 mb-2">
+              <input
+                type="text"
+                value={newExcludedEvent}
+                onChange={e => setNewExcludedEvent(e.target.value)}
+                placeholder="conversion_event exato (ex: medical-[produto/institucional]-lead-ads - 11.09.26)"
+                className="bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary font-mono placeholder:text-text-dark focus:outline-none focus:border-red/40"
+              />
+            </div>
+            <div className="flex gap-2">
+              <input
+                type="text"
+                value={newExcludedReason}
+                onChange={e => setNewExcludedReason(e.target.value)}
+                placeholder="Motivo (ex: campanha de outra agência, UTM nunca configurada)"
+                className="flex-1 bg-bg border border-border rounded-lg px-3 py-2 text-xs text-text-primary placeholder:text-text-dark focus:outline-none focus:border-red/40"
+              />
+              <button
+                onClick={addExcludedEvent}
+                disabled={savingExcluded || !newExcludedEvent.trim()}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold bg-red/10 border border-red/30 text-red hover:bg-red/20 transition-colors disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                <Plus size={12} />
+                {savingExcluded ? "Salvando..." : "Excluir"}
+              </button>
+            </div>
+          </div>
+
+          {excludedEvents.length === 0 ? (
+            <div className="bg-card border border-border rounded-xl p-4 text-xs text-text-muted">
+              Nenhum conversion_event excluído.
+            </div>
+          ) : (
+            <div className="bg-card border border-border rounded-xl overflow-hidden">
+              {excludedEvents.map((e, i) => (
+                <div key={e.id} className={`px-4 py-3 flex items-center gap-3 ${i < excludedEvents.length - 1 ? "border-b border-border" : ""}`}>
+                  <code className="text-xs text-red font-mono px-2 py-0.5 bg-red/5 rounded">{e.conversion_event}</code>
+                  {e.reason && <span className="text-xs text-text-muted truncate flex-1">{e.reason}</span>}
+                  <button
+                    onClick={() => deleteExcludedEvent(e.id)}
+                    className="ml-auto text-text-muted hover:text-red transition-colors"
+                    title="Remover exclusão"
+                  >
+                    <Trash2 size={13} />
+                  </button>
+                </div>
+              ))}
+            </div>
           )}
         </section>
 

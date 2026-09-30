@@ -4,6 +4,7 @@ import { isCampaignLead } from "@/lib/leads-filter";
 import { buildAttributionIndex, attributeLead, fetchAliases, fetchEventMaps } from "@/lib/campaign-attribution";
 import { calcBudgetPacing, type BudgetPacingResult } from "@/lib/budget-pacing";
 import { fetchCampaignGroups, splitByBudgetGroup } from "@/lib/campaign-groups";
+import { fetchExcludedEvents } from "@/lib/excluded-events";
 
 export const maxDuration = 60;
 
@@ -209,6 +210,8 @@ export async function POST(req: NextRequest) {
     const eventMaps = await fetchEventMaps(supabase, client);
     const mappedEventsSet = new Set(eventMaps.map(e => e.conversion_event));
     const mappedEventsList = Array.from(mappedEventsSet);
+    // conversion_events de terceiros (outra agência etc.) — excluídos por completo dos KPIs.
+    const excludedEventsSet = new Set((await fetchExcludedEvents(supabase)).map(e => e.conversion_event));
 
     // Fetch de leads em 2 queries separadas + paginação por .range() pra evitar
     // dois problemas do PostgREST:
@@ -264,7 +267,7 @@ export async function POST(req: NextRequest) {
 
     // Exclusão de CRM client-side (garante consistência com isCampaignLead)
     const allLeads = Array.from(dedupMap.values())
-      .filter((l: any) => isCampaignLead(l, mappedEventsSet))
+      .filter((l: any) => isCampaignLead(l, mappedEventsSet, excludedEventsSet))
       .map((l: any) => {
         const u = new Date(l.converted_at);
         u.setUTCHours(u.getUTCHours() - 3);

@@ -205,6 +205,23 @@ create policy "anon read" on public.client_budgets     for select using (true);
 create policy "anon read" on public.report_actions     for select using (true);
 create policy "anon read" on public.event_to_campaign  for select using (true);
 
+-- ─── Excluded Conversion Events ──────────────────────────────────────────────
+-- Lista global de conversion_events a EXCLUIR por completo dos KPIs de leads/CPL
+-- (diferente de campaign_budget_groups, que só separa do total — aqui o lead
+-- nem deveria contar, é lixo/terceiro). Caso real: campanha de Lead Ads de
+-- outra agência (programática) com UTM/form nunca configurado, que passava no
+-- filtro de "lead pago" (utm_medium=cpc) sem bater com nenhuma campanha real.
+create table if not exists excluded_conversion_events (
+  id                uuid primary key default gen_random_uuid(),
+  conversion_event  text not null unique,
+  reason            text,
+  created_at        timestamptz default now()
+);
+
+alter table public.excluded_conversion_events enable row level security;
+drop policy if exists "anon read" on public.excluded_conversion_events;
+create policy "anon read" on public.excluded_conversion_events for select using (true);
+
 -- ─── Event → Campaign Mapping ────────────────────────────────────────────────
 -- Quando um lead chega numa LP de campanha SEM utm_source/utm_medium válidos
 -- (link compartilhado via WhatsApp, cookie blocker, UTM perdida), esse

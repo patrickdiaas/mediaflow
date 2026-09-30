@@ -15,6 +15,7 @@ import { buildAttributionIndex, attributeLead, fetchAliases, fetchEventMaps, typ
 import { calcBudgetPacing, getMonthInfo, type BudgetPacingResult } from "@/lib/budget-pacing";
 import { fetchCampaignGroups, splitByBudgetGroup } from "@/lib/campaign-groups";
 import { fetchAllRows } from "@/lib/fetch-all-rows";
+import { fetchExcludedEvents } from "@/lib/excluded-events";
 import type { Platform, KPIData, DonutSlice, HorizontalBarItem, TrendPoint, RegionRow, FunnelStep } from "@/lib/types";
 import { RefreshCw, Calendar, Building2, Menu, Megaphone, Trophy, CalendarDays, CalendarRange, Wallet } from "lucide-react";
 
@@ -246,6 +247,9 @@ export default function OverviewPage() {
     const eventMaps = await fetchEventMaps(supabase, client);
     const mappedEventsSet = new Set(eventMaps.map(e => e.conversion_event));
     const mappedEventsList = Array.from(mappedEventsSet);
+    // conversion_events de terceiros (outra agência etc.) — excluídos por completo dos KPIs.
+    const excludedEventsList = (await fetchExcludedEvents(supabase)).map(e => e.conversion_event);
+    const excludedEventsSet = new Set(excludedEventsList);
 
     // Leads no período (BRT) — só leads de campanha (utm_medium whitelist OU event mapeado, exceto CRM)
     // Supabase corta em 1000 linhas por request sem .range() explícito — com mais
@@ -257,12 +261,12 @@ export default function OverviewPage() {
         .select("id, lead_email, lead_name, conversion_event, utm_source, utm_medium, utm_campaign, utm_content, converted_at, source")
         .gte("converted_at", leadSince)
         .lte("converted_at", leadUntil);
-      let q = filterCampaignLeads(leadsBase, mappedEventsList);
+      let q = filterCampaignLeads(leadsBase, mappedEventsList, excludedEventsList);
       if (metaSlug) q = q.eq("client_slug", metaSlug);
       return q.range(from, to);
     });
     // Filtra leads por plataforma: facebook/instagram = meta, google = google
-    const allLeads = leadsData.filter((l: any) => isCampaignLead(l, mappedEventsSet));
+    const allLeads = leadsData.filter((l: any) => isCampaignLead(l, mappedEventsSet, excludedEventsSet));
     // Campanhas (spend, impressions, clicks, reach) — carregado ANTES de filtrar plataforma
     // porque precisamos do mapa nome→plataforma pra inferir a plataforma de leads
     // sem utm_source válido (atribuídos via event_map ou alias).

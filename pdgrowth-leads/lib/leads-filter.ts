@@ -21,7 +21,11 @@ export const CRM_EVENT_ILIKE_PATTERNS = [
 // Aplica o filtro no query builder do Supabase.
 // `mappedEvents`: lista de conversion_event que devem ser considerados campanha
 // mesmo sem utm_medium pago. Quando vazia, só usa o filtro de utm_medium.
-export function filterCampaignLeads(q: any, mappedEvents: string[] = []): any {
+// `excludedEvents`: conversion_event que devem ser excluídos por completo,
+// mesmo com utm_medium pago (ex: campanha de terceiros/outra agência — ver
+// excluded_conversion_events). Diferente de campaign_budget_groups: aqui o
+// lead nem conta no total, não é só "separado".
+export function filterCampaignLeads(q: any, mappedEvents: string[] = [], excludedEvents: string[] = []): any {
   let next: any;
   if (mappedEvents.length === 0) {
     next = q.in("utm_medium", [...VALID_UTM_MEDIUMS]);
@@ -39,6 +43,9 @@ export function filterCampaignLeads(q: any, mappedEvents: string[] = []): any {
   for (const pat of CRM_EVENT_ILIKE_PATTERNS) {
     next = next.not("conversion_event", "ilike", pat);
   }
+  for (const ev of excludedEvents) {
+    if (ev) next = next.not("conversion_event", "eq", ev);
+  }
   return next;
 }
 
@@ -46,8 +53,10 @@ export function filterCampaignLeads(q: any, mappedEvents: string[] = []): any {
 export function isCampaignLead(
   lead: { utm_medium?: string | null; conversion_event?: string | null },
   mappedEvents: Set<string> = new Set(),
+  excludedEvents: Set<string> = new Set(),
 ): boolean {
   const ev = lead.conversion_event ?? "";
+  if (ev && excludedEvents.has(ev)) return false;
   // Exclusão de CRM
   for (const pat of CRM_EVENT_ILIKE_PATTERNS) {
     const needle = pat.replace(/%/g, "").toLowerCase();

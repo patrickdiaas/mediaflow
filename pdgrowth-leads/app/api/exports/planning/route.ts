@@ -16,6 +16,7 @@ import {
 } from "@/lib/campaign-attribution";
 import { isCampaignLead } from "@/lib/leads-filter";
 import { fetchAllRows } from "@/lib/fetch-all-rows";
+import { fetchExcludedEvents } from "@/lib/excluded-events";
 
 const fmt = (n: number) =>
   Number(n ?? 0).toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -118,6 +119,8 @@ async function buildClientReport(clientSlug: string, since: string, until: strin
   const aliases = await fetchAliases(supabase, clientSlug);
   const eventMaps = await fetchEventMaps(supabase, clientSlug);
   const eventSet = new Set(eventMaps.map(e => e.conversion_event));
+  // conversion_events de terceiros (outra agência etc.) — excluídos por completo dos KPIs.
+  const excludedEventsSet = new Set((await fetchExcludedEvents(supabase)).map(e => e.conversion_event));
 
   // BRT adjustment para alinhar com período
   const since00 = `${since}T00:00:00Z`;
@@ -130,7 +133,7 @@ async function buildClientReport(clientSlug: string, since: string, until: strin
     .lte("converted_at", until23)
     .range(from, to));
 
-  const leads = leadsRaw.filter(l => isCampaignLead(l, eventSet));
+  const leads = leadsRaw.filter(l => isCampaignLead(l, eventSet, excludedEventsSet));
 
   // Constrói índice de atribuição
   const campsForIndex = Array.from(campMap.values()).map(c => ({

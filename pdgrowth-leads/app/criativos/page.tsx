@@ -25,6 +25,7 @@ import { getPeriodDates, getLeadDates } from "@/lib/period";
 import { filterCampaignLeads } from "@/lib/leads-filter";
 import { buildAttributionIndex, attributeLead, type CampaignAlias, type EventToCampaign } from "@/lib/campaign-attribution";
 import { fetchAllRows } from "@/lib/fetch-all-rows";
+import { fetchExcludedEvents } from "@/lib/excluded-events";
 import { LayoutGrid, List, ArrowUpDown, Download, ExternalLink, BookOpen } from "lucide-react";
 import Image from "next/image";
 
@@ -208,6 +209,8 @@ export default function CriativosPage() {
     const { data: evMapData } = await evMapQ;
     const eventMaps = (evMapData ?? []) as EventToCampaign[];
     const eventList = eventMaps.map(e => e.conversion_event);
+    // conversion_events de terceiros (outra agência etc.) — excluídos por completo dos KPIs.
+    const excludedEventsList = (await fetchExcludedEvents(supabase)).map(e => e.conversion_event);
 
     // Supabase corta em 1000 linhas por request (db-max-rows), mesmo com
     // .limit(50000) explícito — só pagina de verdade com .range() em loop.
@@ -225,7 +228,7 @@ export default function CriativosPage() {
         .select("utm_source, utm_term, utm_content, utm_campaign, conversion_event, converted_at")
         .gte("converted_at", leadSince)
         .lte("converted_at", leadUntil);
-      let q = filterCampaignLeads(baseLeads, eventList);
+      let q = filterCampaignLeads(baseLeads, eventList, excludedEventsList);
       if (metaSlug) q = q.eq("client_slug", metaSlug);
       return q.range(from, to);
     };

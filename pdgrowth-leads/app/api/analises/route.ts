@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase";
 import { filterCampaignLeads, isCampaignLead } from "@/lib/leads-filter";
 import { buildAttributionIndex, attributeLead, fetchAliases, fetchEventMaps } from "@/lib/campaign-attribution";
 import { fetchAllRows } from "@/lib/fetch-all-rows";
+import { fetchExcludedEvents } from "@/lib/excluded-events";
 
 export const maxDuration = 300; // 5 min — Vercel Pro
 
@@ -83,6 +84,9 @@ REGRAS:
     const eventMaps = await fetchEventMaps(supabase, client);
     const mappedEventsSet = new Set(eventMaps.map(e => e.conversion_event));
     const mappedEventsList = Array.from(mappedEventsSet);
+    // conversion_events de terceiros (outra agência etc.) — excluídos por completo dos KPIs.
+    const excludedEventsList = (await fetchExcludedEvents(supabase)).map(e => e.conversion_event);
+    const excludedEventsSet = new Set(excludedEventsList);
 
     // Supabase corta em 1000 linhas por request sem .range() — pagina com fetchAllRows.
     const leadsRawAll = await fetchAllRows((from, to) => {
@@ -92,9 +96,9 @@ REGRAS:
         .eq("client_slug", client)
         .gte("converted_at", leadSince)
         .lte("converted_at", leadUntil);
-      return filterCampaignLeads(leadsBase, mappedEventsList).range(from, to);
+      return filterCampaignLeads(leadsBase, mappedEventsList, excludedEventsList).range(from, to);
     });
-    const leads = leadsRawAll.filter((l: any) => isCampaignLead(l, mappedEventsSet));
+    const leads = leadsRawAll.filter((l: any) => isCampaignLead(l, mappedEventsSet, excludedEventsSet));
 
     if (leads.length === 0) {
       return NextResponse.json({ error: "Nenhum lead encontrado no período selecionado." }, { status: 400 });
