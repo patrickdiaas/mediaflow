@@ -229,6 +229,7 @@ export default function OverviewPage() {
   const [weeklyRows,    setWeeklyRows]    = useState<WeeklyRow[]>([]);
   const [pacing,        setPacing]        = useState<{ total?: BudgetPacingResult; meta?: BudgetPacingResult; google?: BudgetPacingResult } | null>(null);
   const [budgetGroups,  setBudgetGroups]  = useState<{ group_name: string; spend: number }[]>([]);
+  const [crossBrandLeads, setCrossBrandLeads] = useState<{ client_slug: string; count: number }[]>([]);
   const [loading,       setLoading]       = useState(true);
   const [updatedAt,     setUpdatedAt]     = useState("");
 
@@ -385,9 +386,35 @@ export default function OverviewPage() {
       eventMaps as EventToCampaign[],
     );
     const leadsPerCamp = new Map<string, number>();
+    const unmatchedLeads: any[] = [];
     for (const l of platformLeads) {
       const r = attributeLead(l.utm_campaign, campIndex, l.conversion_event, toBRTDate(String(l.converted_at)));
       if (r.campaign_name) leadsPerCamp.set(r.campaign_name, (leadsPerCamp.get(r.campaign_name) ?? 0) + 1);
+      else unmatchedLeads.push(l);
+    }
+
+    // ── Leads reclassificados de outra marca (profissão) ──
+    // Quando um lead não bate com NENHUMA campanha própria, mas bate exato com
+    // uma campanha REAL de outro cliente, é reclassificação por profissão
+    // (RD/Bitrix move o lead pra outra marca comercial) — não é bug, mas o
+    // "Leads" total inclui esse volume, então anotamos quanto é.
+    if (metaSlug && unmatchedLeads.length > 0) {
+      const otherAds = await fetchAllRows((from, to) => supabase
+        .from("ad_campaigns")
+        .select("client_slug, campaign_name")
+        .neq("client_slug", metaSlug)
+        .gte("date", since).lte("date", until)
+        .range(from, to));
+      const nameToClient = new Map<string, string>();
+      for (const r of otherAds as any[]) nameToClient.set(r.campaign_name, r.client_slug);
+      const byClient = new Map<string, number>();
+      for (const l of unmatchedLeads) {
+        const owner = l.utm_campaign ? nameToClient.get(l.utm_campaign) : undefined;
+        if (owner) byClient.set(owner, (byClient.get(owner) ?? 0) + 1);
+      }
+      setCrossBrandLeads(Array.from(byClient.entries()).map(([client_slug, count]) => ({ client_slug, count })));
+    } else {
+      setCrossBrandLeads([]);
     }
     // Buscar conversões Google por campaign_id (keywords)
     const googleConvByCamp = new Map<string, number>();
@@ -755,6 +782,24 @@ export default function OverviewPage() {
                   {g.group_name}: R$ {g.spend.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                 </span>
               ))}
+            </div>
+          )}
+
+          {/* Leads reclassificados de outra marca (profissão) — já inclusos no total de Leads acima */}
+          {crossBrandLeads.length > 0 && (
+            <div className="flex flex-wrap items-center gap-2 text-xs bg-card border border-border rounded-xl px-4 py-2.5">
+              <Building2 size={13} className="text-blue flex-shrink-0" />
+              <span className="text-text-muted">Já inclusos no total de Leads — reclassificados por profissão a partir de:</span>
+              {crossBrandLeads.map(c => {
+                const label = clients.find(cl => cl.slug === c.client_slug)?.display_name
+                  ?? clients.find(cl => cl.slug === c.client_slug)?.name
+                  ?? c.client_slug;
+                return (
+                  <span key={c.client_slug} className="font-mono text-blue">
+                    {label}: {c.count} leads
+                  </span>
+                );
+              })}
             </div>
           )}
 

@@ -458,6 +458,36 @@ export async function POST(req: NextRequest) {
     }
     const unmatchedLeads = Array.from(unmatchedLeadsMap.values()).sort((a, b) => b.count - a.count).slice(0, 20);
 
+    // ── Leads reclassificados de outra marca (profissão) ──
+    // Quando um lead não bate com NENHUMA campanha própria, mas bate exato com
+    // uma campanha REAL de outro cliente, é reclassificação por profissão
+    // (RD/Bitrix move o lead pra outra marca comercial) — não é bug, mas o
+    // total de Leads do relatório inclui esse volume, então anotamos quanto é.
+    const otherClientsAds = await fetchAllPages((from, to) => supabase
+      .from("ad_campaigns")
+      .select("client_slug, campaign_name")
+      .neq("client_slug", client)
+      .gte("date", periodFrom).lte("date", periodTo)
+      .range(from, to));
+    const campNameToOtherClient = new Map<string, string>();
+    for (const r of otherClientsAds) campNameToOtherClient.set(r.campaign_name, r.client_slug);
+    const crossBrandByClient = new Map<string, number>();
+    for (const u of unmatchedLeadsMap.values()) {
+      const owner = campNameToOtherClient.get(u.utm_campaign);
+      if (owner) crossBrandByClient.set(owner, (crossBrandByClient.get(owner) ?? 0) + u.count);
+    }
+    let crossBrandLeads: { client_slug: string; client_name: string; count: number }[] = [];
+    if (crossBrandByClient.size > 0) {
+      const { data: otherClientsMeta } = await supabase
+        .from("clients")
+        .select("slug, name, display_name")
+        .in("slug", Array.from(crossBrandByClient.keys()));
+      crossBrandLeads = Array.from(crossBrandByClient.entries()).map(([client_slug, count]) => {
+        const meta = (otherClientsMeta ?? []).find((c: any) => c.slug === client_slug);
+        return { client_slug, client_name: meta?.display_name ?? meta?.name ?? client_slug, count };
+      });
+    }
+
     const campaignRows = Array.from(campAgg.values())
       .map(c => ({
         ...c,
@@ -943,6 +973,9 @@ export async function POST(req: NextRequest) {
       ctr: mainStats.ctr,
       // Campanhas com verba própria (ex: Keep It Real) — não somadas acima.
       budgetGroups,
+      // Leads reclassificados de outra marca (profissão) — JÁ INCLUSOS no
+      // total "leads" acima (não é um desconto, é uma nota de composição).
+      crossBrandLeads,
     };
 
     // ── Build context para Claude ────────────────────────────────────────────
@@ -1014,6 +1047,15 @@ ${(["total", "meta", "google"] as const)
     const budgetGroupsContext = budgetGroups.length > 0 ? `
 VERBA SEPARADA — campanha(s) com orçamento PRÓPRIO, fora do investimento total do período (${periodLabel}). NÃO some estes valores ao investimento total acima nem trate como parte do orçamento regular:
 ${budgetGroups.map(g => `- ${g.group_name}: R$${fmt(g.spend)} investido | ${g.leads} leads | CPL ${g.cpl ? `R$${fmt(g.cpl)}` : "—"}`).join("\n")}
+`.trim() : "";
+
+    // Bloco 2.d: leads reclassificados de outra marca (profissão) — contexto
+    // pra Claude NÃO tratar como erro/perda. Já estão inclusos no total de
+    // leads acima, isso é só a composição.
+    const crossBrandContext = crossBrandLeads.length > 0 ? `
+COMPOSIÇÃO DO TOTAL DE LEADS — alguns leads contados acima têm origem em campanha de OUTRA marca do grupo, reclassificados por critério de profissão do formulário (processo comercial intencional, não é erro nem perda de dado):
+${crossBrandLeads.map(c => `- ${c.count} leads têm UTM de campanha da marca "${c.client_name}"`).join("\n")}
+Isso é esperado e não deve ser citado como inconsistência — é só uma nota de composição do total.
 `.trim() : "";
 
     // Bloco 3: detalhamento do PERÍODO PRINCIPAL (range escolhido pelo usuário)
@@ -1230,7 +1272,7 @@ ${adsList.map(a => {
 Total: ${adsList.length} anúncios Meta.
 `.trim() : "";
 
-    const context = [weeklyTableContext, monthlyContext, pacingContext, budgetGroupsContext, mainDetailContext, unmatchedContext, actionsContext, observationsContext, adsListContext].filter(Boolean).join("\n\n");
+    const context = [weeklyTableContext, monthlyContext, pacingContext, budgetGroupsContext, crossBrandContext, mainDetailContext, unmatchedContext, actionsContext, observationsContext, adsListContext].filter(Boolean).join("\n\n");
 
     // ── Prompts ──────────────────────────────────────────────────────────────
     const systemPrompt = `Você é o gestor de tráfego sênior redigindo um relatório de performance para apresentar ao cliente e à equipe na reunião semanal.
@@ -1509,6 +1551,9 @@ IMPORTANTE sobre formatação:
       // Campanhas com verba própria (ex: Keep It Real) — fora do investimento
       // total acima, reportadas à parte.
       budgetGroups,
+      // Leads reclassificados de outra marca (profissão) — JÁ INCLUSOS no
+      // total de leads, é só uma nota de composição.
+      crossBrandLeads,
     };
 
     return NextResponse.json({ context, kpis, reportType, systemPrompt, userPrompt, presentation, step: "data" });

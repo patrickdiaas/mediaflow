@@ -6,7 +6,7 @@ import { useDashboard } from "@/lib/dashboard-context";
 import {
   FileBarChart2, RefreshCw, AlertCircle, Download, Send,
   TrendingUp, Megaphone, Image, Sparkles, Users, Target, MessageSquare,
-  ListChecks, Plus, Trash2, ChevronDown, ChevronRight, BookmarkPlus, NotebookPen, Presentation as PresentationIcon, Wallet,
+  ListChecks, Plus, Trash2, ChevronDown, ChevronRight, BookmarkPlus, NotebookPen, Presentation as PresentationIcon, Wallet, Building2,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase";
 import { fetchAllRows } from "@/lib/fetch-all-rows";
@@ -533,7 +533,8 @@ Gere o relatório COMPLETO novamente, incorporando a correção. Mantenha toda a
           <div class="kpi-label">Meta · Google (leads)</div>
         </div>
       </div>
-      ${kpis.budgetGroups?.length > 0 ? `<div class="callout"><strong>Verba separada</strong> (fora do investimento acima): ${kpis.budgetGroups.map((g: any) => `${g.group_name}: R$ ${fmtInt(g.spend)} · ${g.leads} leads`).join(" &nbsp;|&nbsp; ")}</div>` : ""}` : "";
+      ${kpis.budgetGroups?.length > 0 ? `<div class="callout"><strong>Verba separada</strong> (fora do investimento acima): ${kpis.budgetGroups.map((g: any) => `${g.group_name}: R$ ${fmtInt(g.spend)} · ${g.leads} leads`).join(" &nbsp;|&nbsp; ")}</div>` : ""}
+      ${kpis.crossBrandLeads?.length > 0 ? `<div class="callout"><strong>Composição do total de Leads</strong> — já inclusos acima, reclassificados por profissão a partir de: ${kpis.crossBrandLeads.map((c: any) => `${c.client_name}: ${c.count} leads`).join(" &nbsp;|&nbsp; ")}</div>` : ""}` : "";
 
     // Top 3 campanhas por leads (mistura Meta + Google), com mini-stats
     const allCamps: any[] = [
@@ -1557,6 +1558,19 @@ ${""/* Projeção (run-rate) removida temporariamente a pedido do gestor. */}
             {kpis.budgetGroups.map((g: any) => (
               <span key={g.group_name} className="font-mono text-gold">
                 {g.group_name}: R$ {g.spend.toLocaleString("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 })} · {g.leads} leads
+              </span>
+            ))}
+          </div>
+        )}
+
+        {/* Leads reclassificados de outra marca — já inclusos no total de Leads acima */}
+        {kpis && !loading && kpis.crossBrandLeads?.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2 text-xs bg-card border border-border rounded-xl px-4 py-2.5 mb-5">
+            <Building2 size={13} className="text-blue flex-shrink-0" />
+            <span className="text-text-muted">Já inclusos no total de Leads — reclassificados por profissão a partir de:</span>
+            {kpis.crossBrandLeads.map((c: any) => (
+              <span key={c.client_slug} className="font-mono text-blue">
+                {c.client_name}: {c.count} leads
               </span>
             ))}
           </div>

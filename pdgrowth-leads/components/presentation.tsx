@@ -26,6 +26,7 @@ interface PresentationData {
   googleTopKeywords?: any[];
   googleTopSearchTerms?: any[];
   budgetGroups?: { group_name: string; spend: number; leads: number; cpl: number | null }[];
+  crossBrandLeads?: { client_slug: string; client_name: string; count: number }[];
 }
 
 interface Props {
@@ -259,6 +260,16 @@ function OverviewSlide({ d, kpis }: { d: PresentationData; kpis: any }) {
           {d.budgetGroups.map(g => (
             <span key={g.group_name} className="font-mono text-gold">
               {g.group_name}: R$ {fmt(g.spend)} · {g.leads} leads{g.cpl ? ` · CPL R$ ${g.cpl.toFixed(2)}` : ""}
+            </span>
+          ))}
+        </div>
+      )}
+      {d.crossBrandLeads && d.crossBrandLeads.length > 0 && (
+        <div className="mt-4 flex flex-wrap items-center gap-3 text-sm bg-card border border-border rounded-2xl px-6 py-4">
+          <span className="text-xs uppercase tracking-widest text-text-muted font-semibold">Já inclusos no total de Leads acima — reclassificados por profissão a partir de:</span>
+          {d.crossBrandLeads.map(c => (
+            <span key={c.client_slug} className="font-mono text-blue">
+              {c.client_name}: {c.count} leads
             </span>
           ))}
         </div>
